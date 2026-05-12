@@ -10,6 +10,8 @@ jobs:
   build:
     name: Build unsigned IPA
     runs-on: macos-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
@@ -49,3 +51,17 @@ jobs:
           name: FITNEX-TrollStore
           path: FITNEX-TrollStore.ipa
           if-no-files-found: error
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: fitnex-${{ github.run_number }}.${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          gh release create "$RELEASE_TAG" \
+            FITNEX-TrollStore.ipa \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "FITNEX TrollStore IPA $RELEASE_TAG" \
+            --notes "Unsigned TrollStore IPA built from $GITHUB_SHA." \
+            --latest
