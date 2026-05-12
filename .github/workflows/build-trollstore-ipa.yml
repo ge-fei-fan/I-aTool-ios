@@ -10,6 +10,8 @@ jobs:
   build:
     name: Build unsigned IPA
     runs-on: macos-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
@@ -20,7 +22,7 @@ jobs:
 
       - name: Build unsigned app
         run: |
-          set -uo pipefail
+          set +e
           xcodebuild -version 2>&1 | tee xcode-version.log
           xcodebuild -list -project Simpanin.xcodeproj 2>&1 | tee xcode-list.log
           xcodebuild \
@@ -34,17 +36,28 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             clean build 2>&1 | tee xcodebuild.log
           status=${PIPESTATUS[0]}
-          if [ "$status" -ne 0 ]; then
-            bytes=$(wc -c < xcodebuild.log 2>/dev/null || echo 0)
-            echo "::error file=.github/workflows/build-trollstore-ipa.yml,line=24::xcodebuild failed with status $status; xcodebuild.log bytes=$bytes"
-            tail -80 xcodebuild.log | while IFS= read -r line; do
-              line="${line//'%'/'%25'}"
-              line="${line//$'\r'/'%0D'}"
-              line="${line//$'\n'/'%0A'}"
-              echo "::error file=Simpanin.xcodeproj/project.pbxproj,line=1::$line"
-            done
-            exit "$status"
+          echo "$status" > build-status.txt
+
+      - name: Commit CI diagnostics on failure
+        if: always()
+        run: |
+          set -euo pipefail
+          status="$(cat build-status.txt 2>/dev/null || echo 1)"
+          if [ "$status" = "0" ]; then
+            exit 0
           fi
+          mkdir -p ci-diagnostics
+          cp xcode-version.log xcode-list.log xcodebuild.log build-status.txt ci-diagnostics/ 2>/dev/null || true
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ci-diagnostics
+          git commit -m "Add CI diagnostics [skip ci]" || exit 0
+          git push
+
+      - name: Fail build if xcodebuild failed
+        run: |
+          status="$(cat build-status.txt 2>/dev/null || echo 1)"
+          exit "$status"
 
       - name: Package IPA
         run: |
