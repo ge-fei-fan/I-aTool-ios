@@ -21,6 +21,8 @@ jobs:
       - name: Build unsigned app
         run: |
           set -uo pipefail
+          xcodebuild -version 2>&1 | tee xcode-version.log
+          xcodebuild -list -project Simpanin.xcodeproj 2>&1 | tee xcode-list.log
           xcodebuild \
             -project Simpanin.xcodeproj \
             -scheme Simpanin \
@@ -33,6 +35,8 @@ jobs:
             clean build 2>&1 | tee xcodebuild.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
+            bytes=$(wc -c < xcodebuild.log 2>/dev/null || echo 0)
+            echo "::error file=.github/workflows/build-trollstore-ipa.yml,line=24::xcodebuild failed with status $status; xcodebuild.log bytes=$bytes"
             tail -80 xcodebuild.log | while IFS= read -r line; do
               line="${line//'%'/'%25'}"
               line="${line//$'\r'/'%0D'}"
