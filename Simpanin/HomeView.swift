@@ -71,9 +71,9 @@ struct HomeView: View {
                 .padding(.top, 31)
 
                 HStack(spacing: 16) {
-                    ShortcutCard(title: "Links", assetName: "ShortcutLinks", background: SimpaninColor.purpleSoft)
-                    ShortcutCard(title: "Images", assetName: "ShortcutImages", background: SimpaninColor.blueSoft)
-                    ShortcutCard(title: "Documents", assetName: "ShortcutDocuments", background: SimpaninColor.redSoft)
+                    ShortcutCard(title: "Links", iconName: "link", tint: Color(hex: 0xB56CFF), background: SimpaninColor.purpleSoft)
+                    ShortcutCard(title: "Images", iconName: "photo", tint: Color(hex: 0x59B7E8), background: SimpaninColor.blueSoft)
+                    ShortcutCard(title: "Documents", iconName: "list.bullet", tint: Color(hex: 0xFF9CAF), background: SimpaninColor.redSoft)
                 }
                 .padding(.top, 38)
 
@@ -203,7 +203,8 @@ private struct SearchBar: View {
 
 private struct ShortcutCard: View {
     let title: String
-    let assetName: String
+    let iconName: String
+    let tint: Color
     let background: Color
 
     var body: some View {
@@ -211,10 +212,12 @@ private struct ShortcutCard: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .fill(background)
-                Image(assetName)
-                    .resizable()
-                    .scaledToFit()
+                Image(systemName: iconName)
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(.white)
                     .frame(width: 45, height: 45)
+                    .background(tint, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .shadow(color: tint.opacity(0.35), radius: 5, x: 0, y: 4)
             }
             .frame(width: 98, height: 96)
 
@@ -236,10 +239,9 @@ private struct CollectionCard: View {
             ZStack {
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .fill(SimpaninColor.yellowSoft)
-                Image("CollectionFolder")
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 58, height: 58)
+                Image(systemName: "folder.fill")
+                    .font(.system(size: 42, weight: .regular))
+                    .foregroundStyle(Color(hex: 0xFFD16B))
                 Image(badgeName)
                     .resizable()
                     .scaledToFill()
