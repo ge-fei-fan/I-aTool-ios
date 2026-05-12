@@ -107,7 +107,7 @@ private struct MinePageView: View {
     let feedback: (String) -> Void
 
     @StateObject private var metrics = HomeMetricsViewModel()
-    private let refreshTimer = Timer.publish(every: 10, on: .main, in: .common).autoconnect()
+    private let refreshTimer = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
 
     var body: some View {
         ScrollView(showsIndicators: false) {
@@ -142,8 +142,8 @@ private struct MinePageView: View {
                 ChallengeCard(content: metrics.hostCard)
 
                 LazyVGrid(columns: [
-                    GridItem(.fixed(155), spacing: 15),
-                    GridItem(.fixed(155), spacing: 15)
+                    GridItem(.flexible(), spacing: 15),
+                    GridItem(.flexible(), spacing: 15)
                 ], alignment: .leading, spacing: 15) {
                     MetricCard(content: metrics.cpuCard)
                     MetricCard(content: metrics.memoryCard)
@@ -374,13 +374,6 @@ private struct ChallengeCard: View {
     }
 }
 
-private enum MetricChartStyle {
-    case miniBars
-    case steps
-    case weight
-    case process
-}
-
 private struct MetricCard: View {
     let content: MetricCardContent
 
@@ -391,7 +384,11 @@ private struct MetricCard: View {
                     .font(.fitnexTitle(size: 15))
                     .foregroundColor(FitnexColor.black)
                 Spacer()
-                SmallCircleIcon(systemName: content.icon)
+                SmallCircleIcon(
+                    systemName: content.icon,
+                    background: content.iconBackground,
+                    foreground: content.iconForeground
+                )
             }
 
             Text(content.value)
@@ -412,23 +409,28 @@ private struct MetricCard: View {
 
             Spacer()
 
-            switch content.style {
-            case .miniBars:
-                MiniBars()
-                    .frame(height: 46)
-            case .steps:
-                StepsBars()
-                    .frame(height: 50)
-            case .weight:
-                WeightSparkline()
-                    .frame(height: 48)
-            case .process:
-                HeartBars()
-                    .frame(height: 54)
+            if let chart = content.chart {
+                MetricSparkline(chart: chart)
+                    .frame(height: 52)
+            } else {
+                switch content.fallbackStyle {
+                case .bars:
+                    MiniBars()
+                        .frame(height: 46)
+                case .capsules:
+                    StepsBars()
+                        .frame(height: 50)
+                case .wave:
+                    HeartBars()
+                        .frame(height: 54)
+                case .line:
+                    WeightSparkline()
+                        .frame(height: 48)
+                }
             }
         }
         .padding(15)
-        .frame(width: 155, height: 147)
+        .frame(maxWidth: .infinity, minHeight: 147, maxHeight: 147)
         .background(FitnexColor.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
@@ -530,10 +532,6 @@ private struct FitnexTabBar: View {
         let isSelected = selected == tab && !isActivityPresented
         return Button(action: { selectTab(tab) }) {
             ZStack {
-                Circle()
-                    .fill(FitnexColor.orangeSoft.opacity(isSelected ? 1 : 0))
-                    .frame(width: 34, height: 34)
-                    .scaleEffect(isSelected ? 1 : 0.62)
                 Image(systemName: icon)
                     .font(.system(size: 18, weight: .medium))
                     .foregroundColor(isSelected ? FitnexColor.orange : FitnexColor.grayText)
@@ -824,15 +822,17 @@ private struct SquareIconButton: View {
 
 private struct SmallCircleIcon: View {
     let systemName: String
+    let background: Color
+    let foreground: Color
 
     var body: some View {
         Circle()
-            .fill(FitnexColor.orangeSoft)
+            .fill(background)
             .frame(width: 25, height: 25)
             .overlay {
                 Image(systemName: systemName)
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(FitnexColor.orange)
+                    .foregroundColor(foreground)
             }
     }
 }
@@ -919,6 +919,93 @@ private struct WeightSparkline: View {
     }
 }
 
+private struct MetricSparkline: View {
+    let chart: MetricChartContent
+
+    var body: some View {
+        Canvas { context, size in
+            let frame = CGRect(x: 0, y: 4, width: size.width, height: max(size.height - 8, 1))
+
+            if let secondary = chart.secondary,
+               secondary.count > 1 {
+                drawLine(
+                    secondary,
+                    in: frame,
+                    color: chart.secondaryColor ?? FitnexColor.lightText,
+                    context: &context,
+                    lineWidth: 1.5
+                )
+            }
+
+            if chart.primary.count > 1 {
+                if chart.showsArea {
+                    drawArea(chart.primary, in: frame, color: chart.primaryColor, context: &context)
+                }
+                drawLine(chart.primary, in: frame, color: chart.primaryColor, context: &context, lineWidth: 2)
+            } else {
+                var baseline = Path()
+                baseline.move(to: CGPoint(x: frame.minX, y: frame.midY))
+                baseline.addLine(to: CGPoint(x: frame.maxX, y: frame.midY))
+                context.stroke(baseline, with: .color(FitnexColor.pale), lineWidth: 1)
+            }
+        }
+    }
+
+    private func drawLine(
+        _ values: [Double],
+        in frame: CGRect,
+        color: Color,
+        context: inout GraphicsContext,
+        lineWidth: CGFloat
+    ) {
+        let points = normalizedPoints(values, in: frame)
+        guard points.count > 1 else { return }
+        var path = Path()
+        path.move(to: points[0])
+        for point in points.dropFirst() {
+            path.addLine(to: point)
+        }
+        context.stroke(path, with: .color(color), lineWidth: lineWidth)
+    }
+
+    private func drawArea(
+        _ values: [Double],
+        in frame: CGRect,
+        color: Color,
+        context: inout GraphicsContext
+    ) {
+        let points = normalizedPoints(values, in: frame)
+        guard points.count > 1 else { return }
+        var area = Path()
+        area.move(to: points[0])
+        for point in points.dropFirst() {
+            area.addLine(to: point)
+        }
+        area.addLine(to: CGPoint(x: frame.maxX, y: frame.maxY))
+        area.addLine(to: CGPoint(x: frame.minX, y: frame.maxY))
+        area.closeSubpath()
+        context.fill(
+            area,
+            with: .linearGradient(
+                Gradient(colors: [color.opacity(0.24), color.opacity(0.03)]),
+                startPoint: CGPoint(x: frame.midX, y: frame.minY),
+                endPoint: CGPoint(x: frame.midX, y: frame.maxY)
+            )
+        )
+    }
+
+    private func normalizedPoints(_ values: [Double], in frame: CGRect) -> [CGPoint] {
+        guard let minValue = values.min(), let maxValue = values.max() else { return [] }
+        let range = maxValue - minValue
+        return values.enumerated().map { index, value in
+            let x = frame.minX + frame.width * CGFloat(index) / CGFloat(max(values.count - 1, 1))
+            let normalized = range == 0 ? 0.5 : (value - minValue) / range
+            let y = frame.maxY - frame.height * CGFloat(normalized)
+            return CGPoint(x: x, y: y)
+        }
+    }
+}
+
 private struct HostCardContent {
     let title: String
     let primaryText: String
@@ -933,19 +1020,57 @@ private struct MetricCardContent {
     let value: String
     let subtitle: String?
     let icon: String
-    let style: MetricChartStyle
+    let iconBackground: Color
+    let iconForeground: Color
+    let chart: MetricChartContent?
+    let fallbackStyle: MetricFallbackStyle
+}
+
+private struct MetricChartContent {
+    let primary: [Double]
+    let secondary: [Double]?
+    let primaryColor: Color
+    let secondaryColor: Color?
+    let showsArea: Bool
+}
+
+private enum MetricFallbackStyle {
+    case bars
+    case capsules
+    case wave
+    case line
+}
+
+private struct NetworkCounterSample {
+    let name: String
+    let rxBytes: Int64
+    let txBytes: Int64
+    let timestamp: Date
+}
+
+private struct NetworkRateSample {
+    let rxBytesPerSecond: Int64
+    let txBytesPerSecond: Int64
 }
 
 @MainActor
 private final class HomeMetricsViewModel: ObservableObject {
     static let endpointHost = "192.168.2.202:12225"
     private static let endpointURL = URL(string: "http://192.168.2.202:12225/api/public/system/metrics")!
+    private static let endpointIPAddress = endpointURL.host ?? "192.168.2.202"
+    private static let historyLimit = 20
 
     @Published private(set) var response: SystemMetricsResponse?
     @Published private(set) var isLoading = false
     @Published var toastMessage: String?
 
     private var didShowRefreshError = false
+    private var cpuHistory: [Double] = []
+    private var memoryHistory: [Double] = []
+    private var networkRxHistory: [Double] = []
+    private var networkTxHistory: [Double] = []
+    private var latestNetworkRate: NetworkRateSample?
+    private var previousNetworkCounter: NetworkCounterSample?
 
     var snapshotDateText: String {
         guard let response, let date = parseTimestamp(response.timestamp) else {
@@ -999,58 +1124,112 @@ private final class HomeMetricsViewModel: ObservableObject {
 
     var cpuCard: MetricCardContent {
         guard let cpu = response?.cpu else {
-            return placeholderCard(title: "CPU", icon: "cpu", style: .miniBars)
+            return placeholderCard(
+                title: "CPU",
+                icon: "cpu",
+                iconBackground: Color(hex: 0xFFF0E9),
+                iconForeground: Color(hex: 0xFE6F32),
+                fallbackStyle: .bars
+            )
         }
         return MetricCardContent(
             title: "CPU",
             value: percent(cpu.usagePercent),
             subtitle: "\(cpu.logicalCores)L / \(cpu.physicalCores)P cores",
             icon: "cpu",
-            style: .miniBars
+            iconBackground: Color(hex: 0xFFF0E9),
+            iconForeground: Color(hex: 0xFE6F32),
+            chart: MetricChartContent(
+                primary: cpuHistory,
+                secondary: nil,
+                primaryColor: Color(hex: 0xFE6F32),
+                secondaryColor: nil,
+                showsArea: true
+            ),
+            fallbackStyle: .bars
         )
     }
 
     var memoryCard: MetricCardContent {
         guard let memory = response?.memory else {
-            return placeholderCard(title: "Memory", icon: "memorychip", style: .weight)
+            return placeholderCard(
+                title: "Memory",
+                icon: "memorychip",
+                iconBackground: Color(hex: 0xEAF2FF),
+                iconForeground: Color(hex: 0x3E7BFA),
+                fallbackStyle: .line
+            )
         }
         return MetricCardContent(
             title: "Memory",
             value: "\(bytes(memory.usedBytes)) / \(bytes(memory.totalBytes))",
             subtitle: "\(percent(memory.usedPercent)) used",
             icon: "memorychip",
-            style: .weight
+            iconBackground: Color(hex: 0xEAF2FF),
+            iconForeground: Color(hex: 0x3E7BFA),
+            chart: MetricChartContent(
+                primary: memoryHistory,
+                secondary: nil,
+                primaryColor: Color(hex: 0x3E7BFA),
+                secondaryColor: nil,
+                showsArea: true
+            ),
+            fallbackStyle: .line
         )
     }
 
     var networkCard: MetricCardContent {
-        guard let interfaces = response?.network.interfaces else {
-            return placeholderCard(title: "Network", icon: "arrow.left.arrow.right", style: .steps)
+        guard let interface = selectedNetworkInterface else {
+            return placeholderCard(
+                title: "Network",
+                icon: "arrow.left.arrow.right",
+                iconBackground: Color(hex: 0xE8FFF5),
+                iconForeground: Color(hex: 0x14A46A),
+                fallbackStyle: .capsules
+            )
         }
 
-        let totalRecv = interfaces.reduce(Int64(0)) { $0 + $1.bytesRecv }
-        let totalSent = interfaces.reduce(Int64(0)) { $0 + $1.bytesSent }
-        let activeInterfaces = interfaces.filter { $0.bytesRecv > 0 || $0.bytesSent > 0 }.count
+        let latestRx = latestNetworkRate?.rxBytesPerSecond ?? 0
+        let latestTx = latestNetworkRate?.txBytesPerSecond ?? 0
+        let primaryAddress = interface.ipAddresses.first(where: { $0.family == "ipv4" })?.address ?? Self.endpointIPAddress
 
         return MetricCardContent(
             title: "Network",
-            value: bytes(totalRecv + totalSent),
-            subtitle: "\(activeInterfaces) active | Tx \(bytes(totalSent))",
+            value: "In \(bytes(latestRx))/s\nOut \(bytes(latestTx))/s",
+            subtitle: "\(primaryAddress) | \(interface.name)",
             icon: "arrow.left.arrow.right",
-            style: .steps
+            iconBackground: Color(hex: 0xE8FFF5),
+            iconForeground: Color(hex: 0x14A46A),
+            chart: MetricChartContent(
+                primary: networkRxHistory,
+                secondary: networkTxHistory,
+                primaryColor: Color(hex: 0x14A46A),
+                secondaryColor: Color(hex: 0x59C3A5),
+                showsArea: false
+            ),
+            fallbackStyle: .capsules
         )
     }
 
     var processCard: MetricCardContent {
         guard let process = response?.process else {
-            return placeholderCard(title: "Process", icon: "terminal", style: .process)
+            return placeholderCard(
+                title: "Process",
+                icon: "terminal",
+                iconBackground: Color(hex: 0xF1E9FF),
+                iconForeground: Color(hex: 0x8A4DFF),
+                fallbackStyle: .wave
+            )
         }
         return MetricCardContent(
             title: "Process",
             value: formatDuration(process.uptimeSeconds),
             subtitle: "PID \(process.pid) | \(process.goroutines) goroutines",
             icon: "terminal",
-            style: .process
+            iconBackground: Color(hex: 0xF1E9FF),
+            iconForeground: Color(hex: 0x8A4DFF),
+            chart: nil,
+            fallbackStyle: .wave
         )
     }
 
@@ -1074,7 +1253,9 @@ private final class HomeMetricsViewModel: ObservableObject {
                 throw URLError(.badServerResponse)
             }
 
-            response = try JSONDecoder().decode(SystemMetricsResponse.self, from: data)
+            let decoded = try JSONDecoder().decode(SystemMetricsResponse.self, from: data)
+            response = decoded
+            recordSample(decoded)
             didShowRefreshError = false
         } catch {
             if response == nil {
@@ -1086,13 +1267,97 @@ private final class HomeMetricsViewModel: ObservableObject {
         }
     }
 
-    private func placeholderCard(title: String, icon: String, style: MetricChartStyle) -> MetricCardContent {
+    private var selectedNetworkInterface: SystemMetricsResponse.NetworkInterface? {
+        guard let interfaces = response?.network.interfaces else { return nil }
+
+        if let matched = interfaces.first(where: { interface in
+            interface.ipAddresses.contains(where: { $0.address == Self.endpointIPAddress })
+        }) {
+            return matched
+        }
+
+        return interfaces.first(where: { interface in
+            interface.isUp && !(interface.flags.contains("loopback"))
+        })
+    }
+
+    private func recordSample(_ metrics: SystemMetricsResponse) {
+        append(&cpuHistory, value: metrics.cpu.usagePercent)
+        append(&memoryHistory, value: Double(metrics.memory.usedPercent))
+
+        guard let interface = matchingInterface(in: metrics.network.interfaces) else {
+            latestNetworkRate = nil
+            previousNetworkCounter = nil
+            return
+        }
+
+        let now = Date()
+        let currentCounter = NetworkCounterSample(
+            name: interface.name,
+            rxBytes: interface.bytesRecv,
+            txBytes: interface.bytesSent,
+            timestamp: now
+        )
+
+        if let previous = previousNetworkCounter,
+           previous.name != currentCounter.name {
+            networkRxHistory.removeAll()
+            networkTxHistory.removeAll()
+            latestNetworkRate = nil
+        }
+
+        if let previous = previousNetworkCounter,
+           previous.name == currentCounter.name {
+            let interval = max(now.timeIntervalSince(previous.timestamp), 1)
+            let rxDelta = max(Double(currentCounter.rxBytes - previous.rxBytes), 0)
+            let txDelta = max(Double(currentCounter.txBytes - previous.txBytes), 0)
+            let rate = NetworkRateSample(
+                rxBytesPerSecond: Int64(rxDelta / interval),
+                txBytesPerSecond: Int64(txDelta / interval)
+            )
+            latestNetworkRate = rate
+            append(&networkRxHistory, value: Double(rate.rxBytesPerSecond))
+            append(&networkTxHistory, value: Double(rate.txBytesPerSecond))
+        }
+
+        previousNetworkCounter = currentCounter
+    }
+
+    private func matchingInterface(in interfaces: [SystemMetricsResponse.NetworkInterface]) -> SystemMetricsResponse.NetworkInterface? {
+        if let matched = interfaces.first(where: { interface in
+            interface.ipAddresses.contains(where: { $0.address == Self.endpointIPAddress })
+        }) {
+            return matched
+        }
+
+        return interfaces.first(where: { interface in
+            interface.isUp && !(interface.flags.contains("loopback"))
+        })
+    }
+
+    private func append(_ series: inout [Double], value: Double) {
+        series.append(value)
+        if series.count > Self.historyLimit {
+            series.removeFirst(series.count - Self.historyLimit)
+        }
+    }
+
+    private func placeholderCard(
+        title: String,
+        icon: String,
+        iconBackground: Color,
+        iconForeground: Color,
+        fallbackStyle: MetricFallbackStyle
+    ) -> MetricCardContent {
         MetricCardContent(
             title: title,
             value: isLoading ? "Loading..." : "Unavailable",
             subtitle: isLoading ? "Waiting for host" : "No fresh metrics",
             icon: icon,
-            style: style
+            iconBackground: iconBackground,
+            iconForeground: iconForeground,
+            chart: nil,
+            fallbackStyle: fallbackStyle
         )
     }
 
@@ -1153,7 +1418,7 @@ private final class HomeMetricsViewModel: ObservableObject {
 
     private static let byteFormatter: ByteCountFormatter = {
         let formatter = ByteCountFormatter()
-        formatter.allowedUnits = [.useMB, .useGB, .useTB]
+        formatter.allowedUnits = [.useKB, .useMB, .useGB, .useTB]
         formatter.countStyle = .binary
         formatter.includesUnit = true
         formatter.isAdaptive = true
@@ -1189,10 +1454,21 @@ private struct SystemMetricsResponse: Decodable {
 
     struct NetworkInterface: Decodable {
         let name: String
+        let hardwareAddr: String
+        let mtu: Int
+        let flags: [String]
+        let isUp: Bool
+        let ipAddresses: [IPAddress]
         let bytesSent: Int64
         let bytesRecv: Int64
         let packetsSent: Int64
         let packetsRecv: Int64
+    }
+
+    struct IPAddress: Decodable {
+        let address: String
+        let family: String
+        let cidr: String
     }
 
     struct HostMetrics: Decodable {
