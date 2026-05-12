@@ -37,15 +37,15 @@ jobs:
           set -euo pipefail
           APP_PATH="build/Build/Products/Release-iphoneos/Simpanin.app"
           test -d "$APP_PATH"
-          rm -rf Payload Simpanin-TrollStore.ipa
+          rm -rf Payload FITNEX-TrollStore.ipa
           mkdir Payload
           cp -R "$APP_PATH" Payload/
-          /usr/bin/zip -qry Simpanin-TrollStore.ipa Payload
-          /usr/bin/unzip -l Simpanin-TrollStore.ipa
+          /usr/bin/zip -qry FITNEX-TrollStore.ipa Payload
+          /usr/bin/unzip -l FITNEX-TrollStore.ipa
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Simpanin-TrollStore
-          path: Simpanin-TrollStore.ipa
+          name: FITNEX-TrollStore
+          path: FITNEX-TrollStore.ipa
           if-no-files-found: error
