@@ -6,12 +6,221 @@ Build settings from command line:
     CODE_SIGNING_ALLOWED = NO
     CODE_SIGNING_REQUIRED = NO
 
-2026-05-12 02:57:41.190 xcodebuild[23512:65322] CFPropertyListCreateFromXMLData(): Old-style plist parser: missing semicolon in dictionary on line 270. Parsing will be abandoned. Break on _CFPropertyListMissingSemicolon to debug.
-2026-05-12 02:57:41.191 xcodebuild[23512:65322] Error Domain=NSCocoaErrorDomain Code=3840 "JSON text did not start with array or object and option to allow fragments not set. around line 1, column 0." UserInfo={NSDebugDescription=JSON text did not start with array or object and option to allow fragments not set. around line 1, column 0., NSJSONSerializationErrorIndex=0}
-2026-05-12 02:57:41.198 xcodebuild[23512:65322] Writing error result bundle to /var/folders/tb/y368xp_x10s3ty1b_mtl5mxr0000gn/T/ResultBundle_2026-12-05_02-57-0041.xcresult
-xcodebuild: error: Unable to read project 'Simpanin.xcodeproj'.
-	Reason: The project ‘Simpanin’ is damaged and cannot be opened due to a parse error. Examine the project file for invalid edits or unresolved source control conflicts.
+note: Using codesigning identity override: 
+ComputePackagePrebuildTargetDependencyGraph
 
-Path: /Users/runner/work/I-aTool-ios/I-aTool-ios/Simpanin.xcodeproj
+CreateBuildRequest
+
+SendProjectDescription
+
+CreateBuildOperation
+
+** CLEAN SUCCEEDED **
+
+note: Using codesigning identity override: 
+ComputePackagePrebuildTargetDependencyGraph
+
+Prepare packages
+
+CreateBuildRequest
+
+SendProjectDescription
+
+CreateBuildOperation
+
+ComputeTargetDependencyGraph
+note: Building targets in dependency order
+note: Target dependency graph (1 target)
+    Target 'Simpanin' in project 'Simpanin' (no dependencies)
+
+GatherProvisioningInputs
+
+CreateBuildDescription
+
+ExecuteExternalTool /Applications/Xcode_16.4.app/Contents/Developer/usr/bin/actool --print-asset-tag-combinations --output-format xml1 /Users/runner/work/I-aTool-ios/I-aTool-ios/Simpanin/Assets.xcassets
+
+ExecuteExternalTool /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -isysroot /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.5.sdk -x c -c /dev/null
+
+ExecuteExternalTool /Applications/Xcode_16.4.app/Contents/Developer/usr/bin/actool --version --output-format xml1
+
+ExecuteExternalTool /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc --version
+
+ExecuteExternalTool /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld -version_details
+
+Build description signature: d144107adfcf8969fbbe4d060c6ed23a
+Build description path: /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/XCBuildData/d144107adfcf8969fbbe4d060c6ed23a.xcbuilddata
+ClangStatCache /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.5.sdk /Users/runner/work/I-aTool-ios/I-aTool-ios/build/SDKStatCaches.noindex/iphoneos18.5-22F76-a529daf784b3616c7c04a36aeb7f5c05.sdkstatcache
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios/Simpanin.xcodeproj
+    /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.5.sdk -o /Users/runner/work/I-aTool-ios/I-aTool-ios/build/SDKStatCaches.noindex/iphoneos18.5-22F76-a529daf784b3616c7c04a36aeb7f5c05.sdkstatcache
+
+CreateBuildDirectory /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios/Simpanin.xcodeproj
+    builtin-create-build-directory /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products
+
+CreateBuildDirectory /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios/Simpanin.xcodeproj
+    builtin-create-build-directory /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex
+
+WriteAuxiliaryFile /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin-ec5e774c865bc624622ca680e65397af-VFS-iphoneos/all-product-headers.yaml
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios/Simpanin.xcodeproj
+    write-file /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin-ec5e774c865bc624622ca680e65397af-VFS-iphoneos/all-product-headers.yaml
+
+CreateBuildDirectory /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products/Release-iphoneos
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios/Simpanin.xcodeproj
+    builtin-create-build-directory /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products/Release-iphoneos
+
+CreateBuildDirectory /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/EagerLinkingTBDs/Release-iphoneos
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios/Simpanin.xcodeproj
+    builtin-create-build-directory /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/EagerLinkingTBDs/Release-iphoneos
+
+WriteAuxiliaryFile /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/empty-Simpanin.plist (in target 'Simpanin' from project 'Simpanin')
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios
+    write-file /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/empty-Simpanin.plist
+
+WriteAuxiliaryFile /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Simpanin.hmap (in target 'Simpanin' from project 'Simpanin')
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios
+    write-file /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Simpanin.hmap
+
+WriteAuxiliaryFile /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Simpanin.DependencyStaticMetadataFileList (in target 'Simpanin' from project 'Simpanin')
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios
+    write-file /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Simpanin.DependencyStaticMetadataFileList
+
+WriteAuxiliaryFile /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Simpanin.DependencyMetadataFileList (in target 'Simpanin' from project 'Simpanin')
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios
+    write-file /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Simpanin.DependencyMetadataFileList
+
+WriteAuxiliaryFile /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Simpanin-project-headers.hmap (in target 'Simpanin' from project 'Simpanin')
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios
+    write-file /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Simpanin-project-headers.hmap
+
+WriteAuxiliaryFile /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Simpanin-own-target-headers.hmap (in target 'Simpanin' from project 'Simpanin')
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios
+    write-file /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Simpanin-own-target-headers.hmap
+
+WriteAuxiliaryFile /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Simpanin-generated-files.hmap (in target 'Simpanin' from project 'Simpanin')
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios
+    write-file /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Simpanin-generated-files.hmap
+
+WriteAuxiliaryFile /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Simpanin-all-target-headers.hmap (in target 'Simpanin' from project 'Simpanin')
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios
+    write-file /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Simpanin-all-target-headers.hmap
+
+WriteAuxiliaryFile /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Simpanin-all-non-framework-target-headers.hmap (in target 'Simpanin' from project 'Simpanin')
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios
+    write-file /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Simpanin-all-non-framework-target-headers.hmap
+
+WriteAuxiliaryFile /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin_const_extract_protocols.json (in target 'Simpanin' from project 'Simpanin')
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios
+    write-file /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin_const_extract_protocols.json
+
+WriteAuxiliaryFile /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin.SwiftFileList (in target 'Simpanin' from project 'Simpanin')
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios
+    write-file /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin.SwiftFileList
+
+WriteAuxiliaryFile /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin.SwiftConstValuesFileList (in target 'Simpanin' from project 'Simpanin')
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios
+    write-file /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin.SwiftConstValuesFileList
+
+WriteAuxiliaryFile /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin.LinkFileList (in target 'Simpanin' from project 'Simpanin')
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios
+    write-file /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin.LinkFileList
+
+WriteAuxiliaryFile /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin-OutputFileMap.json (in target 'Simpanin' from project 'Simpanin')
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios
+    write-file /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin-OutputFileMap.json
+
+MkDir /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products/Release-iphoneos/Simpanin.app (in target 'Simpanin' from project 'Simpanin')
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios
+    /bin/mkdir -p /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products/Release-iphoneos/Simpanin.app
+
+MkDir /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/assetcatalog_output/unthinned (in target 'Simpanin' from project 'Simpanin')
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios
+    /bin/mkdir -p /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/assetcatalog_output/unthinned
+
+MkDir /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/assetcatalog_output/thinned (in target 'Simpanin' from project 'Simpanin')
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios
+    /bin/mkdir -p /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/assetcatalog_output/thinned
+
+GenerateAssetSymbols /Users/runner/work/I-aTool-ios/I-aTool-ios/Simpanin/Assets.xcassets (in target 'Simpanin' from project 'Simpanin')
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios
+    /Applications/Xcode_16.4.app/Contents/Developer/usr/bin/actool /Users/runner/work/I-aTool-ios/I-aTool-ios/Simpanin/Assets.xcassets --compile /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products/Release-iphoneos/Simpanin.app --output-format human-readable-text --notices --warnings --export-dependency-info /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/assetcatalog_dependencies --output-partial-info-plist /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/assetcatalog_generated_info.plist --accent-color AccentColor --compress-pngs --enable-on-demand-resources YES --development-region en --target-device iphone --minimum-deployment-target 16.0 --platform iphoneos --bundle-identifier com.local.simpanin --generate-swift-asset-symbol-extensions NO --generate-swift-asset-symbols /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/DerivedSources/GeneratedAssetSymbols.swift --generate-objc-asset-symbols /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/DerivedSources/GeneratedAssetSymbols.h --generate-asset-symbol-index /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/DerivedSources/GeneratedAssetSymbols-Index.plist
+/* com.apple.actool.compilation-results */
+/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/DerivedSources/GeneratedAssetSymbols-Index.plist
+/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/DerivedSources/GeneratedAssetSymbols.h
+/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/DerivedSources/GeneratedAssetSymbols.swift
 
 
+CompileAssetCatalogVariant thinned /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products/Release-iphoneos/Simpanin.app /Users/runner/work/I-aTool-ios/I-aTool-ios/Simpanin/Assets.xcassets (in target 'Simpanin' from project 'Simpanin')
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios
+    /Applications/Xcode_16.4.app/Contents/Developer/usr/bin/actool /Users/runner/work/I-aTool-ios/I-aTool-ios/Simpanin/Assets.xcassets --compile /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/assetcatalog_output/thinned --output-format human-readable-text --notices --warnings --export-dependency-info /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/assetcatalog_dependencies_thinned --output-partial-info-plist /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/assetcatalog_generated_info.plist_thinned --accent-color AccentColor --compress-pngs --enable-on-demand-resources YES --development-region en --target-device iphone --minimum-deployment-target 16.0 --platform iphoneos
+2026-05-12 03:00:43.785 AssetCatalogSimulatorAgent[7473:25470] CoreThemeDefinition: Unable to create image for file:///Users/runner/work/I-aTool-ios/I-aTool-ios/Simpanin/Assets.xcassets/ShortcutImages.imageset/ShortcutImages.png
+2026-05-12 03:00:43.787 AssetCatalogSimulatorAgent[7473:25470] CoreThemeDefinition: Unable to create image for file:///Users/runner/work/I-aTool-ios/I-aTool-ios/Simpanin/Assets.xcassets/CollectionFolder.imageset/CollectionFolder.png
+2026-05-12 03:00:43.788 AssetCatalogSimulatorAgent[7473:25470] CoreThemeDefinition: Unable to create image for file:///Users/runner/work/I-aTool-ios/I-aTool-ios/Simpanin/Assets.xcassets/ShortcutDocuments.imageset/ShortcutDocuments.png
+2026-05-12 03:00:43.788 AssetCatalogSimulatorAgent[7473:25470] CoreThemeDefinition: Unable to create image for file:///Users/runner/work/I-aTool-ios/I-aTool-ios/Simpanin/Assets.xcassets/ShortcutLinks.imageset/ShortcutLinks.png
+2026-05-12 03:00:43.794 AssetCatalogSimulatorAgent[7473:25470] CoreThemeDefinition: Unable to create image for file:///Users/runner/work/I-aTool-ios/I-aTool-ios/Simpanin/Assets.xcassets/ShortcutImages.imageset/ShortcutImages.png
+2026-05-12 03:00:43.837 AssetCatalogSimulatorAgent[7473:25470] CoreThemeDefinition: Unable to create image for file:///Users/runner/work/I-aTool-ios/I-aTool-ios/Simpanin/Assets.xcassets/ShortcutDocuments.imageset/ShortcutDocuments.png
+2026-05-12 03:00:43.950 AssetCatalogSimulatorAgent[7473:25470] CoreThemeDefinition: Unable to create image for file:///Users/runner/work/I-aTool-ios/I-aTool-ios/Simpanin/Assets.xcassets/CollectionFolder.imageset/CollectionFolder.png
+2026-05-12 03:00:43.953 AssetCatalogSimulatorAgent[7473:25470] CoreThemeDefinition: Unable to create image for file:///Users/runner/work/I-aTool-ios/I-aTool-ios/Simpanin/Assets.xcassets/ShortcutLinks.imageset/ShortcutLinks.png
+2026-05-12 03:00:43.988 AssetCatalogSimulatorAgent[7473:27265] CoreThemeDefinition: Unable to create image for file:///Users/runner/work/I-aTool-ios/I-aTool-ios/Simpanin/Assets.xcassets/ShortcutDocuments.imageset/ShortcutDocuments.png
+2026-05-12 03:00:43.988 AssetCatalogSimulatorAgent[7473:27266] CoreThemeDefinition: Unable to create image for file:///Users/runner/work/I-aTool-ios/I-aTool-ios/Simpanin/Assets.xcassets/CollectionFolder.imageset/CollectionFolder.png
+2026-05-12 03:00:43.988 AssetCatalogSimulatorAgent[7473:27266] CoreThemeDefinition: Unable to create image for file:///Users/runner/work/I-aTool-ios/I-aTool-ios/Simpanin/Assets.xcassets/ShortcutLinks.imageset/ShortcutLinks.png
+2026-05-12 03:00:44.015 AssetCatalogSimulatorAgent[7473:27215] CoreThemeDefinition: Unable to create image for file:///Users/runner/work/I-aTool-ios/I-aTool-ios/Simpanin/Assets.xcassets/ShortcutImages.imageset/ShortcutImages.png
+/* com.apple.actool.errors */
+/Users/runner/work/I-aTool-ios/I-aTool-ios/Simpanin/Assets.xcassets: error: Distill failed for unknown reasons.
+/* com.apple.actool.compilation-results */
+/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/assetcatalog_generated_info.plist_thinned
+/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/assetcatalog_output/thinned/Assets.car
+
+
+SwiftDriver Simpanin normal arm64 com.apple.xcode.tools.swift.compiler (in target 'Simpanin' from project 'Simpanin')
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios
+    builtin-SwiftDriver -- /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name Simpanin -O -whole-module-optimization -enforce-exclusivity\=checked @/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin.SwiftFileList -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.5.sdk -target arm64-apple-ios16.0 -g -module-cache-path /Users/runner/work/I-aTool-ios/I-aTool-ios/build/ModuleCache.noindex -Xfrontend -serialize-debugging-options -swift-version 5 -I /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products/Release-iphoneos -F /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products/Release-iphoneos -emit-localized-strings -emit-localized-strings-path /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64 -c -num-threads 3 -Xcc -ivfsstatcache -Xcc /Users/runner/work/I-aTool-ios/I-aTool-ios/build/SDKStatCaches.noindex/iphoneos18.5-22F76-a529daf784b3616c7c04a36aeb7f5c05.sdkstatcache -output-file-map /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/runner/work/I-aTool-ios/I-aTool-ios/build/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin_const_extract_protocols.json -Xcc -iquote -Xcc /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Simpanin-generated-files.hmap -Xcc -I/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Simpanin-own-target-headers.hmap -Xcc -I/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Simpanin-all-target-headers.hmap -Xcc -iquote -Xcc /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Simpanin-project-headers.hmap -Xcc -I/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products/Release-iphoneos/include -Xcc -I/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/DerivedSources-normal/arm64 -Xcc -I/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/DerivedSources/arm64 -Xcc -I/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/DerivedSources -emit-objc-header -emit-objc-header-path /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin-Swift.h -working-directory /Users/runner/work/I-aTool-ios/I-aTool-ios -no-emit-module-separately-wmo
+
+SwiftCompile normal arm64 Compiling\ SimpaninApp.swift,\ HomeView.swift,\ GeneratedAssetSymbols.swift /Users/runner/work/I-aTool-ios/I-aTool-ios/Simpanin/SimpaninApp.swift /Users/runner/work/I-aTool-ios/I-aTool-ios/Simpanin/HomeView.swift /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/DerivedSources/GeneratedAssetSymbols.swift (in target 'Simpanin' from project 'Simpanin')
+
+CompileSwift normal arm64 (in target 'Simpanin' from project 'Simpanin')
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios
+    
+
+SwiftDriver\ Compilation Simpanin normal arm64 com.apple.xcode.tools.swift.compiler (in target 'Simpanin' from project 'Simpanin')
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios
+    builtin-Swift-Compilation -- /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name Simpanin -O -whole-module-optimization -enforce-exclusivity\=checked @/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin.SwiftFileList -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.5.sdk -target arm64-apple-ios16.0 -g -module-cache-path /Users/runner/work/I-aTool-ios/I-aTool-ios/build/ModuleCache.noindex -Xfrontend -serialize-debugging-options -swift-version 5 -I /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products/Release-iphoneos -F /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products/Release-iphoneos -emit-localized-strings -emit-localized-strings-path /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64 -c -num-threads 3 -Xcc -ivfsstatcache -Xcc /Users/runner/work/I-aTool-ios/I-aTool-ios/build/SDKStatCaches.noindex/iphoneos18.5-22F76-a529daf784b3616c7c04a36aeb7f5c05.sdkstatcache -output-file-map /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/runner/work/I-aTool-ios/I-aTool-ios/build/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin_const_extract_protocols.json -Xcc -iquote -Xcc /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Simpanin-generated-files.hmap -Xcc -I/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Simpanin-own-target-headers.hmap -Xcc -I/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Simpanin-all-target-headers.hmap -Xcc -iquote -Xcc /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Simpanin-project-headers.hmap -Xcc -I/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products/Release-iphoneos/include -Xcc -I/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/DerivedSources-normal/arm64 -Xcc -I/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/DerivedSources/arm64 -Xcc -I/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/DerivedSources -emit-objc-header -emit-objc-header-path /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin-Swift.h -working-directory /Users/runner/work/I-aTool-ios/I-aTool-ios -no-emit-module-separately-wmo
+
+SwiftDriverJobDiscovery normal arm64 Compiling SimpaninApp.swift, HomeView.swift, GeneratedAssetSymbols.swift (in target 'Simpanin' from project 'Simpanin')
+
+SwiftDriver\ Compilation\ Requirements Simpanin normal arm64 com.apple.xcode.tools.swift.compiler (in target 'Simpanin' from project 'Simpanin')
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios
+    builtin-Swift-Compilation-Requirements -- /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name Simpanin -O -whole-module-optimization -enforce-exclusivity\=checked @/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin.SwiftFileList -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.5.sdk -target arm64-apple-ios16.0 -g -module-cache-path /Users/runner/work/I-aTool-ios/I-aTool-ios/build/ModuleCache.noindex -Xfrontend -serialize-debugging-options -swift-version 5 -I /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products/Release-iphoneos -F /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products/Release-iphoneos -emit-localized-strings -emit-localized-strings-path /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64 -c -num-threads 3 -Xcc -ivfsstatcache -Xcc /Users/runner/work/I-aTool-ios/I-aTool-ios/build/SDKStatCaches.noindex/iphoneos18.5-22F76-a529daf784b3616c7c04a36aeb7f5c05.sdkstatcache -output-file-map /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin-OutputFileMap.json -use-frontend-parseable-output -save-temps -no-color-diagnostics -serialize-diagnostics -emit-dependencies -emit-module -emit-module-path /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin.swiftmodule -validate-clang-modules-once -clang-build-session-file /Users/runner/work/I-aTool-ios/I-aTool-ios/build/ModuleCache.noindex/Session.modulevalidation -Xcc -I/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/swift-overrides.hmap -emit-const-values -Xfrontend -const-gather-protocols-file -Xfrontend /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin_const_extract_protocols.json -Xcc -iquote -Xcc /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Simpanin-generated-files.hmap -Xcc -I/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Simpanin-own-target-headers.hmap -Xcc -I/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Simpanin-all-target-headers.hmap -Xcc -iquote -Xcc /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Simpanin-project-headers.hmap -Xcc -I/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products/Release-iphoneos/include -Xcc -I/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/DerivedSources-normal/arm64 -Xcc -I/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/DerivedSources/arm64 -Xcc -I/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/DerivedSources -emit-objc-header -emit-objc-header-path /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin-Swift.h -working-directory /Users/runner/work/I-aTool-ios/I-aTool-ios -no-emit-module-separately-wmo
+
+SwiftMergeGeneratedHeaders /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/DerivedSources/Simpanin-Swift.h /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin-Swift.h (in target 'Simpanin' from project 'Simpanin')
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios
+    builtin-swiftHeaderTool -arch arm64 /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin-Swift.h -o /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/DerivedSources/Simpanin-Swift.h
+
+Copy /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products/Release-iphoneos/Simpanin.swiftmodule/arm64-apple-ios.swiftmodule /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin.swiftmodule (in target 'Simpanin' from project 'Simpanin')
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin.swiftmodule /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products/Release-iphoneos/Simpanin.swiftmodule/arm64-apple-ios.swiftmodule
+
+Copy /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products/Release-iphoneos/Simpanin.swiftmodule/arm64-apple-ios.swiftdoc /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin.swiftdoc (in target 'Simpanin' from project 'Simpanin')
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin.swiftdoc /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products/Release-iphoneos/Simpanin.swiftmodule/arm64-apple-ios.swiftdoc
+
+Copy /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products/Release-iphoneos/Simpanin.swiftmodule/arm64-apple-ios.abi.json /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin.abi.json (in target 'Simpanin' from project 'Simpanin')
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin.abi.json /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products/Release-iphoneos/Simpanin.swiftmodule/arm64-apple-ios.abi.json
+
+Copy /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products/Release-iphoneos/Simpanin.swiftmodule/Project/arm64-apple-ios.swiftsourceinfo /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin.swiftsourceinfo (in target 'Simpanin' from project 'Simpanin')
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -resolve-src-symlinks -rename /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin.swiftsourceinfo /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products/Release-iphoneos/Simpanin.swiftmodule/Project/arm64-apple-ios.swiftsourceinfo
+
+Ld /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products/Release-iphoneos/Simpanin.app/Simpanin normal (in target 'Simpanin' from project 'Simpanin')
+    cd /Users/runner/work/I-aTool-ios/I-aTool-ios
+    /Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-ios16.0 -isysroot /Applications/Xcode_16.4.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS18.5.sdk -Os -L/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/EagerLinkingTBDs/Release-iphoneos -L/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products/Release-iphoneos -F/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/EagerLinkingTBDs/Release-iphoneos -F/Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products/Release-iphoneos -filelist /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin.LinkFileList -Xlinker -rpath -Xlinker @executable_path/Frameworks -dead_strip -Xlinker -object_path_lto -Xlinker /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin_lto.o -Xlinker -dependency_info -Xlinker /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin_dependency_info.dat -fobjc-link-runtime -L/Applications/Xcode_16.4.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos -L/usr/lib/swift -Xlinker -add_ast_path -Xlinker /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Intermediates.noindex/Simpanin.build/Release-iphoneos/Simpanin.build/Objects-normal/arm64/Simpanin.swiftmodule -o /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products/Release-iphoneos/Simpanin.app/Simpanin
+
+note: Disabling previews because SWIFT_VERSION is set and SWIFT_OPTIMIZATION_LEVEL=-O, expected -Onone (in target 'Simpanin' from project 'Simpanin')
+** BUILD FAILED **
+
+
+The following build commands failed:
+	CompileAssetCatalogVariant thinned /Users/runner/work/I-aTool-ios/I-aTool-ios/build/Build/Products/Release-iphoneos/Simpanin.app /Users/runner/work/I-aTool-ios/I-aTool-ios/Simpanin/Assets.xcassets (in target 'Simpanin' from project 'Simpanin')
+	Building project Simpanin with scheme Simpanin and configuration Release
+(2 failures)

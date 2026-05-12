@@ -1,12 +1,16 @@
 Command line invocation:
     /Applications/Xcode_16.4.app/Contents/Developer/usr/bin/xcodebuild -list -project Simpanin.xcodeproj
 
-2026-05-12 02:57:38.497 xcodebuild[23385:64762] CFPropertyListCreateFromXMLData(): Old-style plist parser: missing semicolon in dictionary on line 270. Parsing will be abandoned. Break on _CFPropertyListMissingSemicolon to debug.
-2026-05-12 02:57:38.513 xcodebuild[23385:64762] Error Domain=NSCocoaErrorDomain Code=3840 "JSON text did not start with array or object and option to allow fragments not set. around line 1, column 0." UserInfo={NSDebugDescription=JSON text did not start with array or object and option to allow fragments not set. around line 1, column 0., NSJSONSerializationErrorIndex=0}
-2026-05-12 02:57:38.540 xcodebuild[23385:64762] Writing error result bundle to /var/folders/tb/y368xp_x10s3ty1b_mtl5mxr0000gn/T/ResultBundle_2026-12-05_02-57-0038.xcresult
-xcodebuild: error: Unable to read project 'Simpanin.xcodeproj'.
-	Reason: The project ‘Simpanin’ is damaged and cannot be opened due to a parse error. Examine the project file for invalid edits or unresolved source control conflicts.
+Information about project "Simpanin":
+    Targets:
+        Simpanin
 
-Path: /Users/runner/work/I-aTool-ios/I-aTool-ios/Simpanin.xcodeproj
+    Build Configurations:
+        Debug
+        Release
 
+    If no build configuration is specified and -scheme is not passed then "Release" is used.
+
+    Schemes:
+        Simpanin
 
