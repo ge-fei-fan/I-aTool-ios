@@ -409,7 +409,11 @@ private struct MetricCard: View {
 
             Spacer()
 
-            if let chart = content.chart {
+            if let progress = content.progress {
+                CapacityProgressBar(progress: progress)
+                    .frame(height: 10)
+                    .padding(.bottom, 6)
+            } else if let chart = content.chart {
                 MetricSparkline(chart: chart)
                     .frame(height: 52)
             } else {
@@ -435,6 +439,22 @@ private struct MetricCard: View {
         .overlay {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(FitnexColor.border, lineWidth: 1)
+        }
+    }
+}
+
+private struct CapacityProgressBar: View {
+    let progress: CapacityProgressContent
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(progress.trackColor)
+                Capsule()
+                    .fill(progress.fillColor)
+                    .frame(width: max(10, geometry.size.width * progress.fraction))
+            }
         }
     }
 }
@@ -1023,6 +1043,7 @@ private struct MetricCardContent {
     let iconBackground: Color
     let iconForeground: Color
     let chart: MetricChartContent?
+    let progress: CapacityProgressContent?
     let fallbackStyle: MetricFallbackStyle
 }
 
@@ -1041,6 +1062,12 @@ private enum MetricFallbackStyle {
     case line
 }
 
+private struct CapacityProgressContent {
+    let fraction: CGFloat
+    let fillColor: Color
+    let trackColor: Color
+}
+
 private struct NetworkCounterSample {
     let name: String
     let rxBytes: Int64
@@ -1057,10 +1084,12 @@ private struct NetworkRateSample {
 private final class HomeMetricsViewModel: ObservableObject {
     static let endpointHost = "192.168.2.202:12225"
     private static let endpointURL = URL(string: "http://192.168.2.202:12225/api/public/system/metrics")!
+    private static let partitionsURL = URL(string: "http://192.168.2.202:12225/api/public/system/partitions")!
     private static let endpointIPAddress = endpointURL.host ?? "192.168.2.202"
     private static let historyLimit = 20
 
     @Published private(set) var response: SystemMetricsResponse?
+    @Published private(set) var partitions: PartitionsResponse?
     @Published private(set) var isLoading = false
     @Published var toastMessage: String?
 
@@ -1146,6 +1175,7 @@ private final class HomeMetricsViewModel: ObservableObject {
                 secondaryColor: nil,
                 showsArea: true
             ),
+            progress: nil,
             fallbackStyle: .bars
         )
     }
@@ -1174,6 +1204,7 @@ private final class HomeMetricsViewModel: ObservableObject {
                 secondaryColor: nil,
                 showsArea: true
             ),
+            progress: nil,
             fallbackStyle: .line
         )
     }
@@ -1196,7 +1227,7 @@ private final class HomeMetricsViewModel: ObservableObject {
         return MetricCardContent(
             title: "Network",
             value: "In \(bytes(latestRx))/s\nOut \(bytes(latestTx))/s",
-            subtitle: "\(primaryAddress) | \(interface.name)",
+            subtitle: "Current throughput | \(primaryAddress)",
             icon: "arrow.left.arrow.right",
             iconBackground: Color(hex: 0xE8FFF5),
             iconForeground: Color(hex: 0x14A46A),
@@ -1207,28 +1238,40 @@ private final class HomeMetricsViewModel: ObservableObject {
                 secondaryColor: Color(hex: 0x59C3A5),
                 showsArea: false
             ),
+            progress: nil,
             fallbackStyle: .capsules
         )
     }
 
     var processCard: MetricCardContent {
-        guard let process = response?.process else {
+        guard let partition = selectedPartition else {
             return placeholderCard(
-                title: "Process",
-                icon: "terminal",
-                iconBackground: Color(hex: 0xF1E9FF),
-                iconForeground: Color(hex: 0x8A4DFF),
-                fallbackStyle: .wave
+                title: "Disk",
+                icon: "internaldrive",
+                iconBackground: Color(hex: 0xF5F1FF),
+                iconForeground: Color(hex: 0x7D59FF),
+                fallbackStyle: .wave,
+                progress: nil
             )
         }
+
+        let isCritical = partition.usedPercent > 90
+        let accent = isCritical ? Color(hex: 0xE5484D) : Color(hex: 0x7D59FF)
+        let soft = isCritical ? Color(hex: 0xFFE9EA) : Color(hex: 0xF5F1FF)
+
         return MetricCardContent(
-            title: "Process",
-            value: formatDuration(process.uptimeSeconds),
-            subtitle: "PID \(process.pid) | \(process.goroutines) goroutines",
-            icon: "terminal",
-            iconBackground: Color(hex: 0xF1E9FF),
-            iconForeground: Color(hex: 0x8A4DFF),
+            title: "Disk",
+            value: "\(bytes(partition.usedBytes)) / \(bytes(partition.totalBytes))",
+            subtitle: "\(partition.path) | \(percent(partition.usedPercent)) used",
+            icon: "internaldrive",
+            iconBackground: soft,
+            iconForeground: accent,
             chart: nil,
+            progress: CapacityProgressContent(
+                fraction: min(max(CGFloat(partition.usedPercent / 100), 0), 1),
+                fillColor: accent,
+                trackColor: soft
+            ),
             fallbackStyle: .wave
         )
     }
@@ -1244,18 +1287,16 @@ private final class HomeMetricsViewModel: ObservableObject {
         defer { isLoading = false }
 
         do {
-            var request = URLRequest(url: Self.endpointURL)
-            request.cachePolicy = .reloadIgnoringLocalCacheData
-            let (data, urlResponse) = try await URLSession.shared.data(for: request)
-
-            if let httpResponse = urlResponse as? HTTPURLResponse,
-               !(200 ... 299).contains(httpResponse.statusCode) {
-                throw URLError(.badServerResponse)
-            }
-
-            let decoded = try JSONDecoder().decode(SystemMetricsResponse.self, from: data)
+            let decoded = try await fetch(SystemMetricsResponse.self, from: Self.endpointURL)
             response = decoded
             recordSample(decoded)
+
+            do {
+                partitions = try await fetch(PartitionsResponse.self, from: Self.partitionsURL)
+            } catch {
+                partitions = nil
+            }
+
             didShowRefreshError = false
         } catch {
             if response == nil {
@@ -1279,6 +1320,17 @@ private final class HomeMetricsViewModel: ObservableObject {
         return interfaces.first(where: { interface in
             interface.isUp && !(interface.flags.contains("loopback"))
         })
+    }
+
+    private var selectedPartition: PartitionsResponse.PartitionItem? {
+        guard let items = partitions?.items, !items.isEmpty else { return nil }
+        if let critical = items.first(where: { $0.usedPercent > 90 }) {
+            return critical
+        }
+        if let system = items.first(where: { $0.path.uppercased() == "C:\\" }) {
+            return system
+        }
+        return items.first
     }
 
     private func recordSample(_ metrics: SystemMetricsResponse) {
@@ -1342,12 +1394,24 @@ private final class HomeMetricsViewModel: ObservableObject {
         }
     }
 
+    private func fetch<T: Decodable>(_ type: T.Type, from url: URL) async throws -> T {
+        var request = URLRequest(url: url)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        let (data, urlResponse) = try await URLSession.shared.data(for: request)
+        if let httpResponse = urlResponse as? HTTPURLResponse,
+           !(200 ... 299).contains(httpResponse.statusCode) {
+            throw URLError(.badServerResponse)
+        }
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+
     private func placeholderCard(
         title: String,
         icon: String,
         iconBackground: Color,
         iconForeground: Color,
-        fallbackStyle: MetricFallbackStyle
+        fallbackStyle: MetricFallbackStyle,
+        progress: CapacityProgressContent? = nil
     ) -> MetricCardContent {
         MetricCardContent(
             title: title,
@@ -1357,6 +1421,7 @@ private final class HomeMetricsViewModel: ObservableObject {
             iconBackground: iconBackground,
             iconForeground: iconForeground,
             chart: nil,
+            progress: progress,
             fallbackStyle: fallbackStyle
         )
     }
@@ -1484,6 +1549,20 @@ private struct SystemMetricsResponse: Decodable {
         let goroutines: Int
         let allocBytes: Int64
         let sysBytes: Int64
+    }
+}
+
+private struct PartitionsResponse: Decodable {
+    let timestamp: String
+    let items: [PartitionItem]
+
+    struct PartitionItem: Decodable {
+        let path: String
+        let fstype: String
+        let totalBytes: Int64
+        let usedBytes: Int64
+        let freeBytes: Int64
+        let usedPercent: Double
     }
 }
 
