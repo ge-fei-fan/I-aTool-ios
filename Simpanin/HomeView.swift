@@ -1462,7 +1462,7 @@ private struct DiskSmartSheet: View {
                 smartMetricCard(
                     title: "Health",
                     value: smart.healthStatus,
-                    color: smart.healthStatus.uppercased() == "PASSED" ? Color(hex: 0x14A46A) : Color(hex: 0xE5484D)
+                    color: smart.isHealthy ? Color(hex: 0x14A46A) : Color(hex: 0xE5484D)
                 )
                 smartMetricCard(
                     title: "Temperature",
@@ -3015,6 +3015,31 @@ private struct DiskSmartResponse: Decodable {
     let powerOnHours: Int?
     let powerCycleCount: Int?
     let attributes: [DiskSmartAttribute]
+
+    var isHealthy: Bool {
+        ["AVAILABLE", "PASSED", "HEALTHY", "OK"].contains(healthStatus.uppercased())
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        deviceId = try c.decode(String.self, forKey: .deviceId)
+        friendlyName = try c.decode(String.self, forKey: .friendlyName)
+        serialNumber = try c.decode(String.self, forKey: .serialNumber)
+        firmwareVersion = try c.decodeIfPresent(String.self, forKey: .firmwareVersion)
+        mediaType = try c.decode(String.self, forKey: .mediaType)
+        busType = try c.decodeIfPresent(String.self, forKey: .busType)
+        healthStatus = try c.decodeIfPresent(String.self, forKey: .healthStatus) ?? "Available"
+        sizeBytes = try c.decodeIfPresent(Int64.self, forKey: .sizeBytes)
+        temperatureCelsius = try c.decodeIfPresent(Int.self, forKey: .temperatureCelsius)
+        powerOnHours = try c.decodeIfPresent(Int.self, forKey: .powerOnHours)
+        powerCycleCount = try c.decodeIfPresent(Int.self, forKey: .powerCycleCount)
+        attributes = try c.decodeIfPresent([DiskSmartAttribute].self, forKey: .attributes) ?? []
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case deviceId, friendlyName, serialNumber, firmwareVersion, mediaType, busType
+        case healthStatus, sizeBytes, temperatureCelsius, powerOnHours, powerCycleCount, attributes
+    }
 }
 
 private struct DiskSmartAttribute: Decodable, Identifiable {
