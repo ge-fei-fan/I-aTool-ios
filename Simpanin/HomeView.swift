@@ -131,6 +131,205 @@ private struct IdentifiableString: Identifiable {
     }
 }
 
+private struct HTTPLogChunk: Identifiable, Hashable {
+    let id: String
+    let date: Date
+    let url: URL
+
+    var title: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "MM-dd HH:00"
+        return formatter.string(from: date)
+    }
+}
+
+private struct HTTPLogEntry: Identifiable, Codable {
+    let id: String
+    let timestamp: Date
+    let method: String
+    let url: String
+    let requestHeaders: [String: String]
+    let requestBody: String
+    let statusCode: Int?
+    let responseHeaders: [String: String]
+    let responseBody: String
+    let error: String?
+    let durationMS: Int
+
+    var statusText: String {
+        if let statusCode { return "HTTP \(statusCode)" }
+        if error != nil { return "Failed" }
+        return "Completed"
+    }
+}
+
+private struct LoggedHTTPClient {
+    static func data(for request: URLRequest, responseBodyLimit: Int = 32 * 1024) async throws -> (Data, URLResponse) {
+        let start = Date()
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            await HTTPLogStore.shared.record(
+                request: request,
+                response: response,
+                responseData: data,
+                error: nil,
+                startedAt: start,
+                responseBodyLimit: responseBodyLimit
+            )
+            return (data, response)
+        } catch {
+            await HTTPLogStore.shared.record(
+                request: request,
+                response: nil,
+                responseData: nil,
+                error: error,
+                startedAt: start,
+                responseBodyLimit: responseBodyLimit
+            )
+            throw error
+        }
+    }
+}
+
+@MainActor
+private final class HTTPLogStore: ObservableObject {
+    static let shared = HTTPLogStore()
+
+    @Published private(set) var chunks: [HTTPLogChunk] = []
+    @Published var selectedChunkID: String?
+    @Published private(set) var entries: [HTTPLogEntry] = []
+
+    private let fileManager = FileManager.default
+    private let retention: TimeInterval = 3 * 24 * 60 * 60
+
+    private var directoryURL: URL {
+        let base = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return base.appendingPathComponent("http-logs", isDirectory: true)
+    }
+
+    private static let chunkFileFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd-HH"
+        return formatter
+    }()
+
+    func record(
+        request: URLRequest,
+        response: URLResponse?,
+        responseData: Data?,
+        error: Error?,
+        startedAt: Date,
+        responseBodyLimit: Int = 32 * 1024
+    ) {
+        cleanupOldLogs()
+
+        let now = Date()
+        let entry = HTTPLogEntry(
+            id: UUID().uuidString,
+            timestamp: now,
+            method: request.httpMethod ?? "GET",
+            url: request.url?.absoluteString ?? "",
+            requestHeaders: request.allHTTPHeaderFields ?? [:],
+            requestBody: bodyText(request.httpBody, limit: 8 * 1024),
+            statusCode: (response as? HTTPURLResponse)?.statusCode,
+            responseHeaders: responseHeaders(response),
+            responseBody: bodyText(responseData, limit: responseBodyLimit),
+            error: error?.localizedDescription,
+            durationMS: Int(Date().timeIntervalSince(startedAt) * 1000)
+        )
+
+        do {
+            try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
+            let fileURL = chunkURL(for: now)
+            let data = try JSONEncoder().encode(entry)
+            if !fileManager.fileExists(atPath: fileURL.path) {
+                fileManager.createFile(atPath: fileURL.path, contents: nil)
+            }
+            let handle = try FileHandle(forWritingTo: fileURL)
+            handle.seekToEndOfFile()
+            handle.write(data)
+            handle.write(Data([0x0A]))
+            handle.closeFile()
+            reloadChunks(selectCurrentIfNeeded: false)
+        } catch {
+            // Logging must never break app data loading.
+        }
+    }
+
+    func reloadChunks(selectCurrentIfNeeded: Bool = false) {
+        cleanupOldLogs()
+        let urls = (try? fileManager.contentsOfDirectory(
+            at: directoryURL,
+            includingPropertiesForKeys: nil
+        )) ?? []
+
+        chunks = urls.compactMap { url in
+            guard url.pathExtension == "jsonl" else { return nil }
+            let name = url.deletingPathExtension().lastPathComponent
+            guard let date = Self.chunkFileFormatter.date(from: name) else { return nil }
+            return HTTPLogChunk(id: name, date: date, url: url)
+        }
+        .sorted { $0.date > $1.date }
+
+        if selectedChunkID == nil || selectCurrentIfNeeded {
+            let currentID = Self.chunkFileFormatter.string(from: Date())
+            selectedChunkID = chunks.first(where: { $0.id == currentID })?.id ?? chunks.first?.id
+        }
+        loadSelectedEntries()
+    }
+
+    func selectChunk(_ chunk: HTTPLogChunk) {
+        selectedChunkID = chunk.id
+        loadSelectedEntries()
+    }
+
+    private func loadSelectedEntries() {
+        guard let selectedChunkID,
+              let chunk = chunks.first(where: { $0.id == selectedChunkID }),
+              let content = try? String(contentsOf: chunk.url, encoding: .utf8) else {
+            entries = []
+            return
+        }
+
+        entries = content
+            .split(separator: "\n")
+            .compactMap { line in
+                try? JSONDecoder().decode(HTTPLogEntry.self, from: Data(line.utf8))
+            }
+            .sorted { $0.timestamp > $1.timestamp }
+    }
+
+    private func cleanupOldLogs() {
+        guard let urls = try? fileManager.contentsOfDirectory(at: directoryURL, includingPropertiesForKeys: nil) else { return }
+        let cutoff = Date().addingTimeInterval(-retention)
+        for url in urls where url.pathExtension == "jsonl" {
+            let name = url.deletingPathExtension().lastPathComponent
+            guard let date = Self.chunkFileFormatter.date(from: name), date < cutoff else { continue }
+            try? fileManager.removeItem(at: url)
+        }
+    }
+
+    private func chunkURL(for date: Date) -> URL {
+        directoryURL.appendingPathComponent("\(Self.chunkFileFormatter.string(from: date)).jsonl")
+    }
+
+    private func responseHeaders(_ response: URLResponse?) -> [String: String] {
+        guard let headers = (response as? HTTPURLResponse)?.allHeaderFields else { return [:] }
+        return headers.reduce(into: [String: String]()) { partial, item in
+            partial[String(describing: item.key)] = String(describing: item.value)
+        }
+    }
+
+    private func bodyText(_ data: Data?, limit: Int) -> String {
+        guard let data, !data.isEmpty else { return "" }
+        let prefix = data.prefix(limit)
+        if let text = String(data: prefix, encoding: .utf8) {
+            return data.count > limit ? "\(text)\n... truncated \(data.count - limit) bytes" : text
+        }
+        return "<binary \(data.count) bytes>"
+    }
+}
+
 private enum FitnexColor {
     static let background = Color.white
     static let black = Color(hex: 0x111111)
@@ -817,11 +1016,48 @@ private struct ActivityRingCard: View {
 private struct SettingsView: View {
     let feedback: (String) -> Void
     @StateObject private var updateVM = UpdateViewModel()
+    @ObservedObject private var logStore = HTTPLogStore.shared
+    @State private var showingLogs = false
 
     var body: some View {
         VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Settings")
+                        .font(.fitnexTitle(size: 28))
+                        .foregroundColor(FitnexColor.black)
+                    Text("Updates, request logs and device maintenance.")
+                        .font(.fitnexBody(size: 13, weight: .regular))
+                        .foregroundColor(FitnexColor.grayText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                Spacer()
+                Circle()
+                    .fill(FitnexColor.orangeSoft)
+                    .frame(width: 54, height: 54)
+                    .overlay {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundColor(FitnexColor.orange)
+                    }
+            }
+            .padding(.horizontal, 25)
+            .padding(.top, 48)
+
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
+                    Button {
+                        logStore.reloadChunks(selectCurrentIfNeeded: true)
+                        showingLogs = true
+                    } label: {
+                        settingsRow(
+                            icon: "doc.text.magnifyingglass",
+                            title: "\u{65E5}\u{5FD7}",
+                            subtitle: "\(logStore.chunks.count) hourly slices"
+                        )
+                    }
+                    .buttonStyle(.plain)
+
                     Button {
                         if updateVM.latestRelease?.ipaAsset != nil && updateVM.localIPAURL == nil {
                             updateVM.downloadIPA()
@@ -831,51 +1067,12 @@ private struct SettingsView: View {
                             Task { await updateVM.checkForUpdate() }
                         }
                     } label: {
-                        HStack(spacing: 14) {
-                            Circle()
-                                .fill(FitnexColor.orangeSoft)
-                                .frame(width: 42, height: 42)
-                                .overlay {
-                                    if updateVM.isChecking || updateVM.isDownloading {
-                                        ProgressView()
-                                            .scaleEffect(0.9)
-                                    } else {
-                                        Image(systemName: updateVM.localIPAURL != nil ? "square.and.arrow.down.fill" : "arrow.triangle.2.circlepath")
-                                            .font(.system(size: 18, weight: .semibold))
-                                            .foregroundColor(FitnexColor.orange)
-                                    }
-                                }
-
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(buttonTitle)
-                                    .font(.fitnexTitle(size: 15))
-                                    .foregroundColor(FitnexColor.black)
-                                if let msg = updateVM.statusMessage {
-                                    Text(msg)
-                                        .font(.fitnexBody(size: 11, weight: .regular))
-                                        .foregroundColor(FitnexColor.grayText)
-                                        .lineLimit(1)
-                                }
-                                if let asset = updateVM.latestRelease?.ipaAsset, updateVM.localIPAURL == nil && !updateVM.isDownloading {
-                                    Text(asset.formattedSize)
-                                        .font(.fitnexBody(size: 11, weight: .regular))
-                                        .foregroundColor(FitnexColor.orange)
-                                }
-                            }
-
-                            Spacer()
-
-                            Image(systemName: "chevron.right")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundColor(FitnexColor.orange)
-                        }
-                        .padding(.horizontal, 15)
-                        .frame(height: 72)
-                        .background(FitnexColor.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .stroke(FitnexColor.border, lineWidth: 1)
-                        }
+                        settingsRow(
+                            icon: updateVM.localIPAURL != nil ? "square.and.arrow.down.fill" : "arrow.triangle.2.circlepath",
+                            title: buttonTitle,
+                            subtitle: updateSubtitle,
+                            showsProgress: updateVM.isChecking || updateVM.isDownloading
+                        )
                     }
                     .buttonStyle(.plain)
                     .disabled(updateVM.isChecking || updateVM.isDownloading)
@@ -899,10 +1096,17 @@ private struct SettingsView: View {
                     }
                 }
                 .padding(.horizontal, 25)
-                .padding(.top, 44)
+                .padding(.top, 22)
             }
         }
         .background(FitnexColor.background)
+        .sheet(isPresented: $showingLogs) {
+            HTTPLogSheet(store: logStore)
+                .presentationDetents([.medium, .large])
+        }
+        .onAppear {
+            logStore.reloadChunks(selectCurrentIfNeeded: true)
+        }
         .onChange(of: updateVM.localIPAURL) { url in
             if url != nil {
                 updateVM.installViaTrollStore()
@@ -914,12 +1118,216 @@ private struct SettingsView: View {
     }
 
     private var buttonTitle: String {
-        if updateVM.isChecking { return "Checking..." }
-        if updateVM.isDownloading { return "Downloading..." }
-        if updateVM.localIPAURL != nil { return "Install Update" }
-        if updateVM.latestRelease?.ipaAsset != nil { return "Download Update" }
-        return "Check for Updates"
+        if updateVM.isChecking { return "\u{68C0}\u{67E5}\u{4E2D}..." }
+        if updateVM.isDownloading { return "\u{4E0B}\u{8F7D}\u{4E2D}..." }
+        if updateVM.localIPAURL != nil { return "\u{5B89}\u{88C5}\u{66F4}\u{65B0}" }
+        if updateVM.latestRelease?.ipaAsset != nil { return "\u{4E0B}\u{8F7D}\u{66F4}\u{65B0}" }
+        return "\u{68C0}\u{67E5}\u{66F4}\u{65B0}"
     }
+
+    private var updateSubtitle: String? {
+        if let msg = updateVM.statusMessage {
+            return msg
+        }
+        if let asset = updateVM.latestRelease?.ipaAsset, updateVM.localIPAURL == nil && !updateVM.isDownloading {
+            return asset.formattedSize
+        }
+        return nil
+    }
+
+    private func settingsRow(icon: String, title: String, subtitle: String? = nil, showsProgress: Bool = false) -> some View {
+        HStack(spacing: 14) {
+            Circle()
+                .fill(FitnexColor.orangeSoft)
+                .frame(width: 42, height: 42)
+                .overlay {
+                    if showsProgress {
+                        ProgressView()
+                            .scaleEffect(0.9)
+                    } else {
+                        Image(systemName: icon)
+                            .font(.system(size: 18, weight: .semibold))
+                            .foregroundColor(FitnexColor.orange)
+                    }
+                }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.fitnexTitle(size: 15))
+                    .foregroundColor(FitnexColor.black)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.fitnexBody(size: 11, weight: .regular))
+                        .foregroundColor(FitnexColor.grayText)
+                        .lineLimit(1)
+                }
+            }
+
+            Spacer()
+
+            Image(systemName: "chevron.right")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(FitnexColor.orange)
+        }
+        .padding(.horizontal, 15)
+        .frame(height: 72)
+        .background(FitnexColor.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(FitnexColor.border, lineWidth: 1)
+        }
+    }
+}
+
+private struct HTTPLogSheet: View {
+    @ObservedObject var store: HTTPLogStore
+    @State private var expandedEntryID: String?
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Capsule()
+                .fill(FitnexColor.border)
+                .frame(width: 42, height: 5)
+                .padding(.top, 10)
+
+            HStack {
+                Text("HTTP Logs")
+                    .font(.fitnexTitle(size: 18))
+                    .foregroundColor(FitnexColor.black)
+                Spacer()
+                Text("\(store.entries.count)")
+                    .font(.fitnexBody(size: 12, weight: .regular))
+                    .foregroundColor(FitnexColor.grayText)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 18)
+
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 8) {
+                    ForEach(store.chunks) { chunk in
+                        Button {
+                            store.selectChunk(chunk)
+                            expandedEntryID = nil
+                        } label: {
+                            Text(chunk.title)
+                                .font(.fitnexBody(size: 11, weight: .regular))
+                                .foregroundColor(store.selectedChunkID == chunk.id ? .white : FitnexColor.orange)
+                                .padding(.horizontal, 12)
+                                .frame(height: 30)
+                                .background(
+                                    store.selectedChunkID == chunk.id ? FitnexColor.orange : FitnexColor.orangeSoft,
+                                    in: Capsule()
+                                )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 20)
+            }
+            .padding(.top, 14)
+
+            if store.entries.isEmpty {
+                VStack(spacing: 12) {
+                    Image(systemName: "doc.text")
+                        .font(.system(size: 30, weight: .medium))
+                        .foregroundColor(FitnexColor.grayText)
+                    Text("No logs in this hour")
+                        .font(.fitnexBody(size: 13, weight: .regular))
+                        .foregroundColor(FitnexColor.grayText)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ScrollView(showsIndicators: false) {
+                    LazyVStack(spacing: 10) {
+                        ForEach(store.entries) { entry in
+                            HTTPLogEntryRow(
+                                entry: entry,
+                                isExpanded: expandedEntryID == entry.id,
+                                toggle: {
+                                    expandedEntryID = expandedEntryID == entry.id ? nil : entry.id
+                                }
+                            )
+                        }
+                    }
+                    .padding(20)
+                }
+            }
+        }
+        .background(FitnexColor.background)
+        .onAppear {
+            store.reloadChunks(selectCurrentIfNeeded: true)
+        }
+    }
+}
+
+private struct HTTPLogEntryRow: View {
+    let entry: HTTPLogEntry
+    let isExpanded: Bool
+    let toggle: () -> Void
+
+    var body: some View {
+        Button(action: toggle) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 8) {
+                    Text(entry.method)
+                        .font(.fitnexBody(size: 10, weight: .bold))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 8)
+                        .frame(height: 22)
+                        .background(FitnexColor.orange, in: Capsule())
+                    Text(entry.statusText)
+                        .font(.fitnexBody(size: 11, weight: .regular))
+                        .foregroundColor(entry.error == nil ? FitnexColor.grayText : Color(hex: 0xE5484D))
+                    Spacer()
+                    Text(Self.timeFormatter.string(from: entry.timestamp))
+                        .font(.fitnexBody(size: 10, weight: .regular))
+                        .foregroundColor(FitnexColor.lightText)
+                    Text("\(entry.durationMS)ms")
+                        .font(.fitnexBody(size: 10, weight: .regular))
+                        .foregroundColor(FitnexColor.lightText)
+                }
+
+                Text(entry.url)
+                    .font(.fitnexBody(size: 11, weight: .regular))
+                    .foregroundColor(FitnexColor.black)
+                    .lineLimit(isExpanded ? nil : 2)
+
+                if isExpanded {
+                    logBlock(title: "\u{8BF7}\u{6C42}\u{4F53}", text: entry.requestBody)
+                    logBlock(title: "\u{54CD}\u{5E94}\u{4F53}", text: entry.responseBody)
+                    if let error = entry.error {
+                        logBlock(title: "\u{9519}\u{8BEF}", text: error)
+                    }
+                }
+            }
+            .padding(12)
+            .background(FitnexColor.card, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .stroke(FitnexColor.border, lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+
+    private func logBlock(title: String, text: String) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.fitnexBody(size: 10, weight: .bold))
+                .foregroundColor(FitnexColor.grayText)
+            Text(text.isEmpty ? "<empty>" : text)
+                .font(.system(size: 10, weight: .regular, design: .monospaced))
+                .foregroundColor(FitnexColor.black)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .textSelection(.enabled)
+        }
+    }
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter
+    }()
 }
 private struct DiskInfoCard: View {
     let content: DiskInfoCardContent
@@ -2018,7 +2426,7 @@ private final class DiskStatusViewModel: ObservableObject {
     private func fetch<T: Decodable>(_ type: T.Type, from url: URL) async throws -> T {
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await LoggedHTTPClient.data(for: request)
         if let httpResponse = response as? HTTPURLResponse,
            !(200 ... 299).contains(httpResponse.statusCode) {
             throw URLError(.badServerResponse)
@@ -2396,7 +2804,7 @@ private final class HomeMetricsViewModel: ObservableObject {
     private func fetch<T: Decodable>(_ type: T.Type, from url: URL) async throws -> T {
         var request = URLRequest(url: url)
         request.cachePolicy = .reloadIgnoringLocalCacheData
-        let (data, urlResponse) = try await URLSession.shared.data(for: request)
+        let (data, urlResponse) = try await LoggedHTTPClient.data(for: request)
         if let httpResponse = urlResponse as? HTTPURLResponse,
            !(200 ... 299).contains(httpResponse.statusCode) {
             throw URLError(.badServerResponse)
@@ -2727,7 +3135,7 @@ private final class UpdateViewModel: ObservableObject {
             var request = URLRequest(url: url)
             request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
             request.timeoutInterval = 15
-            let (data, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await LoggedHTTPClient.data(for: request)
             guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
                 throw NSError(domain: "UpdateError", code: -1, userInfo: [
                     NSLocalizedDescriptionKey: "GitHub API error"
@@ -2764,6 +3172,8 @@ private final class UpdateViewModel: ObservableObject {
 
         let delegate = DownloadProgressDelegate()
         delegate.viewModel = self
+        delegate.request = request
+        delegate.startedAt = Date()
         downloadDelegateRef = delegate
 
         let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
@@ -2787,6 +3197,9 @@ private final class UpdateViewModel: ObservableObject {
 
 private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelegate {
     @MainActor weak var viewModel: UpdateViewModel?
+    var request: URLRequest?
+    var startedAt = Date()
+    private var didRecordCompletion = false
 
     func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
         let fm = FileManager.default
@@ -2813,11 +3226,23 @@ private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelega
                 ])
             }
             try? handle.close()
+            let attributes = try? fm.attributesOfItem(atPath: dest.path)
+            let size = (attributes?[.size] as? NSNumber)?.int64Value ?? 0
+            recordDownload(
+                response: downloadTask.response,
+                error: nil,
+                summary: "Downloaded \(size) bytes to \(dest.lastPathComponent)"
+            )
             Task { @MainActor [weak self] in
                 self?.viewModel?.isDownloading = false
                 self?.viewModel?.localIPAURL = dest
             }
         } catch {
+            recordDownload(
+                response: downloadTask.response,
+                error: error,
+                summary: "Download failed before a valid IPA was saved"
+            )
             Task { @MainActor [weak self] in
                 self?.viewModel?.isDownloading = false
                 self?.viewModel?.errorMessage = "Save failed: \(error.localizedDescription)"
@@ -2827,6 +3252,11 @@ private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelega
 
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         guard let error else { return }
+        recordDownload(
+            response: task.response,
+            error: error,
+            summary: "Download task failed"
+        )
         Task { @MainActor [weak self] in
             self?.viewModel?.isDownloading = false
             self?.viewModel?.errorMessage = "Download failed: \(error.localizedDescription)"
@@ -2837,6 +3267,22 @@ private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelega
         let progress = totalBytesExpectedToWrite > 0 ? Double(totalBytesWritten) / Double(totalBytesExpectedToWrite) : 0
         Task { @MainActor [weak self] in
             self?.viewModel?.downloadProgress = progress
+        }
+    }
+
+    private func recordDownload(response: URLResponse?, error: Error?, summary: String) {
+        guard !didRecordCompletion, let request else { return }
+        didRecordCompletion = true
+        let data = Data(summary.utf8)
+        Task { @MainActor in
+            HTTPLogStore.shared.record(
+                request: request,
+                response: response,
+                responseData: data,
+                error: error,
+                startedAt: startedAt,
+                responseBodyLimit: 2 * 1024
+            )
         }
     }
 }
