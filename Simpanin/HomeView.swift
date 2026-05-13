@@ -392,15 +392,9 @@ private struct MinePageView: View {
                     ], alignment: .leading, spacing: 15) {
                         MetricCard(content: metrics.cpuCard)
                         MetricCard(content: metrics.memoryCard)
-                        MetricCard(content: metrics.networkCard)
-                        MetricCard(content: metrics.processCard)
+                        MetricCard(content: metrics.uploadCard)
+                        MetricCard(content: metrics.downloadCard)
                     }
-
-                    SourceCard(
-                        endpoint: HomeMetricsViewModel.endpointHost,
-                        detail: metrics.sourceDetailText
-                    )
-                    .onTapGesture { feedback("GET /api/public/system/metrics") }
                 }
                 .padding(.horizontal, 25)
                 .padding(.top, 20)
@@ -675,7 +669,13 @@ private struct ChallengeCard: View {
                 Text(content.secondaryText)
                     .font(.fitnexBody(size: 10, weight: .regular))
                     .foregroundColor(FitnexColor.grayText)
-                    .lineLimit(2)
+                    .lineLimit(1)
+                if let tertiaryText = content.tertiaryText {
+                    Text(tertiaryText)
+                        .font(.fitnexBody(size: 10, weight: .regular))
+                        .foregroundColor(FitnexColor.lightText)
+                        .lineLimit(1)
+                }
             }
 
             Spacer(minLength: 8)
@@ -692,7 +692,7 @@ private struct ChallengeCard: View {
             }
         }
         .padding(.horizontal, 15)
-        .frame(height: 80)
+        .frame(height: 90)
         .background(FitnexColor.card, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 15, style: .continuous)
@@ -722,7 +722,7 @@ private struct MetricCard: View {
                 .font(.fitnexTitle(size: 15))
                 .foregroundColor(FitnexColor.black)
                 .padding(.top, 14)
-                .lineLimit(2)
+                .lineLimit(1)
                 .minimumScaleFactor(0.8)
 
             if let subtitle = content.subtitle {
@@ -782,48 +782,6 @@ private struct CapacityProgressBar: View {
                     .fill(progress.fillColor)
                     .frame(width: max(10, geometry.size.width * progress.fraction))
             }
-        }
-    }
-}
-
-private struct SourceCard: View {
-    let endpoint: String
-    let detail: String
-
-    var body: some View {
-        HStack(spacing: 14) {
-            Circle()
-                .fill(FitnexColor.orangeSoft)
-                .frame(width: 40, height: 40)
-                .overlay {
-                    Image(systemName: "dot.radiowaves.left.and.right")
-                        .font(.system(size: 17, weight: .medium))
-                        .foregroundColor(FitnexColor.orange)
-                }
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(detail)
-                    .font(.fitnexBody(size: 11, weight: .regular))
-                    .foregroundColor(FitnexColor.grayText)
-                Text(endpoint)
-                    .font(.fitnexTitle(size: 15))
-                    .foregroundColor(FitnexColor.black)
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.85)
-            }
-
-            Spacer()
-
-            Image(systemName: "chevron.right")
-                .font(.system(size: 12, weight: .bold))
-                .foregroundColor(FitnexColor.orange)
-        }
-        .padding(.horizontal, 15)
-        .frame(width: 325, height: 70)
-        .background(FitnexColor.card, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 15, style: .continuous)
-                .stroke(FitnexColor.border, lineWidth: 1)
         }
     }
 }
@@ -2083,6 +2041,7 @@ private struct HostCardContent {
     let title: String
     let primaryText: String
     let secondaryText: String
+    let tertiaryText: String?
     let trailingLabel: String
     let trailingValue: String
     let icon: String
@@ -2487,12 +2446,10 @@ private final class DiskStatusViewModel: ObservableObject {
 private final class HomeMetricsViewModel: ObservableObject {
     static let endpointHost = "192.168.2.202:12225"
     private static let endpointURL = URL(string: "http://192.168.2.202:12225/api/public/system/metrics")!
-    private static let partitionsURL = URL(string: "http://192.168.2.202:12225/api/public/system/partitions")!
     private static let endpointIPAddress = endpointURL.host ?? "192.168.2.202"
     private static let historyLimit = 20
 
     @Published private(set) var response: SystemMetricsResponse?
-    @Published private(set) var partitions: PartitionsResponse?
     @Published private(set) var hasLoadedOnce = false
     @Published private(set) var isRefreshing = false
     @Published var toastMessage: String?
@@ -2529,19 +2486,13 @@ private final class HomeMetricsViewModel: ObservableObject {
         return "Waiting for reachable host"
     }
 
-    var sourceDetailText: String {
-        if let response, let date = parseTimestamp(response.timestamp) {
-            return "Public metrics feed | \(Self.timeFormatter.string(from: date))"
-        }
-        return isInitialLoading ? "Public metrics feed | loading" : "Public metrics feed | unavailable"
-    }
-
     var hostCard: HostCardContent {
         guard let host = response?.host else {
             return HostCardContent(
                 title: "",
                 primaryText: isInitialLoading ? "Connecting..." : "Host unavailable",
                 secondaryText: isInitialLoading ? "Reading public system metrics" : "Check the DownGo host and local network",
+                tertiaryText: isInitialLoading ? "IP \(Self.endpointIPAddress)" : "IP unavailable",
                 trailingLabel: "Endpoint",
                 trailingValue: "HTTP",
                 icon: "desktopcomputer"
@@ -2552,6 +2503,7 @@ private final class HomeMetricsViewModel: ObservableObject {
             title: "",
             primaryText: host.hostname,
             secondaryText: "\(host.platform) | \(host.os)",
+            tertiaryText: "IP \(Self.endpointIPAddress)",
             trailingLabel: "Uptime",
             trailingValue: formatDuration(host.uptimeSeconds),
             icon: "desktopcomputer"
@@ -2616,33 +2568,31 @@ private final class HomeMetricsViewModel: ObservableObject {
         )
     }
 
-    var networkCard: MetricCardContent {
-        guard let interface = selectedNetworkInterface else {
+    var uploadCard: MetricCardContent {
+        guard selectedNetworkInterface != nil else {
             return placeholderCard(
-                title: "Network",
-                icon: "arrow.left.arrow.right",
+                title: "Upload",
+                icon: "arrow.up",
                 iconBackground: Color(hex: 0xE8FFF5),
                 iconForeground: Color(hex: 0x14A46A),
                 fallbackStyle: .capsules
             )
         }
 
-        let latestRx = latestNetworkRate?.rxBytesPerSecond ?? 0
         let latestTx = latestNetworkRate?.txBytesPerSecond ?? 0
-        let primaryAddress = interface.ipAddresses.first(where: { $0.family == "ipv4" })?.address ?? Self.endpointIPAddress
 
         return MetricCardContent(
-            title: "Network",
-            value: "In \(bytes(latestRx))/s\nOut \(bytes(latestTx))/s",
-            subtitle: "Current throughput | \(primaryAddress)",
-            icon: "arrow.left.arrow.right",
+            title: "Upload",
+            value: rate(latestTx),
+            subtitle: "Live upload",
+            icon: "arrow.up",
             iconBackground: Color(hex: 0xE8FFF5),
             iconForeground: Color(hex: 0x14A46A),
             chart: MetricChartContent(
-                primary: networkRxHistory,
-                secondary: networkTxHistory,
+                primary: networkTxHistory,
+                secondary: nil,
                 primaryColor: Color(hex: 0x14A46A),
-                secondaryColor: Color(hex: 0x59C3A5),
+                secondaryColor: nil,
                 showsArea: false
             ),
             progress: nil,
@@ -2650,36 +2600,35 @@ private final class HomeMetricsViewModel: ObservableObject {
         )
     }
 
-    var processCard: MetricCardContent {
-        guard let partition = selectedPartition else {
+    var downloadCard: MetricCardContent {
+        guard selectedNetworkInterface != nil else {
             return placeholderCard(
-                title: "Disk",
-                icon: "internaldrive",
-                iconBackground: Color(hex: 0xF5F1FF),
-                iconForeground: Color(hex: 0x7D59FF),
-                fallbackStyle: .wave,
-                progress: nil
+                title: "Download",
+                icon: "arrow.down",
+                iconBackground: Color(hex: 0xEAF2FF),
+                iconForeground: Color(hex: 0x3E7BFA),
+                fallbackStyle: .line
             )
         }
 
-        let isCritical = partition.usedPercent > 90
-        let accent = isCritical ? Color(hex: 0xE5484D) : Color(hex: 0x7D59FF)
-        let soft = isCritical ? Color(hex: 0xFFE9EA) : Color(hex: 0xF5F1FF)
+        let latestRx = latestNetworkRate?.rxBytesPerSecond ?? 0
 
         return MetricCardContent(
-            title: "Disk",
-            value: "\(bytes(partition.usedBytes)) / \(bytes(partition.totalBytes))",
-            subtitle: "\(partition.path) | \(percent(partition.usedPercent)) used",
-            icon: "internaldrive",
-            iconBackground: soft,
-            iconForeground: accent,
-            chart: nil,
-            progress: CapacityProgressContent(
-                fraction: min(max(CGFloat(partition.usedPercent / 100), 0), 1),
-                fillColor: accent,
-                trackColor: soft
+            title: "Download",
+            value: rate(latestRx),
+            subtitle: "Live download",
+            icon: "arrow.down",
+            iconBackground: Color(hex: 0xEAF2FF),
+            iconForeground: Color(hex: 0x3E7BFA),
+            chart: MetricChartContent(
+                primary: networkRxHistory,
+                secondary: nil,
+                primaryColor: Color(hex: 0x3E7BFA),
+                secondaryColor: nil,
+                showsArea: false
             ),
-            fallbackStyle: .wave
+            progress: nil,
+            fallbackStyle: .line
         )
     }
 
@@ -2698,11 +2647,6 @@ private final class HomeMetricsViewModel: ObservableObject {
             response = decoded
             hasLoadedOnce = true
             recordSample(decoded)
-
-            do {
-                partitions = try await fetch(PartitionsResponse.self, from: Self.partitionsURL)
-            } catch {
-            }
 
             didShowRefreshError = false
         } catch {
@@ -2727,17 +2671,6 @@ private final class HomeMetricsViewModel: ObservableObject {
         return interfaces.first(where: { interface in
             interface.isUp && !(interface.flags.contains("loopback"))
         })
-    }
-
-    private var selectedPartition: PartitionsResponse.PartitionItem? {
-        guard let items = partitions?.items, !items.isEmpty else { return nil }
-        if let critical = items.first(where: { $0.usedPercent > 90 }) {
-            return critical
-        }
-        if let system = items.first(where: { $0.path.uppercased() == "C:\\" }) {
-            return system
-        }
-        return items.first
     }
 
     private func recordSample(_ metrics: SystemMetricsResponse) {
@@ -2847,6 +2780,24 @@ private final class HomeMetricsViewModel: ObservableObject {
 
     private func bytes(_ value: Int64) -> String {
         Self.byteFormatter.string(fromByteCount: value)
+    }
+
+    private func rate(_ value: Int64) -> String {
+        let bytes = Double(max(value, 0))
+        if bytes == 0 {
+            return "0B/s"
+        }
+        if bytes < 1024 * 1024 {
+            return String(format: "%.2fK/s", bytes / 1024)
+        }
+        let units = ["M/s", "G/s", "T/s"]
+        var scaled = bytes / 1024 / 1024
+        var index = 0
+        while scaled >= 1024, index < units.count - 1 {
+            scaled /= 1024
+            index += 1
+        }
+        return String(format: "%.2f%@", scaled, units[index])
     }
 
     private func formatDuration(_ seconds: Int) -> String {
