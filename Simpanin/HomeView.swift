@@ -128,60 +128,62 @@ private struct MinePageView: View {
     private let refreshTimer = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 24) {
-                mineHeader
+        VStack(spacing: 0) {
+            mineHeader
+                .padding(.horizontal, 25)
+                .padding(.top, 44)
 
-                VStack(alignment: .leading, spacing: 10) {
-                    HStack(alignment: .top) {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(metrics.snapshotDateText)
-                                .font(.fitnexBody(size: 11, weight: .regular))
-                                .foregroundColor(FitnexColor.grayText)
-                            Text(metrics.snapshotTitleText)
-                                .font(.fitnexTitle(size: 15))
-                                .foregroundColor(FitnexColor.black)
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 24) {
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(alignment: .top) {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(metrics.snapshotDateText)
+                                    .font(.fitnexBody(size: 11, weight: .regular))
+                                    .foregroundColor(FitnexColor.grayText)
+                                Text(metrics.snapshotTitleText)
+                                    .font(.fitnexTitle(size: 15))
+                                    .foregroundColor(FitnexColor.black)
+                            }
+                            Spacer()
+                            Button {
+                                feedback("Source: \(HomeMetricsViewModel.endpointHost)")
+                            } label: {
+                                Image(systemName: "ellipsis")
+                                    .rotationEffect(.degrees(90))
+                                    .font(.system(size: 18, weight: .bold))
+                                    .foregroundColor(FitnexColor.black)
+                                    .frame(width: 32, height: 32)
+                            }
                         }
-                        Spacer()
-                        Button {
-                            feedback("Source: \(HomeMetricsViewModel.endpointHost)")
-                        } label: {
-                            Image(systemName: "ellipsis")
-                                .rotationEffect(.degrees(90))
-                                .font(.system(size: 18, weight: .bold))
-                                .foregroundColor(FitnexColor.black)
-                                .frame(width: 32, height: 32)
-                        }
+
+                        MetricsStatusStrip(status: metrics.statusText, isLive: metrics.response != nil)
                     }
 
-                    MetricsStatusStrip(status: metrics.statusText, isLive: metrics.response != nil)
+                    Button(action: openDisk) {
+                        ChallengeCard(content: metrics.hostCard)
+                    }
+                    .buttonStyle(.plain)
+
+                    LazyVGrid(columns: [
+                        GridItem(.flexible(), spacing: 15),
+                        GridItem(.flexible(), spacing: 15)
+                    ], alignment: .leading, spacing: 15) {
+                        MetricCard(content: metrics.cpuCard)
+                        MetricCard(content: metrics.memoryCard)
+                        MetricCard(content: metrics.networkCard)
+                        MetricCard(content: metrics.processCard)
+                    }
+
+                    SourceCard(
+                        endpoint: HomeMetricsViewModel.endpointHost,
+                        detail: metrics.sourceDetailText
+                    )
+                    .onTapGesture { feedback("GET /api/public/system/metrics") }
                 }
-
-                Button(action: openDisk) {
-                    ChallengeCard(content: metrics.hostCard)
-                }
-                .buttonStyle(.plain)
-
-                LazyVGrid(columns: [
-                    GridItem(.flexible(), spacing: 15),
-                    GridItem(.flexible(), spacing: 15)
-                ], alignment: .leading, spacing: 15) {
-                    MetricCard(content: metrics.cpuCard)
-                    MetricCard(content: metrics.memoryCard)
-                    MetricCard(content: metrics.networkCard)
-                    MetricCard(content: metrics.processCard)
-                }
-
-                SourceCard(
-                    endpoint: HomeMetricsViewModel.endpointHost,
-                    detail: metrics.sourceDetailText
-                )
-                .onTapGesture { feedback("GET /api/public/system/metrics") }
-
-                Spacer(minLength: 136)
+                .padding(.horizontal, 25)
+                .padding(.top, 20)
             }
-            .padding(.horizontal, 25)
-            .padding(.top, 44)
         }
         .task {
             await metrics.loadIfNeeded()
@@ -233,74 +235,76 @@ private struct ActivityStatusView: View {
     let feedback: (String) -> Void
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 0) {
-                DetailTopBar(title: "Activity Status", back: back, feedback: feedback)
-                    .padding(.top, 44)
+        VStack(spacing: 0) {
+            DetailTopBar(title: "Activity Status", back: back, feedback: feedback)
+                .padding(.horizontal, 25)
+                .padding(.top, 44)
 
-                HStack(spacing: 15) {
-                    ActivityRingCard(title: "Walk", value: "1409", unit: "steps", icon: "figure.walk", progress: 0.63)
-                    ActivityRingCard(title: "Sleep", value: "8HR", unit: "20 sec", icon: "moon.fill", progress: 0.52)
-                }
-                .padding(.top, 40)
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    HStack(spacing: 15) {
+                        ActivityRingCard(title: "Walk", value: "1409", unit: "steps", icon: "figure.walk", progress: 0.63)
+                        ActivityRingCard(title: "Sleep", value: "8HR", unit: "20 sec", icon: "moon.fill", progress: 0.52)
+                    }
+                    .padding(.top, 24)
 
-                HStack(alignment: .center) {
-                    Text("Working Progress")
-                        .font(.fitnexTitle(size: 15))
-                        .foregroundColor(FitnexColor.black)
-                    Spacer()
-                    Button {
-                        feedback("Weekly filter")
-                    } label: {
-                        HStack(spacing: 7) {
-                            Text("Weekly")
-                                .font(.fitnexBody(size: 11, weight: .regular))
-                            Image(systemName: "chevron.down")
-                                .font(.system(size: 8, weight: .medium))
+                    HStack(alignment: .center) {
+                        Text("Working Progress")
+                            .font(.fitnexTitle(size: 15))
+                            .foregroundColor(FitnexColor.black)
+                        Spacer()
+                        Button {
+                            feedback("Weekly filter")
+                        } label: {
+                            HStack(spacing: 7) {
+                                Text("Weekly")
+                                    .font(.fitnexBody(size: 11, weight: .regular))
+                                Image(systemName: "chevron.down")
+                                    .font(.system(size: 8, weight: .medium))
+                            }
+                            .foregroundColor(FitnexColor.orange)
+                            .frame(width: 70, height: 25)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .stroke(FitnexColor.border, lineWidth: 1)
+                            }
                         }
+                    }
+                    .padding(.top, 30)
+
+                    ProgressChart()
+                        .frame(height: 190)
+                        .padding(.top, 18)
+
+                    HStack {
+                        Text("Latest Workout")
+                            .font(.fitnexTitle(size: 15))
+                            .foregroundColor(FitnexColor.black)
+                        Spacer()
+                        Button("See All") {
+                            feedback("Workout list")
+                        }
+                        .font(.fitnexBody(size: 11, weight: .regular))
                         .foregroundColor(FitnexColor.orange)
-                        .frame(width: 70, height: 25)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .stroke(FitnexColor.border, lineWidth: 1)
-                        }
                     }
-                }
-                .padding(.top, 30)
+                    .padding(.top, 28)
 
-                ProgressChart()
-                    .frame(height: 190)
-                    .padding(.top, 18)
-
-                HStack {
-                    Text("Latest Workout")
-                        .font(.fitnexTitle(size: 15))
-                        .foregroundColor(FitnexColor.black)
-                    Spacer()
-                    Button("See All") {
-                        feedback("Workout list")
+                    VStack(spacing: 15) {
+                        WorkoutRow(
+                            title: "Full Body",
+                            detail: "150 Calories burn | 20 min",
+                            symbol: "figure.strengthtraining.traditional"
+                        )
+                        WorkoutRow(
+                            title: "AB Workout",
+                            detail: "180 Calories burn | 15 min",
+                            symbol: "figure.core.training"
+                        )
                     }
-                    .font(.fitnexBody(size: 11, weight: .regular))
-                    .foregroundColor(FitnexColor.orange)
+                    .padding(.top, 15)
                 }
-                .padding(.top, 28)
-
-                VStack(spacing: 15) {
-                    WorkoutRow(
-                        title: "Full Body",
-                        detail: "150 Calories burn | 20 min",
-                        symbol: "figure.strengthtraining.traditional"
-                    )
-                    WorkoutRow(
-                        title: "AB Workout",
-                        detail: "180 Calories burn | 15 min",
-                        symbol: "figure.core.training"
-                    )
-                }
-                .padding(.top, 15)
-                .padding(.bottom, 136)
+                .padding(.horizontal, 25)
             }
-            .padding(.horizontal, 25)
         }
         .background(FitnexColor.background)
     }
@@ -314,61 +318,63 @@ private struct DiskStatusView: View {
     private let refreshTimer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 0) {
-                DetailTopBar(title: "Disk Status", back: back, feedback: feedback)
-                    .padding(.top, 44)
+        VStack(spacing: 0) {
+            DetailTopBar(title: "Disk Status", back: back, feedback: feedback)
+                .padding(.horizontal, 25)
+                .padding(.top, 44)
 
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 15) {
-                        ForEach(viewModel.diskCards) { disk in
-                            DiskInfoCard(content: disk)
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 0) {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 15) {
+                            ForEach(viewModel.diskCards) { disk in
+                                DiskInfoCard(content: disk)
+                            }
+                        }
+                        .padding(.vertical, 1)
+                    }
+                    .padding(.top, 24)
+
+                    HStack(alignment: .center) {
+                        Text("Working Progress")
+                            .font(.fitnexTitle(size: 15))
+                            .foregroundColor(FitnexColor.black)
+                        Spacer()
+                        Text(viewModel.historyWindowLabel)
+                            .font(.fitnexBody(size: 11, weight: .regular))
+                            .foregroundColor(FitnexColor.orange)
+                            .frame(width: 90, height: 25)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                    .stroke(FitnexColor.border, lineWidth: 1)
+                            }
+                    }
+                    .padding(.top, 30)
+
+                    DiskTemperatureChart(content: viewModel.temperatureChart)
+                        .frame(height: 190)
+                        .padding(.top, 18)
+
+                    HStack {
+                        Text("Latest Workout")
+                            .font(.fitnexTitle(size: 15))
+                            .foregroundColor(FitnexColor.black)
+                        Spacer()
+                        Text(viewModel.partitionSummary)
+                            .font(.fitnexBody(size: 11, weight: .regular))
+                            .foregroundColor(FitnexColor.orange)
+                    }
+                    .padding(.top, 28)
+
+                    VStack(spacing: 15) {
+                        ForEach(viewModel.partitionRows) { partition in
+                            PartitionUsageRow(content: partition)
                         }
                     }
-                    .padding(.vertical, 1)
+                    .padding(.top, 15)
                 }
-                .padding(.top, 40)
-
-                HStack(alignment: .center) {
-                    Text("Working Progress")
-                        .font(.fitnexTitle(size: 15))
-                        .foregroundColor(FitnexColor.black)
-                    Spacer()
-                    Text(viewModel.historyWindowLabel)
-                        .font(.fitnexBody(size: 11, weight: .regular))
-                        .foregroundColor(FitnexColor.orange)
-                        .frame(width: 90, height: 25)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                .stroke(FitnexColor.border, lineWidth: 1)
-                        }
-                }
-                .padding(.top, 30)
-
-                DiskTemperatureChart(content: viewModel.temperatureChart)
-                    .frame(height: 190)
-                    .padding(.top, 18)
-
-                HStack {
-                    Text("Latest Workout")
-                        .font(.fitnexTitle(size: 15))
-                        .foregroundColor(FitnexColor.black)
-                    Spacer()
-                    Text(viewModel.partitionSummary)
-                        .font(.fitnexBody(size: 11, weight: .regular))
-                        .foregroundColor(FitnexColor.orange)
-                }
-                .padding(.top, 28)
-
-                VStack(spacing: 15) {
-                    ForEach(viewModel.partitionRows) { partition in
-                        PartitionUsageRow(content: partition)
-                    }
-                }
-                .padding(.top, 15)
-                .padding(.bottom, 136)
+                .padding(.horizontal, 25)
             }
-            .padding(.horizontal, 25)
         }
         .background(FitnexColor.background)
         .task {
@@ -676,56 +682,58 @@ private struct PlaceholderScreen: View {
     let icon: String
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 22) {
-                HStack {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(title)
-                            .font(.fitnexTitle(size: 28))
-                            .foregroundColor(FitnexColor.black)
-                        Text(subtitle)
-                            .font(.fitnexBody(size: 13, weight: .regular))
-                            .foregroundColor(FitnexColor.grayText)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                    }
-                    Spacer()
-                    Circle()
-                        .fill(FitnexColor.orangeSoft)
-                        .frame(width: 54, height: 54)
-                        .overlay {
-                            Image(systemName: icon)
-                                .font(.system(size: 22, weight: .semibold))
-                                .foregroundColor(FitnexColor.orange)
-                        }
+        VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(title)
+                        .font(.fitnexTitle(size: 28))
+                        .foregroundColor(FitnexColor.black)
+                    Text(subtitle)
+                        .font(.fitnexBody(size: 13, weight: .regular))
+                        .foregroundColor(FitnexColor.grayText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-
-                RoundedRectangle(cornerRadius: 26, style: .continuous)
-                    .fill(FitnexColor.card)
-                    .frame(height: 220)
+                Spacer()
+                Circle()
+                    .fill(FitnexColor.orangeSoft)
+                    .frame(width: 54, height: 54)
                     .overlay {
-                        VStack(spacing: 14) {
-                            Image(systemName: icon)
-                                .font(.system(size: 34, weight: .semibold))
-                                .foregroundColor(FitnexColor.orange)
-                            Text("Placeholder")
-                                .font(.fitnexTitle(size: 18))
-                                .foregroundColor(FitnexColor.black)
-                            Text("This tab is wired into the new bottom navigation and ready for a real screen.")
-                                .font(.fitnexBody(size: 12, weight: .regular))
-                                .foregroundColor(FitnexColor.grayText)
-                                .multilineTextAlignment(.center)
-                                .frame(width: 220)
-                        }
+                        Image(systemName: icon)
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundColor(FitnexColor.orange)
                     }
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 26, style: .continuous)
-                            .stroke(FitnexColor.border, lineWidth: 1)
-                    }
-
-                Spacer(minLength: 170)
             }
             .padding(.horizontal, 25)
             .padding(.top, 48)
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 22) {
+                    RoundedRectangle(cornerRadius: 26, style: .continuous)
+                        .fill(FitnexColor.card)
+                        .frame(height: 220)
+                        .overlay {
+                            VStack(spacing: 14) {
+                                Image(systemName: icon)
+                                    .font(.system(size: 34, weight: .semibold))
+                                    .foregroundColor(FitnexColor.orange)
+                                Text("Placeholder")
+                                    .font(.fitnexTitle(size: 18))
+                                    .foregroundColor(FitnexColor.black)
+                                Text("This tab is wired into the new bottom navigation and ready for a real screen.")
+                                    .font(.fitnexBody(size: 12, weight: .regular))
+                                    .foregroundColor(FitnexColor.grayText)
+                                    .multilineTextAlignment(.center)
+                                    .frame(width: 220)
+                            }
+                        }
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                                .stroke(FitnexColor.border, lineWidth: 1)
+                        }
+                }
+                .padding(.horizontal, 25)
+                .padding(.top, 22)
+            }
         }
         .background(FitnexColor.background)
     }
