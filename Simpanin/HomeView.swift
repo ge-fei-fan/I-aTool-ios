@@ -27,14 +27,17 @@ struct HomeView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            FitnexTabBar(
-                selected: selectedTab,
-                isActivityPresented: detailScreen == .activity,
-                selectTab: selectTab,
-                openActivity: openActivity
-            )
-            .padding(.horizontal, 24)
-            .padding(.bottom, 10)
+            if detailScreen != .settings {
+                FitnexTabBar(
+                    selected: selectedTab,
+                    isActivityPresented: detailScreen == .activity,
+                    selectTab: selectTab,
+                    openActivity: openActivity,
+                    openSettings: openSettings
+                )
+                .padding(.horizontal, 24)
+                .padding(.bottom, 10)
+            }
         }
         .animation(.easeInOut(duration: 0.22), value: selectedTab)
         .animation(.easeInOut(duration: 0.22), value: detailScreen)
@@ -71,6 +74,12 @@ struct HomeView: View {
                     feedback: feedback
                 )
                 .transition(.move(edge: .trailing).combined(with: .opacity))
+            case .settings:
+                SettingsView(
+                    back: { self.detailScreen = nil },
+                    feedback: feedback
+                )
+                .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         } else {
             switch selectedTab {
@@ -91,12 +100,6 @@ struct HomeView: View {
                     title: "Location",
                     subtitle: "Host nodes and network points can surface here.",
                     icon: "location"
-                )
-            case .profile:
-                PlaceholderScreen(
-                    title: "Profile",
-                    subtitle: "Account, device and host preferences can live here.",
-                    icon: "person"
                 )
             }
         }
@@ -119,11 +122,25 @@ struct HomeView: View {
     private func openActivity() {
         detailScreen = .activity
     }
+
+    private func openSettings() {
+        detailScreen = .settings
+    }
 }
 
 private enum DetailScreen {
     case activity
     case disk
+    case settings
+}
+
+private struct IdentifiableString: Identifiable {
+    let id: String
+    let value: String
+    init(value: String) {
+        self.id = value
+        self.value = value
+    }
 }
 
 private enum FitnexColor {
@@ -227,22 +244,7 @@ private struct MinePageView: View {
                 .lineSpacing(4)
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-            Button {
-                feedback("Notifications")
-            } label: {
-                ZStack(alignment: .topTrailing) {
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .stroke(FitnexColor.lightText, lineWidth: 1)
-                    Image(systemName: "bell")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(FitnexColor.grayText)
-                    Circle()
-                        .fill(FitnexColor.orange)
-                        .frame(width: 5, height: 5)
-                        .offset(x: -10, y: 10)
-                }
-                .frame(width: 40, height: 40)
-            }
+            SquareIconButton(systemName: "bell", action: { feedback("Notifications") }, dot: true)
         }
     }
 }
@@ -333,6 +335,8 @@ private struct DiskStatusView: View {
     let feedback: (String) -> Void
     private let refreshTimer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
+    @State private var selectedDiskSerial: IdentifiableString?
+
     var body: some View {
         VStack(spacing: 0) {
             DetailTopBar(title: "Disk Status", back: back, feedback: feedback)
@@ -344,7 +348,10 @@ private struct DiskStatusView: View {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 15) {
                             ForEach(viewModel.diskCards) { disk in
-                                DiskInfoCard(content: disk)
+                                DiskInfoCard(content: disk) {
+                                    guard !disk.serialNumber.isEmpty else { return }
+                                    selectedDiskSerial = IdentifiableString(value: disk.serialNumber)
+                                }
                             }
                         }
                         .padding(.vertical, 1)
@@ -393,6 +400,12 @@ private struct DiskStatusView: View {
             }
         }
         .background(FitnexColor.background)
+        .sheet(item: $selectedDiskSerial) { wrapper in
+            DiskSmartSheet(smart: viewModel.smartDetail, isLoading: viewModel.isLoadingSmart)
+                .task {
+                    await viewModel.loadSmart(serialNumber: wrapper.value)
+                }
+        }
         .task {
             await viewModel.loadIfNeeded()
         }
@@ -632,7 +645,6 @@ private enum FitnexTab {
     case home
     case explore
     case location
-    case profile
 }
 
 private struct FitnexTabBar: View {
@@ -640,6 +652,7 @@ private struct FitnexTabBar: View {
     let isActivityPresented: Bool
     let selectTab: (FitnexTab) -> Void
     let openActivity: () -> Void
+    let openSettings: () -> Void
 
     var body: some View {
         ZStack {
@@ -653,7 +666,7 @@ private struct FitnexTabBar: View {
                 tab(.explore, "safari")
                 Spacer(minLength: 62)
                 tab(.location, "location")
-                tab(.profile, "person")
+                actionTab("gearshape", action: openSettings)
             }
             .padding(.horizontal, 18)
 
@@ -689,6 +702,16 @@ private struct FitnexTabBar: View {
         }
         .buttonStyle(.plain)
         .animation(.spring(response: 0.3, dampingFraction: 0.66), value: isSelected)
+    }
+
+    private func actionTab(_ icon: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Image(systemName: icon)
+                .font(.system(size: 18, weight: .medium))
+                .foregroundColor(FitnexColor.grayText)
+                .frame(maxWidth: .infinity, minHeight: 52)
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -813,51 +836,316 @@ private struct ActivityRingCard: View {
     }
 }
 
-private struct DiskInfoCard: View {
-    let content: DiskInfoCardContent
+private struct SettingsView: View {
+    let back: () -> Void
+    let feedback: (String) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
+        VStack(spacing: 0) {
             HStack {
-                Text(content.title)
-                    .font(.fitnexTitle(size: 11))
-                    .foregroundColor(FitnexColor.black)
-                    .lineLimit(2)
+                SquareIconButton(systemName: "chevron.left", action: back)
                 Spacer()
-                SmallCircleIcon(
-                    systemName: "internaldrive",
-                    background: content.accent.opacity(0.12),
-                    foreground: content.accent
-                )
             }
-            .padding(.horizontal, 15)
-            .padding(.top, 20)
+            .padding(.horizontal, 25)
+            .padding(.top, 44)
 
-            Spacer()
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    Button {
+                        feedback("\u{68C0}\u{67E5}\u{66F4}\u{65B0}")
+                    } label: {
+                        HStack(spacing: 14) {
+                            Circle()
+                                .fill(FitnexColor.orangeSoft)
+                                .frame(width: 42, height: 42)
+                                .overlay {
+                                    Image(systemName: "arrow.triangle.2.circlepath")
+                                        .font(.system(size: 18, weight: .semibold))
+                                        .foregroundColor(FitnexColor.orange)
+                                }
 
-            VStack(spacing: 6) {
-                Text(content.temperatureText)
-                    .font(.fitnexTitle(size: 20))
-                    .foregroundColor(content.accent)
-                Text(content.capacityText)
-                    .font(.fitnexBody(size: 9, weight: .regular))
-                    .foregroundColor(FitnexColor.grayText)
-                Text(content.statusText)
-                    .font(.fitnexBody(size: 9, weight: .regular))
-                    .foregroundColor(FitnexColor.lightText)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
+                            Text("\u{68C0}\u{67E5}\u{66F4}\u{65B0}")
+                                .font(.fitnexTitle(size: 15))
+                                .foregroundColor(FitnexColor.black)
+
+                            Spacer()
+
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(FitnexColor.orange)
+                        }
+                        .padding(.horizontal, 15)
+                        .frame(height: 72)
+                        .background(FitnexColor.card, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(FitnexColor.border, lineWidth: 1)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                }
+                .padding(.horizontal, 25)
+                .padding(.top, 28)
             }
-            .frame(maxWidth: .infinity)
-            .padding(.bottom, 22)
         }
-        .frame(width: 155, height: 180)
-        .background(FitnexColor.card, in: RoundedRectangle(cornerRadius: 25, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 25, style: .continuous)
-                .stroke(FitnexColor.border, lineWidth: 1)
+        .background(FitnexColor.background)
+    }
+}
+private struct DiskInfoCard: View {
+    let content: DiskInfoCardContent
+    var onTap: (() -> Void)?
+
+    var body: some View {
+        Button(action: { onTap?() }) {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack {
+                    Text(content.title)
+                        .font(.fitnexTitle(size: 11))
+                        .foregroundColor(FitnexColor.black)
+                        .lineLimit(2)
+                    Spacer()
+                    SmallCircleIcon(
+                        systemName: "internaldrive",
+                        background: content.accent.opacity(0.12),
+                        foreground: content.accent
+                    )
+                }
+                .padding(.horizontal, 15)
+                .padding(.top, 16)
+
+                VStack(spacing: 4) {
+                    Text(content.temperatureText)
+                        .font(.fitnexTitle(size: 20))
+                        .foregroundColor(content.accent)
+                    Text(content.capacityText)
+                        .font(.fitnexBody(size: 9, weight: .regular))
+                        .foregroundColor(FitnexColor.grayText)
+                    Text(content.statusText)
+                        .font(.fitnexBody(size: 9, weight: .regular))
+                        .foregroundColor(FitnexColor.lightText)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.top, 14)
+                .padding(.bottom, 16)
+            }
+            .frame(width: 155, height: 150)
+            .background(FitnexColor.card, in: RoundedRectangle(cornerRadius: 25, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 25, style: .continuous)
+                    .stroke(FitnexColor.border, lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct DiskSmartSheet: View {
+    let smart: DiskSmartResponse?
+    let isLoading: Bool
+
+    var body: some View {
+        NavigationView {
+            Group {
+                if isLoading {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                        Text("Loading SMART data...")
+                            .font(.fitnexBody(size: 13, weight: .regular))
+                            .foregroundColor(FitnexColor.grayText)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else if let smart {
+                    smartContent(smart)
+                } else {
+                    VStack(spacing: 12) {
+                        Image(systemName: "exclamationmark.triangle")
+                            .font(.system(size: 28, weight: .medium))
+                            .foregroundColor(FitnexColor.grayText)
+                        Text("SMART data unavailable")
+                            .font(.fitnexBody(size: 13, weight: .regular))
+                            .foregroundColor(FitnexColor.grayText)
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text(smart?.friendlyName ?? "Disk SMART")
+                        .font(.fitnexTitle(size: 16))
+                        .foregroundColor(FitnexColor.black)
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private func smartContent(_ smart: DiskSmartResponse) -> some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                overviewSection(smart)
+
+                if !smart.attributes.isEmpty {
+                    Text("SMART Attributes")
+                        .font(.fitnexTitle(size: 15))
+                        .foregroundColor(FitnexColor.black)
+                        .padding(.top, 22)
+
+                    VStack(spacing: 0) {
+                        attributeHeader()
+                        ForEach(smart.attributes) { attr in
+                            attributeRow(attr)
+                            if attr.id != smart.attributes.last?.id {
+                                Divider()
+                                    .background(FitnexColor.pale)
+                            }
+                        }
+                    }
+                    .background(FitnexColor.card, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(FitnexColor.border, lineWidth: 1)
+                    }
+                    .padding(.top, 12)
+                    .padding(.bottom, 30)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 16)
         }
     }
+
+    private func overviewSection(_ smart: DiskSmartResponse) -> some View {
+        VStack(spacing: 0) {
+            LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+                smartMetricCard(
+                    title: "Health",
+                    value: smart.healthStatus,
+                    color: smart.healthStatus.uppercased() == "PASSED" ? Color(hex: 0x14A46A) : Color(hex: 0xE5484D)
+                )
+                smartMetricCard(
+                    title: "Temperature",
+                    value: smart.temperatureCelsius.map { "\($0) C" } ?? "N/A",
+                    color: FitnexColor.orange
+                )
+                smartMetricCard(
+                    title: "Power On Hours",
+                    value: smart.powerOnHours.map { formatHours($0) } ?? "N/A",
+                    color: Color(hex: 0x3E7BFA)
+                )
+                smartMetricCard(
+                    title: "Power Cycles",
+                    value: smart.powerCycleCount.map { "\($0)" } ?? "N/A",
+                    color: Color(hex: 0x8A4DFF)
+                )
+            }
+
+            HStack(spacing: 6) {
+                if let fw = smart.firmwareVersion, !fw.isEmpty {
+                    Text("FW \(fw)")
+                }
+                if let bus = smart.busType, !bus.isEmpty {
+                    Text(bus)
+                }
+                if let size = smart.sizeBytes {
+                    Text(Self.byteFormatter.string(fromByteCount: size))
+                }
+            }
+            .font(.fitnexBody(size: 10, weight: .regular))
+            .foregroundColor(FitnexColor.grayText)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.top, 14)
+        }
+    }
+
+    private func smartMetricCard(title: String, value: String, color: Color) -> some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.fitnexBody(size: 10, weight: .regular))
+                .foregroundColor(FitnexColor.grayText)
+            Text(value)
+                .font(.fitnexTitle(size: 15))
+                .foregroundColor(color)
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(FitnexColor.pale, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    private func attributeHeader() -> some View {
+        HStack(spacing: 0) {
+            Text("ID")
+                .frame(width: 36, alignment: .leading)
+            Text("Attribute")
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text("Value")
+                .frame(width: 38, alignment: .trailing)
+            Text("Worst")
+                .frame(width: 38, alignment: .trailing)
+            Text("Thresh")
+                .frame(width: 42, alignment: .trailing)
+            Text("Raw")
+                .frame(width: 55, alignment: .trailing)
+        }
+        .font(.fitnexBody(size: 9, weight: .semibold))
+        .foregroundColor(FitnexColor.grayText)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(FitnexColor.pale)
+    }
+
+    private func attributeRow(_ attr: DiskSmartAttribute) -> some View {
+        HStack(spacing: 0) {
+            Text("\(attr.id)")
+                .frame(width: 36, alignment: .leading)
+            Text(attr.name)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text("\(attr.value)")
+                .frame(width: 38, alignment: .trailing)
+            Text("\(attr.worst)")
+                .frame(width: 38, alignment: .trailing)
+            Text(attr.threshold > 0 ? "\(attr.threshold)" : "-")
+                .frame(width: 42, alignment: .trailing)
+            Text(attr.rawString.isEmpty ? attr.rawValue : attr.rawString)
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                .frame(width: 55, alignment: .trailing)
+        }
+        .font(.fitnexBody(size: 9, weight: .regular))
+        .foregroundColor(FitnexColor.black)
+        .padding(.horizontal, 12)
+        .padding(.vertical, 9)
+    }
+
+    private func formatHours(_ hours: Int) -> String {
+        if hours < 24 {
+            return "\(hours)h"
+        }
+        let days = hours / 24
+        let remain = hours % 24
+        if days < 365 {
+            return remain > 0 ? "\(days)d \(remain)h" : "\(days)d"
+        }
+        let years = days / 365
+        let remainDays = days % 365
+        return remainDays > 0 ? "\(years)y \(remainDays)d" : "\(years)y"
+    }
+
+    private static let byteFormatter: ByteCountFormatter = {
+        let f = ByteCountFormatter()
+        f.allowedUnits = [.useGB, .useTB]
+        f.countStyle = .binary
+        f.includesUnit = true
+        f.isAdaptive = true
+        return f
+    }()
 }
 
 private struct DiskTemperatureChart: View {
@@ -1141,20 +1429,25 @@ private struct SquareIconButton: View {
     var body: some View {
         Button(action: action) {
             ZStack(alignment: .topTrailing) {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(FitnexColor.lightText, lineWidth: 1)
+                RoundedRectangle(cornerRadius: 11, style: .continuous)
+                    .fill(Color.white)
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 11, style: .continuous)
+                            .stroke(FitnexColor.border, lineWidth: 1)
+                    }
                 Image(systemName: systemName)
-                    .font(.system(size: 15, weight: .medium))
+                    .font(.system(size: 14, weight: .medium))
                     .foregroundColor(FitnexColor.grayText)
                 if dot {
                     Circle()
                         .fill(FitnexColor.orange)
                         .frame(width: 5, height: 5)
-                        .offset(x: -10, y: 10)
+                        .offset(x: -8, y: 8)
                 }
             }
             .frame(width: 35, height: 35)
         }
+        .buttonStyle(.plain)
     }
 }
 
@@ -1400,6 +1693,7 @@ private struct NetworkRateSample {
 
 private struct DiskInfoCardContent: Identifiable {
     let id: String
+    let serialNumber: String
     let title: String
     let temperatureText: String
     let capacityText: String
@@ -1453,6 +1747,8 @@ private final class DiskStatusViewModel: ObservableObject {
     @Published private(set) var disks: PhysicalDisksResponse?
     @Published private(set) var partitions: PartitionsResponse?
     @Published private(set) var history: DiskTemperatureHistoryResponse?
+    @Published private(set) var smartDetail: DiskSmartResponse?
+    @Published private(set) var isLoadingSmart = false
     @Published private(set) var hasLoadedOnce = false
     @Published private(set) var isRefreshing = false
     @Published var toastMessage: String?
@@ -1471,6 +1767,7 @@ private final class DiskStatusViewModel: ObservableObject {
                 }
                 return DiskInfoCardContent(
                     id: disk.deviceId,
+                    serialNumber: disk.serialNumber,
                     title: disk.friendlyName,
                     temperatureText: temperatureText,
                     capacityText: bytes(disk.sizeBytes),
@@ -1485,6 +1782,7 @@ private final class DiskStatusViewModel: ObservableObject {
             return [
                 DiskInfoCardContent(
                     id: "loading-0",
+                    serialNumber: "",
                     title: "Loading disk",
                     temperatureText: "--",
                     capacityText: "Fetching capacity",
@@ -1493,6 +1791,7 @@ private final class DiskStatusViewModel: ObservableObject {
                 ),
                 DiskInfoCardContent(
                     id: "loading-1",
+                    serialNumber: "",
                     title: "Loading disk",
                     temperatureText: "--",
                     capacityText: "Fetching capacity",
@@ -1506,6 +1805,7 @@ private final class DiskStatusViewModel: ObservableObject {
         return [
             DiskInfoCardContent(
                 id: "unavailable",
+                serialNumber: "",
                 title: "Disk unavailable",
                 temperatureText: "--",
                 capacityText: "No recent disk data",
@@ -1651,6 +1951,22 @@ private final class DiskStatusViewModel: ObservableObject {
         } else if !didShowRefreshError {
             toastMessage = "Disk refresh failed"
             didShowRefreshError = true
+        }
+    }
+
+    func loadSmart(serialNumber: String) async {
+        guard !isLoadingSmart else { return }
+        isLoadingSmart = true
+        smartDetail = nil
+        defer { isLoadingSmart = false }
+
+        let encoded = serialNumber.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? serialNumber
+        let url = URL(string: "http://192.168.2.202:12225/api/public/system/disks/smart/\(encoded)")!
+
+        do {
+            smartDetail = try await fetch(DiskSmartResponse.self, from: url)
+        } catch {
+            smartDetail = nil
         }
     }
 
@@ -2241,6 +2557,31 @@ private struct DiskTemperatureHistoryResponse: Decodable {
         let temperatureCelsius: Int?
         let temperatureError: String?
     }
+}
+
+private struct DiskSmartResponse: Decodable {
+    let deviceId: String
+    let friendlyName: String
+    let serialNumber: String
+    let firmwareVersion: String?
+    let mediaType: String
+    let busType: String?
+    let healthStatus: String
+    let sizeBytes: Int64?
+    let temperatureCelsius: Int?
+    let powerOnHours: Int?
+    let powerCycleCount: Int?
+    let attributes: [DiskSmartAttribute]
+}
+
+private struct DiskSmartAttribute: Decodable, Identifiable {
+    let id: Int
+    let name: String
+    let value: Int
+    let worst: Int
+    let threshold: Int
+    let rawValue: String
+    let rawString: String
 }
 
 private struct PartitionsResponse: Decodable {
