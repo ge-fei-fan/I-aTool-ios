@@ -40,7 +40,7 @@ struct HomeView: View {
         .animation(.easeInOut(duration: 0.22), value: detailScreen)
         .animation(.easeInOut(duration: 0.18), value: feedbackMessage)
         .task {
-            async let homeTask: Void = homeMetrics.loadIfNeeded()
+            async let homeTask: Void = homeMetrics.refresh()
             async let diskTask: Void = diskStatus.loadIfNeeded()
             _ = await (homeTask, diskTask)
         }
@@ -131,7 +131,7 @@ private struct IdentifiableString: Identifiable {
     }
 }
 
-private struct AppVersionInfo: Codable, Equatable {
+private struct AppVersionInfo {
     let version: String
     let build: String
 
@@ -142,92 +142,9 @@ private struct AppVersionInfo: Codable, Equatable {
         return AppVersionInfo(version: version, build: build)
     }
 
-    var identifier: String {
-        "\(version)-\(build)"
-    }
-
     var displayText: String {
         "\(version) (\(build))"
     }
-}
-
-private struct VersionHistoryEntry: Codable, Identifiable {
-    let id: String
-    let version: String
-    let build: String
-    let installedAt: Date
-
-    var displayText: String {
-        "\(version) (\(build))"
-    }
-}
-
-@MainActor
-private final class VersionHistoryStore: ObservableObject {
-    @Published private(set) var current = AppVersionInfo.current
-    @Published private(set) var entries: [VersionHistoryEntry] = []
-
-    private let defaults = UserDefaults.standard
-    private let entriesKey = "fitnex.versionHistory.entries"
-    private let lastSeenKey = "fitnex.versionHistory.lastSeen"
-
-    init() {
-        load()
-        recordCurrentIfNeeded()
-    }
-
-    func recordCurrentIfNeeded() {
-        current = .current
-        let lastSeen = defaults.string(forKey: lastSeenKey)
-        guard lastSeen != current.identifier else { return }
-
-        let entry = VersionHistoryEntry(
-            id: UUID().uuidString,
-            version: current.version,
-            build: current.build,
-            installedAt: Date()
-        )
-        entries.insert(entry, at: 0)
-        entries = Array(entries.prefix(20))
-        save()
-        defaults.set(current.identifier, forKey: lastSeenKey)
-    }
-
-    var latestRecordText: String {
-        guard let entry = entries.first else {
-            return "\u{6682}\u{65E0}\u{66F4}\u{65B0}\u{8BB0}\u{5F55}"
-        }
-        return "\(Self.dateFormatter.string(from: entry.installedAt)) -> \(entry.displayText)"
-    }
-
-    var compactHistoryText: String {
-        if entries.isEmpty {
-            return latestRecordText
-        }
-        return entries.prefix(3).map { entry in
-            "\(Self.dateFormatter.string(from: entry.installedAt))  \(entry.displayText)"
-        }.joined(separator: "\n")
-    }
-
-    private func load() {
-        guard let data = defaults.data(forKey: entriesKey),
-              let decoded = try? JSONDecoder().decode([VersionHistoryEntry].self, from: data) else {
-            entries = []
-            return
-        }
-        entries = decoded
-    }
-
-    private func save() {
-        guard let data = try? JSONEncoder().encode(entries) else { return }
-        defaults.set(data, forKey: entriesKey)
-    }
-
-    private static let dateFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd HH:mm"
-        return formatter
-    }()
 }
 
 private struct HTTPLogChunk: Identifiable, Hashable {
@@ -499,9 +416,7 @@ private struct MinePageView: View {
                 .padding(.top, 20)
             }
         }
-        .task {
-            await metrics.loadIfNeeded()
-        }
+        .task { await metrics.refresh() }
         .onReceive(refreshTimer) { _ in
             Task {
                 await metrics.refresh()
@@ -654,9 +569,57 @@ private struct DiskStatusView: View {
                     }
                     .padding(.top, 30)
 
-                    DiskTemperatureChart(content: viewModel.temperatureChart)
+                    DiskTemperatureChart(
+                        content: viewModel.temperatureChart,
+                        selectedTime: viewModel.selectedTemperatureTime,
+                        selectTime: viewModel.selectTemperatureTime
+                    )
                         .frame(height: 190)
                         .padding(.top, 18)
+
+                    if let selectedSummary = viewModel.selectedTemperatureSummary {
+                        VStack(alignment: .leading, spacing: 10) {
+                            HStack {
+                                Text("Selected Time")
+                                    .font(.fitnexTitle(size: 13))
+                                    .foregroundColor(FitnexColor.black)
+                                Spacer()
+                                Text(selectedSummary.timeText)
+                                    .font(.fitnexBody(size: 11, weight: .semibold))
+                                    .foregroundColor(FitnexColor.orange)
+                            }
+
+                            VStack(spacing: 8) {
+                                ForEach(selectedSummary.items) { item in
+                                    HStack(spacing: 8) {
+                                        Circle()
+                                            .fill(item.color)
+                                            .frame(width: 7, height: 7)
+                                        Text(item.title)
+                                            .font(.fitnexBody(size: 10, weight: .regular))
+                                            .foregroundColor(FitnexColor.grayText)
+                                            .lineLimit(1)
+                                        Spacer()
+                                        VStack(alignment: .trailing, spacing: 1) {
+                                            Text(item.valueText)
+                                                .font(.fitnexTitle(size: 12))
+                                                .foregroundColor(item.isAvailable ? FitnexColor.black : FitnexColor.lightText)
+                                            Text(item.sampleTimeText)
+                                                .font(.fitnexBody(size: 8, weight: .regular))
+                                                .foregroundColor(FitnexColor.lightText)
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        .padding(14)
+                        .background(FitnexColor.card, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 15, style: .continuous)
+                                .stroke(FitnexColor.border, lineWidth: 1)
+                        }
+                        .padding(.top, 14)
+                    }
 
                     HStack {
                         Text("Latest Workout")
@@ -1073,7 +1036,6 @@ private struct ActivityRingCard: View {
 private struct SettingsView: View {
     let feedback: (String) -> Void
     @StateObject private var updateVM = UpdateViewModel()
-    @StateObject private var versionStore = VersionHistoryStore()
     @ObservedObject private var logStore = HTTPLogStore.shared
     @State private var showingLogs = false
 
@@ -1104,20 +1066,6 @@ private struct SettingsView: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
-                    settingsRow(
-                        icon: "number.circle.fill",
-                        title: "\u{5F53}\u{524D}\u{7248}\u{672C}",
-                        subtitle: versionStore.current.displayText,
-                        showsChevron: false
-                    )
-
-                    settingsRow(
-                        icon: "clock.arrow.circlepath",
-                        title: "\u{66F4}\u{65B0}\u{8BB0}\u{5F55}",
-                        subtitle: versionStore.latestRecordText,
-                        showsChevron: false
-                    )
-
                     Button {
                         logStore.reloadChunks(selectCurrentIfNeeded: true)
                         showingLogs = true
@@ -1142,6 +1090,7 @@ private struct SettingsView: View {
                         settingsRow(
                             icon: updateVM.localIPAURL != nil ? "square.and.arrow.down.fill" : "arrow.triangle.2.circlepath",
                             title: buttonTitle,
+                            trailingText: AppVersionInfo.current.displayText,
                             subtitle: updateSubtitle,
                             showsProgress: updateVM.isChecking || updateVM.isDownloading
                         )
@@ -1177,7 +1126,6 @@ private struct SettingsView: View {
                 .presentationDetents([.medium, .large])
         }
         .onAppear {
-            versionStore.recordCurrentIfNeeded()
             logStore.reloadChunks(selectCurrentIfNeeded: true)
         }
         .onChange(of: updateVM.localIPAURL) { url in
@@ -1208,7 +1156,7 @@ private struct SettingsView: View {
         return nil
     }
 
-    private func settingsRow(icon: String, title: String, subtitle: String? = nil, showsProgress: Bool = false, showsChevron: Bool = true) -> some View {
+    private func settingsRow(icon: String, title: String, trailingText: String? = nil, subtitle: String? = nil, showsProgress: Bool = false, showsChevron: Bool = true) -> some View {
         HStack(spacing: 14) {
             Circle()
                 .fill(FitnexColor.orangeSoft)
@@ -1225,9 +1173,17 @@ private struct SettingsView: View {
                 }
 
             VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.fitnexTitle(size: 15))
-                    .foregroundColor(FitnexColor.black)
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(title)
+                        .font(.fitnexTitle(size: 15))
+                        .foregroundColor(FitnexColor.black)
+                    if let trailingText {
+                        Text(trailingText)
+                            .font(.fitnexBody(size: 11, weight: .semibold))
+                            .foregroundColor(FitnexColor.grayText)
+                            .lineLimit(1)
+                    }
+                }
                 if let subtitle {
                     Text(subtitle)
                         .font(.fitnexBody(size: 11, weight: .regular))
@@ -1663,62 +1619,88 @@ private struct DiskSmartSheet: View {
 
 private struct DiskTemperatureChart: View {
     let content: DiskTemperatureChartContent
+    let selectedTime: Date?
+    let selectTime: (Date) -> Void
 
     var body: some View {
         VStack(spacing: 0) {
-            ZStack(alignment: .leading) {
-                Canvas { context, size in
-                    let left: CGFloat = 24
-                    let right: CGFloat = 8
-                    let top: CGFloat = 8
-                    let bottom: CGFloat = 28
-                    let chart = CGRect(
-                        x: left,
-                        y: top,
-                        width: size.width - left - right,
-                        height: size.height - top - bottom
-                    )
+            GeometryReader { proxy in
+                let chart = chartRect(in: proxy.size)
 
-                    let ticks = content.yAxisLabels
-                    let rows = max(ticks.count - 1, 1)
-                    for row in 0 ... rows {
-                        let y = chart.minY + chart.height * CGFloat(row) / CGFloat(rows)
-                        var grid = Path()
-                        grid.move(to: CGPoint(x: chart.minX, y: y))
-                        grid.addLine(to: CGPoint(x: chart.maxX, y: y))
-                        context.stroke(grid, with: .color(FitnexColor.pale), lineWidth: 1)
-                    }
-
-                    for series in content.series where series.points.count > 1 {
-                        let points = normalizedPoints(series.points, in: chart, minValue: content.minValue, maxValue: content.maxValue)
-                        var path = Path()
-                        path.move(to: points[0])
-                        for point in points.dropFirst() {
-                            path.addLine(to: point)
+                ZStack(alignment: .leading) {
+                    Canvas { context, size in
+                        let chart = chartRect(in: size)
+                        let ticks = content.yAxisLabels
+                        let rows = max(ticks.count - 1, 1)
+                        for row in 0 ... rows {
+                            let y = chart.minY + chart.height * CGFloat(row) / CGFloat(rows)
+                            var grid = Path()
+                            grid.move(to: CGPoint(x: chart.minX, y: y))
+                            grid.addLine(to: CGPoint(x: chart.maxX, y: y))
+                            context.stroke(grid, with: .color(FitnexColor.pale), lineWidth: 1)
                         }
-                        context.stroke(path, with: .color(series.color), lineWidth: 1.8)
-                    }
-                }
 
-                VStack {
-                    ForEach(content.yAxisLabels, id: \.self) { label in
-                        Text(label)
-                            .font(.fitnexBody(size: 8, weight: .regular))
-                            .foregroundColor(FitnexColor.grayText)
-                            .frame(width: 18, alignment: .trailing)
-                        if label != content.yAxisLabels.last { Spacer() }
+                        for series in content.series {
+                            let points = normalizedPoints(series.points, in: chart)
+                            guard let first = points.first else { continue }
+
+                            if points.count == 1 {
+                                context.fill(Path(ellipseIn: CGRect(x: first.x - 2.5, y: first.y - 2.5, width: 5, height: 5)), with: .color(series.color))
+                                continue
+                            }
+
+                            var path = Path()
+                            path.move(to: first)
+                            for point in points.dropFirst() {
+                                path.addLine(to: point)
+                            }
+                            context.stroke(path, with: .color(series.color), lineWidth: 1.8)
+                        }
+
+                        if let selectedTime {
+                            let x = xPosition(for: selectedTime, in: chart)
+                            var marker = Path()
+                            marker.move(to: CGPoint(x: x, y: chart.minY))
+                            marker.addLine(to: CGPoint(x: x, y: chart.maxY))
+                            context.stroke(marker, with: .color(FitnexColor.orange.opacity(0.75)), lineWidth: 1)
+
+                            for series in content.series {
+                                guard let nearest = nearestPoint(in: series.points, to: selectedTime) else { continue }
+                                let point = pointPosition(nearest, in: chart)
+                                context.fill(Path(ellipseIn: CGRect(x: point.x - 3.5, y: point.y - 3.5, width: 7, height: 7)), with: .color(.white))
+                                context.stroke(Path(ellipseIn: CGRect(x: point.x - 3.5, y: point.y - 3.5, width: 7, height: 7)), with: .color(series.color), lineWidth: 1.5)
+                            }
+                        }
                     }
+
+                    VStack {
+                        ForEach(content.yAxisLabels, id: \.self) { label in
+                            Text(label)
+                                .font(.fitnexBody(size: 8, weight: .regular))
+                                .foregroundColor(FitnexColor.grayText)
+                                .frame(width: 18, alignment: .trailing)
+                            if label != content.yAxisLabels.last { Spacer() }
+                        }
+                    }
+                    .frame(height: chart.height)
+                    .padding(.top, chart.minY - 4)
                 }
-                .frame(height: 156)
-                .padding(.top, 4)
+                .contentShape(Rectangle())
+                .gesture(
+                    DragGesture(minimumDistance: 0)
+                        .onChanged { value in
+                            selectTime(date(at: value.location.x, in: chart))
+                        }
+                )
             }
+            .frame(height: 164)
 
             HStack {
-                ForEach(content.xAxisLabels, id: \.self) { label in
-                    Text(label)
+                ForEach(content.xAxisLabels.indices, id: \.self) { index in
+                    Text(content.xAxisLabels[index])
                         .font(.fitnexBody(size: 8, weight: .regular))
                         .foregroundColor(FitnexColor.grayText)
-                    if label != content.xAxisLabels.last { Spacer() }
+                    if index < content.xAxisLabels.count - 1 { Spacer() }
                 }
             }
             .padding(.leading, 44)
@@ -1746,18 +1728,49 @@ private struct DiskTemperatureChart: View {
 
     private func normalizedPoints(
         _ points: [DiskTemperaturePointValue],
-        in rect: CGRect,
-        minValue: Double,
-        maxValue: Double
+        in rect: CGRect
     ) -> [CGPoint] {
-        let range = maxValue - minValue
-        let count = Swift.max(points.count - 1, 1)
-        return points.enumerated().map { index, point in
-            let x = rect.minX + rect.width * CGFloat(index) / CGFloat(count)
-            let normalized = range == 0 ? 0.5 : (point.temperature - minValue) / range
-            let y = rect.maxY - rect.height * CGFloat(normalized)
-            return CGPoint(x: x, y: y)
+        points.map { pointPosition($0, in: rect) }
+    }
+
+    private func pointPosition(_ point: DiskTemperaturePointValue, in rect: CGRect) -> CGPoint {
+        let range = content.maxValue - content.minValue
+        let normalized = range == 0 ? 0.5 : (point.temperature - content.minValue) / range
+        return CGPoint(
+            x: xPosition(for: point.sampledAt, in: rect),
+            y: rect.maxY - rect.height * CGFloat(normalized)
+        )
+    }
+
+    private func xPosition(for date: Date, in rect: CGRect) -> CGFloat {
+        let total = max(content.endDate.timeIntervalSince(content.startDate), 1)
+        let elapsed = min(max(date.timeIntervalSince(content.startDate), 0), total)
+        return rect.minX + rect.width * CGFloat(elapsed / total)
+    }
+
+    private func date(at x: CGFloat, in rect: CGRect) -> Date {
+        let clampedX = min(max(x, rect.minX), rect.maxX)
+        let progress = rect.width == 0 ? 0 : Double((clampedX - rect.minX) / rect.width)
+        return content.startDate.addingTimeInterval(content.endDate.timeIntervalSince(content.startDate) * progress)
+    }
+
+    private func nearestPoint(in points: [DiskTemperaturePointValue], to date: Date) -> DiskTemperaturePointValue? {
+        points.min { lhs, rhs in
+            abs(lhs.sampledAt.timeIntervalSince(date)) < abs(rhs.sampledAt.timeIntervalSince(date))
         }
+    }
+
+    private func chartRect(in size: CGSize) -> CGRect {
+        let left: CGFloat = 24
+        let right: CGFloat = 8
+        let top: CGFloat = 8
+        let bottom: CGFloat = 0
+        return CGRect(
+            x: left,
+            y: top,
+            width: max(size.width - left - right, 1),
+            height: max(size.height - top - bottom, 1)
+        )
     }
 }
 
@@ -2242,8 +2255,24 @@ private struct DiskTemperatureChartContent {
     let legend: [DiskTemperatureLegendItem]
     let minValue: Double
     let maxValue: Double
+    let startDate: Date
+    let endDate: Date
     let yAxisLabels: [String]
     let xAxisLabels: [String]
+}
+
+private struct DiskTemperatureSelectedItem: Identifiable {
+    let id: String
+    let title: String
+    let color: Color
+    let valueText: String
+    let sampleTimeText: String
+    let isAvailable: Bool
+}
+
+private struct DiskTemperatureSelectedSummary {
+    let timeText: String
+    let items: [DiskTemperatureSelectedItem]
 }
 
 private struct PartitionRowContent: Identifiable {
@@ -2269,6 +2298,7 @@ private final class DiskStatusViewModel: ObservableObject {
     @Published private(set) var isLoadingSmart = false
     @Published private(set) var hasLoadedOnce = false
     @Published private(set) var isRefreshing = false
+    @Published private(set) var selectedTemperatureTime: Date?
     @Published var toastMessage: String?
     private var didShowRefreshError = false
 
@@ -2399,7 +2429,7 @@ private final class DiskStatusViewModel: ObservableObject {
     var temperatureChart: DiskTemperatureChartContent {
         let palette = diskPalette
         let historyItems = history?.items ?? []
-        let series: [DiskTemperatureSeriesContent] = historyItems.enumerated().compactMap { index, item in
+        let series: [DiskTemperatureSeriesContent] = historyItems.enumerated().map { index, item in
             let points = item.points.compactMap { point -> DiskTemperaturePointValue? in
                 guard let value = point.temperatureCelsius,
                       let sampledAt = parseTimestamp(point.sampledAt) else { return nil }
@@ -2418,15 +2448,55 @@ private final class DiskStatusViewModel: ObservableObject {
         let maxValue = ceil((values.max() ?? 50) + 1)
         let step = max((maxValue - minValue) / 5, 1)
         let yAxisLabels = stride(from: maxValue, through: minValue, by: -step).map { "\(Int($0))" }
+        let allDates = series.flatMap { $0.points.map(\.sampledAt) }
+        let fallbackEnd = allDates.max() ?? Date()
+        let endDate = parseTimestamp(history?.to ?? "") ?? fallbackEnd
+        var startDate = parseTimestamp(history?.from ?? "") ?? allDates.min() ?? endDate.addingTimeInterval(-24 * 60 * 60)
+        if startDate >= endDate {
+            startDate = endDate.addingTimeInterval(-24 * 60 * 60)
+        }
 
         return DiskTemperatureChartContent(
             series: series,
             legend: series.map { DiskTemperatureLegendItem(id: $0.id, title: $0.title, color: $0.color) },
             minValue: minValue,
             maxValue: maxValue,
+            startDate: startDate,
+            endDate: endDate,
             yAxisLabels: yAxisLabels.isEmpty ? ["50", "40", "30"] : yAxisLabels,
-            xAxisLabels: ["24h", "18h", "12h", "6h", "Now"]
+            xAxisLabels: timeAxisLabels(from: startDate, to: endDate)
         )
+    }
+
+    var selectedTemperatureSummary: DiskTemperatureSelectedSummary? {
+        let chart = temperatureChart
+        guard !chart.series.isEmpty else { return nil }
+        let selectedTime = selectedTemperatureTime ?? latestTemperatureSampleTime(in: chart.series) ?? chart.endDate
+        let items = chart.series.map { series -> DiskTemperatureSelectedItem in
+            let nearest = nearestPoint(in: series.points, to: selectedTime)
+            let availablePoint: DiskTemperaturePointValue?
+            if let nearest, abs(nearest.sampledAt.timeIntervalSince(selectedTime)) <= 45 * 60 {
+                availablePoint = nearest
+            } else {
+                availablePoint = nil
+            }
+            return DiskTemperatureSelectedItem(
+                id: series.id,
+                title: series.title,
+                color: series.color,
+                valueText: availablePoint.map { "\(Int($0.temperature.rounded())) C" } ?? "Unavailable",
+                sampleTimeText: availablePoint.map { Self.selectedTimeFormatter.string(from: $0.sampledAt) } ?? "--",
+                isAvailable: availablePoint != nil
+            )
+        }
+        return DiskTemperatureSelectedSummary(
+            timeText: Self.selectedDateFormatter.string(from: selectedTime),
+            items: items
+        )
+    }
+
+    func selectTemperatureTime(_ date: Date) {
+        selectedTemperatureTime = date
     }
 
     func loadIfNeeded() async {
@@ -2457,6 +2527,7 @@ private final class DiskStatusViewModel: ObservableObject {
 
         do {
             history = try await fetch(DiskTemperatureHistoryResponse.self, from: historyURL)
+            normalizeSelectedTemperatureTime()
             hadSuccess = true
         } catch {
         }
@@ -2518,6 +2589,30 @@ private final class DiskStatusViewModel: ObservableObject {
         "\(Int(value.rounded()))%"
     }
 
+    private func normalizeSelectedTemperatureTime() {
+        guard selectedTemperatureTime == nil,
+              let latest = latestTemperatureSampleTime(in: temperatureChart.series) else { return }
+        selectedTemperatureTime = latest
+    }
+
+    private func latestTemperatureSampleTime(in series: [DiskTemperatureSeriesContent]) -> Date? {
+        series.flatMap { $0.points.map(\.sampledAt) }.max()
+    }
+
+    private func nearestPoint(in points: [DiskTemperaturePointValue], to date: Date) -> DiskTemperaturePointValue? {
+        points.min { lhs, rhs in
+            abs(lhs.sampledAt.timeIntervalSince(date)) < abs(rhs.sampledAt.timeIntervalSince(date))
+        }
+    }
+
+    private func timeAxisLabels(from startDate: Date, to endDate: Date) -> [String] {
+        let interval = endDate.timeIntervalSince(startDate)
+        return (0 ... 4).map { index in
+            let date = startDate.addingTimeInterval(interval * Double(index) / 4)
+            return Self.axisTimeFormatter.string(from: date)
+        }
+    }
+
     private func parseTimestamp(_ value: String) -> Date? {
         Self.fractionalFormatter.date(from: value) ?? Self.basicFormatter.date(from: value)
     }
@@ -2555,6 +2650,24 @@ private final class DiskStatusViewModel: ObservableObject {
         formatter.countStyle = .binary
         formatter.includesUnit = true
         formatter.isAdaptive = true
+        return formatter
+    }()
+
+    private static let axisTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
+
+    private static let selectedTimeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm"
+        return formatter
+    }()
+
+    private static let selectedDateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
         return formatter
     }()
 }
@@ -3184,9 +3297,6 @@ private struct GitHubRelease: Decodable {
         assets.first { $0.name.hasSuffix(".ipa") }
     }
 
-    var displayName: String {
-        name.isEmpty ? tagName : name
-    }
 }
 
 private struct GitHubReleaseAsset: Decodable {
@@ -3241,7 +3351,7 @@ private final class UpdateViewModel: ObservableObject {
             let release = try JSONDecoder().decode(GitHubRelease.self, from: data)
             if release.ipaAsset != nil {
                 latestRelease = release
-                statusMessage = "\u{6700}\u{65B0}\u{7248}\u{672C} \(release.displayName)"
+                statusMessage = "\u{6700}\u{65B0} \(release.tagName)"
             } else {
                 errorMessage = "No IPA in latest release"
             }
