@@ -3,7 +3,7 @@ import SwiftUI
 
 struct HomeView: View {
     @State private var selectedTab: FitnexTab = .home
-    @State private var isActivityPresented = false
+    @State private var detailScreen: DetailScreen?
     @State private var feedbackMessage: String?
 
     var body: some View {
@@ -26,7 +26,7 @@ struct HomeView: View {
         .safeAreaInset(edge: .bottom) {
             FitnexTabBar(
                 selected: selectedTab,
-                isActivityPresented: isActivityPresented,
+                isActivityPresented: detailScreen == .activity,
                 selectTab: selectTab,
                 openActivity: openActivity
             )
@@ -34,22 +34,34 @@ struct HomeView: View {
             .padding(.bottom, 10)
         }
         .animation(.easeInOut(duration: 0.22), value: selectedTab)
-        .animation(.easeInOut(duration: 0.22), value: isActivityPresented)
+        .animation(.easeInOut(duration: 0.22), value: detailScreen)
         .animation(.easeInOut(duration: 0.18), value: feedbackMessage)
     }
 
     @ViewBuilder
     private var currentScreen: some View {
-        if isActivityPresented {
+        if let detailScreen {
+            switch detailScreen {
+            case .activity:
             ActivityStatusView(
-                back: { isActivityPresented = false },
+                back: { self.detailScreen = nil },
                 feedback: feedback
             )
             .transition(.move(edge: .trailing).combined(with: .opacity))
+            case .disk:
+                DiskStatusView(
+                    back: { self.detailScreen = nil },
+                    feedback: feedback
+                )
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
         } else {
             switch selectedTab {
             case .home:
-                MinePageView(feedback: feedback)
+                MinePageView(
+                    openDisk: { detailScreen = .disk },
+                    feedback: feedback
+                )
             case .explore:
                 PlaceholderScreen(
                     title: "Explore",
@@ -83,12 +95,17 @@ struct HomeView: View {
 
     private func selectTab(_ tab: FitnexTab) {
         selectedTab = tab
-        isActivityPresented = false
+        detailScreen = nil
     }
 
     private func openActivity() {
-        isActivityPresented = true
+        detailScreen = .activity
     }
+}
+
+private enum DetailScreen {
+    case activity
+    case disk
 }
 
 private enum FitnexColor {
@@ -104,6 +121,7 @@ private enum FitnexColor {
 }
 
 private struct MinePageView: View {
+    let openDisk: () -> Void
     let feedback: (String) -> Void
 
     @StateObject private var metrics = HomeMetricsViewModel()
@@ -139,7 +157,10 @@ private struct MinePageView: View {
                     MetricsStatusStrip(status: metrics.statusText, isLive: metrics.response != nil)
                 }
 
-                ChallengeCard(content: metrics.hostCard)
+                Button(action: openDisk) {
+                    ChallengeCard(content: metrics.hostCard)
+                }
+                .buttonStyle(.plain)
 
                 LazyVGrid(columns: [
                     GridItem(.flexible(), spacing: 15),
@@ -214,7 +235,7 @@ private struct ActivityStatusView: View {
     var body: some View {
         ScrollView(showsIndicators: false) {
             VStack(alignment: .leading, spacing: 0) {
-                ActivityTopBar(back: back, feedback: feedback)
+                DetailTopBar(title: "Activity Status", back: back, feedback: feedback)
                     .padding(.top, 44)
 
                 HStack(spacing: 15) {
@@ -285,7 +306,89 @@ private struct ActivityStatusView: View {
     }
 }
 
-private struct ActivityTopBar: View {
+private struct DiskStatusView: View {
+    let back: () -> Void
+    let feedback: (String) -> Void
+
+    @StateObject private var viewModel = DiskStatusViewModel()
+    private let refreshTimer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 0) {
+                DetailTopBar(title: "Disk Status", back: back, feedback: feedback)
+                    .padding(.top, 44)
+
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 15) {
+                        ForEach(viewModel.diskCards) { disk in
+                            DiskInfoCard(content: disk)
+                        }
+                    }
+                    .padding(.vertical, 1)
+                }
+                .padding(.top, 40)
+
+                HStack(alignment: .center) {
+                    Text("Working Progress")
+                        .font(.fitnexTitle(size: 15))
+                        .foregroundColor(FitnexColor.black)
+                    Spacer()
+                    Text(viewModel.historyWindowLabel)
+                        .font(.fitnexBody(size: 11, weight: .regular))
+                        .foregroundColor(FitnexColor.orange)
+                        .frame(width: 90, height: 25)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 6, style: .continuous)
+                                .stroke(FitnexColor.border, lineWidth: 1)
+                        }
+                }
+                .padding(.top, 30)
+
+                DiskTemperatureChart(content: viewModel.temperatureChart)
+                    .frame(height: 190)
+                    .padding(.top, 18)
+
+                HStack {
+                    Text("Latest Workout")
+                        .font(.fitnexTitle(size: 15))
+                        .foregroundColor(FitnexColor.black)
+                    Spacer()
+                    Text(viewModel.partitionSummary)
+                        .font(.fitnexBody(size: 11, weight: .regular))
+                        .foregroundColor(FitnexColor.orange)
+                }
+                .padding(.top, 28)
+
+                VStack(spacing: 15) {
+                    ForEach(viewModel.partitionRows) { partition in
+                        PartitionUsageRow(content: partition)
+                    }
+                }
+                .padding(.top, 15)
+                .padding(.bottom, 136)
+            }
+            .padding(.horizontal, 25)
+        }
+        .background(FitnexColor.background)
+        .task {
+            await viewModel.loadIfNeeded()
+        }
+        .onReceive(refreshTimer) { _ in
+            Task {
+                await viewModel.refresh()
+            }
+        }
+        .onChange(of: viewModel.toastMessage) { message in
+            guard let message else { return }
+            feedback(message)
+            viewModel.toastMessage = nil
+        }
+    }
+}
+
+private struct DetailTopBar: View {
+    let title: String
     let back: () -> Void
     let feedback: (String) -> Void
 
@@ -293,7 +396,7 @@ private struct ActivityTopBar: View {
         HStack {
             SquareIconButton(systemName: "chevron.left", action: back)
             Spacer()
-            Text("Activity Status")
+            Text(title)
                 .font(.fitnexTitle(size: 18))
                 .foregroundColor(FitnexColor.black)
             Spacer()
@@ -337,9 +440,11 @@ private struct ChallengeCard: View {
             .frame(width: 50, height: 50)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(content.title)
-                    .font(.fitnexBody(size: 10, weight: .regular))
-                    .foregroundColor(FitnexColor.grayText)
+                if !content.title.isEmpty {
+                    Text(content.title)
+                        .font(.fitnexBody(size: 10, weight: .regular))
+                        .foregroundColor(FitnexColor.grayText)
+                }
                 Text(content.primaryText)
                     .font(.fitnexTitle(size: 16))
                     .foregroundColor(FitnexColor.black)
@@ -679,6 +784,195 @@ private struct ActivityRingCard: View {
         .background(FitnexColor.card, in: RoundedRectangle(cornerRadius: 25, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 25, style: .continuous)
+                .stroke(FitnexColor.border, lineWidth: 1)
+        }
+    }
+}
+
+private struct DiskInfoCard: View {
+    let content: DiskInfoCardContent
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack {
+                Text(content.title)
+                    .font(.fitnexTitle(size: 11))
+                    .foregroundColor(FitnexColor.black)
+                    .lineLimit(2)
+                Spacer()
+                SmallCircleIcon(
+                    systemName: "internaldrive",
+                    background: content.accent.opacity(0.12),
+                    foreground: content.accent
+                )
+            }
+            .padding(.horizontal, 15)
+            .padding(.top, 20)
+
+            Spacer()
+
+            VStack(spacing: 6) {
+                Text(content.temperatureText)
+                    .font(.fitnexTitle(size: 20))
+                    .foregroundColor(content.accent)
+                Text(content.capacityText)
+                    .font(.fitnexBody(size: 9, weight: .regular))
+                    .foregroundColor(FitnexColor.grayText)
+                Text(content.statusText)
+                    .font(.fitnexBody(size: 9, weight: .regular))
+                    .foregroundColor(FitnexColor.lightText)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.bottom, 22)
+        }
+        .frame(width: 155, height: 180)
+        .background(FitnexColor.card, in: RoundedRectangle(cornerRadius: 25, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 25, style: .continuous)
+                .stroke(FitnexColor.border, lineWidth: 1)
+        }
+    }
+}
+
+private struct DiskTemperatureChart: View {
+    let content: DiskTemperatureChartContent
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ZStack(alignment: .leading) {
+                Canvas { context, size in
+                    let left: CGFloat = 24
+                    let right: CGFloat = 8
+                    let top: CGFloat = 8
+                    let bottom: CGFloat = 28
+                    let chart = CGRect(
+                        x: left,
+                        y: top,
+                        width: size.width - left - right,
+                        height: size.height - top - bottom
+                    )
+
+                    let ticks = content.yAxisLabels
+                    let rows = max(ticks.count - 1, 1)
+                    for row in 0 ... rows {
+                        let y = chart.minY + chart.height * CGFloat(row) / CGFloat(rows)
+                        var grid = Path()
+                        grid.move(to: CGPoint(x: chart.minX, y: y))
+                        grid.addLine(to: CGPoint(x: chart.maxX, y: y))
+                        context.stroke(grid, with: .color(FitnexColor.pale), lineWidth: 1)
+                    }
+
+                    for series in content.series where series.points.count > 1 {
+                        let points = normalizedPoints(series.points, in: chart, minValue: content.minValue, maxValue: content.maxValue)
+                        var path = Path()
+                        path.move(to: points[0])
+                        for point in points.dropFirst() {
+                            path.addLine(to: point)
+                        }
+                        context.stroke(path, with: .color(series.color), lineWidth: 1.8)
+                    }
+                }
+
+                VStack {
+                    ForEach(content.yAxisLabels, id: \.self) { label in
+                        Text(label)
+                            .font(.fitnexBody(size: 8, weight: .regular))
+                            .foregroundColor(FitnexColor.grayText)
+                            .frame(width: 18, alignment: .trailing)
+                        if label != content.yAxisLabels.last { Spacer() }
+                    }
+                }
+                .frame(height: 156)
+                .padding(.top, 4)
+            }
+
+            HStack {
+                ForEach(content.xAxisLabels, id: \.self) { label in
+                    Text(label)
+                        .font(.fitnexBody(size: 8, weight: .regular))
+                        .foregroundColor(FitnexColor.grayText)
+                    if label != content.xAxisLabels.last { Spacer() }
+                }
+            }
+            .padding(.leading, 44)
+            .padding(.trailing, 6)
+
+            if !content.legend.isEmpty {
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 10) {
+                        ForEach(content.legend) { item in
+                            HStack(spacing: 6) {
+                                Circle()
+                                    .fill(item.color)
+                                    .frame(width: 7, height: 7)
+                                Text(item.title)
+                                    .font(.fitnexBody(size: 9, weight: .regular))
+                                    .foregroundColor(FitnexColor.grayText)
+                            }
+                        }
+                    }
+                    .padding(.top, 12)
+                }
+            }
+        }
+    }
+
+    private func normalizedPoints(
+        _ points: [DiskTemperaturePointValue],
+        in rect: CGRect,
+        minValue: Double,
+        maxValue: Double
+    ) -> [CGPoint] {
+        let range = maxValue - minValue
+        let count = Swift.max(points.count - 1, 1)
+        return points.enumerated().map { index, point in
+            let x = rect.minX + rect.width * CGFloat(index) / CGFloat(count)
+            let normalized = range == 0 ? 0.5 : (point.temperature - minValue) / range
+            let y = rect.maxY - rect.height * CGFloat(normalized)
+            return CGPoint(x: x, y: y)
+        }
+    }
+}
+
+private struct PartitionUsageRow: View {
+    let content: PartitionRowContent
+
+    var body: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .fill(content.accent.opacity(0.12))
+                Image(systemName: "externaldrive")
+                    .font(.system(size: 24, weight: .regular))
+                    .foregroundColor(content.accent)
+            }
+            .frame(width: 64, height: 58)
+
+            VStack(alignment: .leading, spacing: 8) {
+                Text(content.title)
+                    .font(.fitnexTitle(size: 13))
+                    .foregroundColor(FitnexColor.black)
+                Text(content.detail)
+                    .font(.fitnexBody(size: 9, weight: .regular))
+                    .foregroundColor(content.isCritical ? Color(hex: 0xE5484D) : FitnexColor.lightText)
+                ProgressView(value: content.progress)
+                    .tint(content.accent)
+                    .frame(width: 180)
+            }
+
+            Spacer()
+
+            Text(content.percentText)
+                .font(.fitnexTitle(size: 12))
+                .foregroundColor(content.accent)
+        }
+        .padding(.horizontal, 15)
+        .frame(height: 80)
+        .background(FitnexColor.card, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 15, style: .continuous)
                 .stroke(FitnexColor.border, lineWidth: 1)
         }
     }
@@ -1080,6 +1374,253 @@ private struct NetworkRateSample {
     let txBytesPerSecond: Int64
 }
 
+private struct DiskInfoCardContent: Identifiable {
+    let id: String
+    let title: String
+    let temperatureText: String
+    let capacityText: String
+    let statusText: String
+    let accent: Color
+}
+
+private struct DiskTemperaturePointValue {
+    let sampledAt: Date
+    let temperature: Double
+}
+
+private struct DiskTemperatureSeriesContent {
+    let id: String
+    let title: String
+    let color: Color
+    let points: [DiskTemperaturePointValue]
+}
+
+private struct DiskTemperatureLegendItem: Identifiable {
+    let id: String
+    let title: String
+    let color: Color
+}
+
+private struct DiskTemperatureChartContent {
+    let series: [DiskTemperatureSeriesContent]
+    let legend: [DiskTemperatureLegendItem]
+    let minValue: Double
+    let maxValue: Double
+    let yAxisLabels: [String]
+    let xAxisLabels: [String]
+}
+
+private struct PartitionRowContent: Identifiable {
+    let id: String
+    let title: String
+    let detail: String
+    let percentText: String
+    let progress: Double
+    let accent: Color
+    let isCritical: Bool
+}
+
+@MainActor
+private final class DiskStatusViewModel: ObservableObject {
+    private static let disksURL = URL(string: "http://192.168.2.202:12225/api/public/system/disks")!
+    private static let partitionsURL = URL(string: "http://192.168.2.202:12225/api/public/system/partitions")!
+    private static let historyBaseURL = "http://192.168.2.202:12225/api/public/system/disk-temperatures/history"
+
+    @Published private(set) var disks: PhysicalDisksResponse?
+    @Published private(set) var partitions: PartitionsResponse?
+    @Published private(set) var history: DiskTemperatureHistoryResponse?
+    @Published private(set) var isLoading = false
+    @Published var toastMessage: String?
+
+    var diskCards: [DiskInfoCardContent] {
+        let palette = diskPalette
+        return (disks?.physicalDisks ?? []).enumerated().map { index, disk in
+            let accent = palette[index % palette.count]
+            let temperatureText: String
+            if let temperature = disk.temperatureCelsius {
+                temperatureText = "\(temperature) C"
+            } else {
+                temperatureText = "Unavailable"
+            }
+            return DiskInfoCardContent(
+                id: disk.deviceId,
+                title: disk.friendlyName,
+                temperatureText: temperatureText,
+                capacityText: bytes(disk.sizeBytes),
+                statusText: "\(disk.healthStatus) | \(disk.operationalStatus)",
+                accent: accent
+            )
+        }
+    }
+
+    var historyWindowLabel: String {
+        "Last 24h"
+    }
+
+    var partitionSummary: String {
+        "\(partitionRows.count) partitions"
+    }
+
+    var partitionRows: [PartitionRowContent] {
+        let rows = (partitions?.items ?? []).map { partition -> PartitionRowContent in
+            let isCritical = partition.usedPercent > 90
+            let accent = isCritical ? Color(hex: 0xE5484D) : FitnexColor.orange
+            return PartitionRowContent(
+                id: partition.path,
+                title: "\(partition.path) \(partition.fstype)",
+                detail: "\(bytes(partition.usedBytes)) / \(bytes(partition.totalBytes))",
+                percentText: percent(partition.usedPercent),
+                progress: min(max(partition.usedPercent / 100, 0), 1),
+                accent: accent,
+                isCritical: isCritical
+            )
+        }
+        return rows
+    }
+
+    var temperatureChart: DiskTemperatureChartContent {
+        let palette = diskPalette
+        let historyItems = history?.items ?? []
+        let series: [DiskTemperatureSeriesContent] = historyItems.enumerated().compactMap { index, item in
+            let points = item.points.compactMap { point -> DiskTemperaturePointValue? in
+                guard let value = point.temperatureCelsius,
+                      let sampledAt = parseTimestamp(point.sampledAt) else { return nil }
+                return DiskTemperaturePointValue(sampledAt: sampledAt, temperature: Double(value))
+            }.sorted { $0.sampledAt < $1.sampledAt }
+            return DiskTemperatureSeriesContent(
+                id: item.deviceId,
+                title: item.friendlyName,
+                color: palette[index % palette.count],
+                points: points
+            )
+        }
+
+        let values = series.flatMap { $0.points.map(\.temperature) }
+        let minValue = floor((values.min() ?? 30) - 1)
+        let maxValue = ceil((values.max() ?? 50) + 1)
+        let step = max((maxValue - minValue) / 5, 1)
+        let yAxisLabels = stride(from: maxValue, through: minValue, by: -step).map { "\(Int($0))" }
+
+        return DiskTemperatureChartContent(
+            series: series,
+            legend: series.map { DiskTemperatureLegendItem(id: $0.id, title: $0.title, color: $0.color) },
+            minValue: minValue,
+            maxValue: maxValue,
+            yAxisLabels: yAxisLabels.isEmpty ? ["50", "40", "30"] : yAxisLabels,
+            xAxisLabels: ["24h", "18h", "12h", "6h", "Now"]
+        )
+    }
+
+    func loadIfNeeded() async {
+        guard disks == nil, !isLoading else { return }
+        await refresh()
+    }
+
+    func refresh() async {
+        guard !isLoading else { return }
+        isLoading = true
+        defer { isLoading = false }
+
+        let from = Date().addingTimeInterval(-24 * 60 * 60)
+        let historyURL = makeHistoryURL(from: from, to: Date(), limit: 2000)
+        var hadSuccess = false
+
+        do {
+            disks = try await fetch(PhysicalDisksResponse.self, from: Self.disksURL)
+            hadSuccess = true
+        } catch {
+            disks = nil
+        }
+
+        do {
+            partitions = try await fetch(PartitionsResponse.self, from: Self.partitionsURL)
+            hadSuccess = true
+        } catch {
+            partitions = nil
+        }
+
+        do {
+            history = try await fetch(DiskTemperatureHistoryResponse.self, from: historyURL)
+            hadSuccess = true
+        } catch {
+            history = nil
+        }
+
+        if !hadSuccess {
+            toastMessage = "Disk status unavailable"
+        }
+    }
+
+    private func makeHistoryURL(from: Date, to: Date, limit: Int) -> URL {
+        var components = URLComponents(string: Self.historyBaseURL)!
+        components.queryItems = [
+            URLQueryItem(name: "from", value: Self.historyDateFormatter.string(from: from)),
+            URLQueryItem(name: "to", value: Self.historyDateFormatter.string(from: to)),
+            URLQueryItem(name: "limit", value: "\(limit)")
+        ]
+        return components.url!
+    }
+
+    private func fetch<T: Decodable>(_ type: T.Type, from url: URL) async throws -> T {
+        var request = URLRequest(url: url)
+        request.cachePolicy = .reloadIgnoringLocalCacheData
+        let (data, response) = try await URLSession.shared.data(for: request)
+        if let httpResponse = response as? HTTPURLResponse,
+           !(200 ... 299).contains(httpResponse.statusCode) {
+            throw URLError(.badServerResponse)
+        }
+        return try JSONDecoder().decode(T.self, from: data)
+    }
+
+    private func bytes(_ value: Int64) -> String {
+        Self.byteFormatter.string(fromByteCount: value)
+    }
+
+    private func percent(_ value: Double) -> String {
+        "\(Int(value.rounded()))%"
+    }
+
+    private func parseTimestamp(_ value: String) -> Date? {
+        Self.fractionalFormatter.date(from: value) ?? Self.basicFormatter.date(from: value)
+    }
+
+    private let diskPalette: [Color] = [
+        Color(hex: 0xFE6F32),
+        Color(hex: 0x3E7BFA),
+        Color(hex: 0x14A46A),
+        Color(hex: 0x8A4DFF),
+        Color(hex: 0xF59E0B),
+        Color(hex: 0xEC4899),
+    ]
+
+    private static let historyDateFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let fractionalFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return formatter
+    }()
+
+    private static let basicFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    private static let byteFormatter: ByteCountFormatter = {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useMB, .useGB, .useTB]
+        formatter.countStyle = .binary
+        formatter.includesUnit = true
+        formatter.isAdaptive = true
+        return formatter
+    }()
+}
+
 @MainActor
 private final class HomeMetricsViewModel: ObservableObject {
     static let endpointHost = "192.168.2.202:12225"
@@ -1132,7 +1673,7 @@ private final class HomeMetricsViewModel: ObservableObject {
     var hostCard: HostCardContent {
         guard let host = response?.host else {
             return HostCardContent(
-                title: "Host",
+                title: "",
                 primaryText: isLoading ? "Connecting..." : "Host unavailable",
                 secondaryText: isLoading ? "Reading public system metrics" : "Check the DownGo host and local network",
                 trailingLabel: "Endpoint",
@@ -1142,7 +1683,7 @@ private final class HomeMetricsViewModel: ObservableObject {
         }
 
         return HostCardContent(
-            title: "Host",
+            title: "",
             primaryText: host.hostname,
             secondaryText: "\(host.platform) | \(host.os)",
             trailingLabel: "Uptime",
@@ -1549,6 +2090,45 @@ private struct SystemMetricsResponse: Decodable {
         let goroutines: Int
         let allocBytes: Int64
         let sysBytes: Int64
+    }
+}
+
+private struct PhysicalDisksResponse: Decodable {
+    let timestamp: String
+    let physicalDisks: [PhysicalDisk]
+
+    struct PhysicalDisk: Decodable {
+        let deviceId: String
+        let friendlyName: String
+        let serialNumber: String
+        let mediaType: String
+        let busType: String
+        let healthStatus: String
+        let operationalStatus: String
+        let sizeBytes: Int64
+        let temperatureCelsius: Int?
+        let temperatureUpdatedAt: String?
+        let temperatureError: String?
+    }
+}
+
+private struct DiskTemperatureHistoryResponse: Decodable {
+    let from: String
+    let to: String
+    let items: [DiskTemperatureHistoryItem]
+
+    struct DiskTemperatureHistoryItem: Decodable {
+        let deviceId: String
+        let friendlyName: String
+        let serialNumber: String
+        let mediaType: String
+        let points: [Point]
+    }
+
+    struct Point: Decodable {
+        let sampledAt: String
+        let temperatureCelsius: Int?
+        let temperatureError: String?
     }
 }
 
