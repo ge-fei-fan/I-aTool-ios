@@ -27,17 +27,14 @@ struct HomeView: View {
             }
         }
         .safeAreaInset(edge: .bottom) {
-            if detailScreen != .settings {
-                FitnexTabBar(
-                    selected: selectedTab,
-                    isActivityPresented: detailScreen == .activity,
-                    selectTab: selectTab,
-                    openActivity: openActivity,
-                    openSettings: openSettings
-                )
-                .padding(.horizontal, 24)
-                .padding(.bottom, 10)
-            }
+            FitnexTabBar(
+                selected: selectedTab,
+                isActivityPresented: detailScreen == .activity,
+                selectTab: selectTab,
+                openActivity: openActivity
+            )
+            .padding(.horizontal, 24)
+            .padding(.bottom, 10)
         }
         .animation(.easeInOut(duration: 0.22), value: selectedTab)
         .animation(.easeInOut(duration: 0.22), value: detailScreen)
@@ -74,12 +71,6 @@ struct HomeView: View {
                     feedback: feedback
                 )
                 .transition(.move(edge: .trailing).combined(with: .opacity))
-            case .settings:
-                SettingsView(
-                    back: { self.detailScreen = nil },
-                    feedback: feedback
-                )
-                .transition(.move(edge: .trailing).combined(with: .opacity))
             }
         } else {
             switch selectedTab {
@@ -101,6 +92,8 @@ struct HomeView: View {
                     subtitle: "Host nodes and network points can surface here.",
                     icon: "location"
                 )
+            case .settings:
+                SettingsView(feedback: feedback)
             }
         }
     }
@@ -122,16 +115,11 @@ struct HomeView: View {
     private func openActivity() {
         detailScreen = .activity
     }
-
-    private func openSettings() {
-        detailScreen = .settings
-    }
 }
 
 private enum DetailScreen {
     case activity
     case disk
-    case settings
 }
 
 private struct IdentifiableString: Identifiable {
@@ -645,6 +633,7 @@ private enum FitnexTab {
     case home
     case explore
     case location
+    case settings
 }
 
 private struct FitnexTabBar: View {
@@ -652,7 +641,6 @@ private struct FitnexTabBar: View {
     let isActivityPresented: Bool
     let selectTab: (FitnexTab) -> Void
     let openActivity: () -> Void
-    let openSettings: () -> Void
 
     var body: some View {
         ZStack {
@@ -666,7 +654,7 @@ private struct FitnexTabBar: View {
                 tab(.explore, "safari")
                 Spacer(minLength: 62)
                 tab(.location, "location")
-                actionTab("gearshape", action: openSettings)
+                tab(.settings, "gearshape")
             }
             .padding(.horizontal, 18)
 
@@ -704,14 +692,6 @@ private struct FitnexTabBar: View {
         .animation(.spring(response: 0.3, dampingFraction: 0.66), value: isSelected)
     }
 
-    private func actionTab(_ icon: String, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: 18, weight: .medium))
-                .foregroundColor(FitnexColor.grayText)
-                .frame(maxWidth: .infinity, minHeight: 52)
-        }
-        .buttonStyle(.plain)
     }
 }
 
@@ -837,19 +817,11 @@ private struct ActivityRingCard: View {
 }
 
 private struct SettingsView: View {
-    let back: () -> Void
     let feedback: (String) -> Void
     @StateObject private var updateVM = UpdateViewModel()
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                SquareIconButton(systemName: "chevron.left", action: back)
-                Spacer()
-            }
-            .padding(.horizontal, 25)
-            .padding(.top, 44)
-
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
                     Button {
@@ -929,7 +901,7 @@ private struct SettingsView: View {
                     }
                 }
                 .padding(.horizontal, 25)
-                .padding(.top, 28)
+                .padding(.top, 44)
             }
         }
         .background(FitnexColor.background)
@@ -2740,6 +2712,7 @@ private final class UpdateViewModel: ObservableObject {
     @Published var localIPAURL: URL?
     @Published var errorMessage: String?
     @Published var statusMessage: String?
+    var documentController: UIDocumentInteractionController?
 
     private var downloadDelegateRef: DownloadProgressDelegate?
 
@@ -2804,6 +2777,7 @@ private final class UpdateViewModel: ObservableObject {
         let docController = UIDocumentInteractionController(url: url)
         docController.uti = "com.apple.itunes.ipa"
         docController.name = url.lastPathComponent
+        documentController = docController
         guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
               let root = scene.windows.first?.rootViewController else { return }
         var top = root
