@@ -2,9 +2,12 @@ import Foundation
 import SwiftUI
 
 struct HomeView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @State private var selectedTab: FitnexTab = .home
     @State private var detailScreen: DetailScreen?
     @State private var feedbackMessage: String?
+    @StateObject private var homeMetrics = HomeMetricsViewModel()
+    @StateObject private var diskStatus = DiskStatusViewModel()
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -36,6 +39,19 @@ struct HomeView: View {
         .animation(.easeInOut(duration: 0.22), value: selectedTab)
         .animation(.easeInOut(duration: 0.22), value: detailScreen)
         .animation(.easeInOut(duration: 0.18), value: feedbackMessage)
+        .task {
+            async let homeTask: Void = homeMetrics.loadIfNeeded()
+            async let diskTask: Void = diskStatus.loadIfNeeded()
+            _ = await (homeTask, diskTask)
+        }
+        .onChange(of: scenePhase) { phase in
+            guard phase == .active else { return }
+            Task {
+                async let homeTask: Void = homeMetrics.refresh()
+                async let diskTask: Void = diskStatus.refresh()
+                _ = await (homeTask, diskTask)
+            }
+        }
     }
 
     @ViewBuilder
@@ -43,13 +59,14 @@ struct HomeView: View {
         if let detailScreen {
             switch detailScreen {
             case .activity:
-            ActivityStatusView(
-                back: { self.detailScreen = nil },
-                feedback: feedback
-            )
-            .transition(.move(edge: .trailing).combined(with: .opacity))
+                ActivityStatusView(
+                    back: { self.detailScreen = nil },
+                    feedback: feedback
+                )
+                .transition(.move(edge: .trailing).combined(with: .opacity))
             case .disk:
                 DiskStatusView(
+                    viewModel: diskStatus,
                     back: { self.detailScreen = nil },
                     feedback: feedback
                 )
@@ -59,6 +76,7 @@ struct HomeView: View {
             switch selectedTab {
             case .home:
                 MinePageView(
+                    metrics: homeMetrics,
                     openDisk: { detailScreen = .disk },
                     feedback: feedback
                 )
@@ -121,10 +139,9 @@ private enum FitnexColor {
 }
 
 private struct MinePageView: View {
+    @ObservedObject var metrics: HomeMetricsViewModel
     let openDisk: () -> Void
     let feedback: (String) -> Void
-
-    @StateObject private var metrics = HomeMetricsViewModel()
     private let refreshTimer = Timer.publish(every: 3, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -311,10 +328,9 @@ private struct ActivityStatusView: View {
 }
 
 private struct DiskStatusView: View {
+    @ObservedObject var viewModel: DiskStatusViewModel
     let back: () -> Void
     let feedback: (String) -> Void
-
-    @StateObject private var viewModel = DiskStatusViewModel()
     private let refreshTimer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
     var body: some View {
@@ -1437,52 +1453,128 @@ private final class DiskStatusViewModel: ObservableObject {
     @Published private(set) var disks: PhysicalDisksResponse?
     @Published private(set) var partitions: PartitionsResponse?
     @Published private(set) var history: DiskTemperatureHistoryResponse?
-    @Published private(set) var isLoading = false
+    @Published private(set) var hasLoadedOnce = false
+    @Published private(set) var isRefreshing = false
     @Published var toastMessage: String?
+    private var didShowRefreshError = false
 
     var diskCards: [DiskInfoCardContent] {
-        let palette = diskPalette
-        return (disks?.physicalDisks ?? []).enumerated().map { index, disk in
-            let accent = palette[index % palette.count]
-            let temperatureText: String
-            if let temperature = disk.temperatureCelsius {
-                temperatureText = "\(temperature) C"
-            } else {
-                temperatureText = "Unavailable"
+        if let disks {
+            let palette = diskPalette
+            return disks.physicalDisks.enumerated().map { index, disk in
+                let accent = palette[index % palette.count]
+                let temperatureText: String
+                if let temperature = disk.temperatureCelsius {
+                    temperatureText = "\(temperature) C"
+                } else {
+                    temperatureText = "Unavailable"
+                }
+                return DiskInfoCardContent(
+                    id: disk.deviceId,
+                    title: disk.friendlyName,
+                    temperatureText: temperatureText,
+                    capacityText: bytes(disk.sizeBytes),
+                    statusText: "\(disk.healthStatus) | \(disk.operationalStatus)",
+                    accent: accent
+                )
             }
-            return DiskInfoCardContent(
-                id: disk.deviceId,
-                title: disk.friendlyName,
-                temperatureText: temperatureText,
-                capacityText: bytes(disk.sizeBytes),
-                statusText: "\(disk.healthStatus) | \(disk.operationalStatus)",
-                accent: accent
-            )
         }
+
+        if !hasLoadedOnce {
+            let palette = diskPalette
+            return [
+                DiskInfoCardContent(
+                    id: "loading-0",
+                    title: "Loading disk",
+                    temperatureText: "--",
+                    capacityText: "Fetching capacity",
+                    statusText: "Waiting for device state",
+                    accent: palette[0]
+                ),
+                DiskInfoCardContent(
+                    id: "loading-1",
+                    title: "Loading disk",
+                    temperatureText: "--",
+                    capacityText: "Fetching capacity",
+                    statusText: "Waiting for device state",
+                    accent: palette[1 % palette.count]
+                )
+            ]
+        }
+
+        let palette = diskPalette
+        return [
+            DiskInfoCardContent(
+                id: "unavailable",
+                title: "Disk unavailable",
+                temperatureText: "--",
+                capacityText: "No recent disk data",
+                statusText: "Keep last good snapshot until the host responds",
+                accent: palette[0]
+            )
+        ]
     }
 
     var historyWindowLabel: String {
-        "Last 24h"
+        hasLoadedOnce ? "Last 24h" : "Loading"
     }
 
     var partitionSummary: String {
-        "\(partitionRows.count) partitions"
+        if let partitions {
+            return "\(partitions.items.count) partitions"
+        }
+        return hasLoadedOnce ? "Unavailable" : "Loading..."
     }
 
     var partitionRows: [PartitionRowContent] {
-        let rows = (partitions?.items ?? []).map { partition -> PartitionRowContent in
-            let isCritical = partition.usedPercent > 90
-            let accent = isCritical ? Color(hex: 0xE5484D) : FitnexColor.orange
-            return PartitionRowContent(
-                id: partition.path,
-                title: "\(partition.path) \(partition.fstype)",
-                detail: "\(bytes(partition.usedBytes)) / \(bytes(partition.totalBytes))",
-                percentText: percent(partition.usedPercent),
-                progress: min(max(partition.usedPercent / 100, 0), 1),
-                accent: accent,
-                isCritical: isCritical
-            )
+        if let partitions {
+            return partitions.items.map { partition -> PartitionRowContent in
+                let isCritical = partition.usedPercent > 90
+                let accent = isCritical ? Color(hex: 0xE5484D) : FitnexColor.orange
+                return PartitionRowContent(
+                    id: partition.path,
+                    title: "\(partition.path) \(partition.fstype)",
+                    detail: "\(bytes(partition.usedBytes)) / \(bytes(partition.totalBytes))",
+                    percentText: percent(partition.usedPercent),
+                    progress: min(max(partition.usedPercent / 100, 0), 1),
+                    accent: accent,
+                    isCritical: isCritical
+                )
+            }
         }
+
+        if !hasLoadedOnce {
+            return [
+                PartitionRowContent(
+                    id: "loading-partition-0",
+                    title: "Loading partition",
+                    detail: "Fetching capacity",
+                    percentText: "--",
+                    progress: 0.35,
+                    accent: FitnexColor.orange,
+                    isCritical: false
+                ),
+                PartitionRowContent(
+                    id: "loading-partition-1",
+                    title: "Loading partition",
+                    detail: "Fetching capacity",
+                    percentText: "--",
+                    progress: 0.55,
+                    accent: FitnexColor.orange,
+                    isCritical: false
+                )
+            ]
+        }
+
+        let rows = [PartitionRowContent(
+            id: "unavailable-partition",
+            title: "Partitions unavailable",
+            detail: "No recent capacity snapshot",
+            percentText: "--",
+            progress: 0,
+            accent: FitnexColor.orange,
+            isCritical: false
+        )]
         return rows
     }
 
@@ -1520,14 +1612,14 @@ private final class DiskStatusViewModel: ObservableObject {
     }
 
     func loadIfNeeded() async {
-        guard disks == nil, !isLoading else { return }
+        guard !hasLoadedOnce, !isRefreshing else { return }
         await refresh()
     }
 
     func refresh() async {
-        guard !isLoading else { return }
-        isLoading = true
-        defer { isLoading = false }
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
 
         let from = Date().addingTimeInterval(-24 * 60 * 60)
         let historyURL = makeHistoryURL(from: from, to: Date(), limit: 2000)
@@ -1537,25 +1629,28 @@ private final class DiskStatusViewModel: ObservableObject {
             disks = try await fetch(PhysicalDisksResponse.self, from: Self.disksURL)
             hadSuccess = true
         } catch {
-            disks = nil
         }
 
         do {
             partitions = try await fetch(PartitionsResponse.self, from: Self.partitionsURL)
             hadSuccess = true
         } catch {
-            partitions = nil
         }
 
         do {
             history = try await fetch(DiskTemperatureHistoryResponse.self, from: historyURL)
             hadSuccess = true
         } catch {
-            history = nil
         }
 
-        if !hadSuccess {
+        if hadSuccess {
+            hasLoadedOnce = true
+            didShowRefreshError = false
+        } else if !hasLoadedOnce {
             toastMessage = "Disk status unavailable"
+        } else if !didShowRefreshError {
+            toastMessage = "Disk refresh failed"
+            didShowRefreshError = true
         }
     }
 
@@ -1639,7 +1734,8 @@ private final class HomeMetricsViewModel: ObservableObject {
 
     @Published private(set) var response: SystemMetricsResponse?
     @Published private(set) var partitions: PartitionsResponse?
-    @Published private(set) var isLoading = false
+    @Published private(set) var hasLoadedOnce = false
+    @Published private(set) var isRefreshing = false
     @Published var toastMessage: String?
 
     private var didShowRefreshError = false
@@ -1658,12 +1754,15 @@ private final class HomeMetricsViewModel: ObservableObject {
     }
 
     var snapshotTitleText: String {
-        response == nil ? "Connecting to host" : "System Metrics Overview"
+        hasLoadedOnce ? "System Metrics Overview" : "Connecting to host"
     }
 
     var statusText: String {
-        if isLoading && response == nil {
+        if isInitialLoading {
             return "Loading metrics from \(Self.endpointHost)"
+        }
+        if isRefreshing, let response, let date = parseTimestamp(response.timestamp) {
+            return "Refreshing | last update \(Self.timeFormatter.string(from: date))"
         }
         if let response, let date = parseTimestamp(response.timestamp) {
             return "Updated \(Self.timeFormatter.string(from: date))"
@@ -1675,15 +1774,15 @@ private final class HomeMetricsViewModel: ObservableObject {
         if let response, let date = parseTimestamp(response.timestamp) {
             return "Public metrics feed | \(Self.timeFormatter.string(from: date))"
         }
-        return isLoading ? "Public metrics feed | loading" : "Public metrics feed | unavailable"
+        return isInitialLoading ? "Public metrics feed | loading" : "Public metrics feed | unavailable"
     }
 
     var hostCard: HostCardContent {
         guard let host = response?.host else {
             return HostCardContent(
                 title: "",
-                primaryText: isLoading ? "Connecting..." : "Host unavailable",
-                secondaryText: isLoading ? "Reading public system metrics" : "Check the DownGo host and local network",
+                primaryText: isInitialLoading ? "Connecting..." : "Host unavailable",
+                secondaryText: isInitialLoading ? "Reading public system metrics" : "Check the DownGo host and local network",
                 trailingLabel: "Endpoint",
                 trailingValue: "HTTP",
                 icon: "desktopcomputer"
@@ -1826,29 +1925,29 @@ private final class HomeMetricsViewModel: ObservableObject {
     }
 
     func loadIfNeeded() async {
-        guard response == nil, !isLoading else { return }
+        guard !hasLoadedOnce, !isRefreshing else { return }
         await refresh()
     }
 
     func refresh() async {
-        guard !isLoading else { return }
-        isLoading = true
-        defer { isLoading = false }
+        guard !isRefreshing else { return }
+        isRefreshing = true
+        defer { isRefreshing = false }
 
         do {
             let decoded = try await fetch(SystemMetricsResponse.self, from: Self.endpointURL)
             response = decoded
+            hasLoadedOnce = true
             recordSample(decoded)
 
             do {
                 partitions = try await fetch(PartitionsResponse.self, from: Self.partitionsURL)
             } catch {
-                partitions = nil
             }
 
             didShowRefreshError = false
         } catch {
-            if response == nil {
+            if !hasLoadedOnce {
                 toastMessage = "Metrics host unavailable"
             } else if !didShowRefreshError {
                 toastMessage = "Metrics refresh failed"
@@ -1964,8 +2063,8 @@ private final class HomeMetricsViewModel: ObservableObject {
     ) -> MetricCardContent {
         MetricCardContent(
             title: title,
-            value: isLoading ? "Loading..." : "Unavailable",
-            subtitle: isLoading ? "Waiting for host" : "No fresh metrics",
+            value: isInitialLoading ? "Loading..." : "Unavailable",
+            subtitle: isInitialLoading ? "Waiting for host" : "No fresh metrics",
             icon: icon,
             iconBackground: iconBackground,
             iconForeground: iconForeground,
@@ -1973,6 +2072,10 @@ private final class HomeMetricsViewModel: ObservableObject {
             progress: progress,
             fallbackStyle: fallbackStyle
         )
+    }
+
+    private var isInitialLoading: Bool {
+        !hasLoadedOnce && isRefreshing
     }
 
     private func percent(_ value: Double) -> String {
