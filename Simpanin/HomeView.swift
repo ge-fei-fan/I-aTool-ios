@@ -569,14 +569,6 @@ private struct DiskStatusView: View {
                     }
                     .padding(.top, 30)
 
-                    DiskTemperatureChart(
-                        content: viewModel.temperatureChart,
-                        selectedTime: viewModel.selectedTemperatureTime,
-                        selectTime: viewModel.selectTemperatureTime
-                    )
-                        .frame(height: 190)
-                        .padding(.top, 18)
-
                     if let selectedSummary = viewModel.selectedTemperatureSummary {
                         VStack(alignment: .leading, spacing: 10) {
                             HStack {
@@ -620,6 +612,14 @@ private struct DiskStatusView: View {
                         }
                         .padding(.top, 14)
                     }
+
+                    DiskTemperatureChart(
+                        content: viewModel.temperatureChart,
+                        selectedTime: viewModel.selectedTemperatureTime,
+                        selectTime: viewModel.selectTemperatureTime
+                    )
+                        .frame(height: 190)
+                        .padding(.top, 18)
 
                     HStack {
                         Text("Latest Workout")
@@ -1792,19 +1792,25 @@ private struct PartitionUsageRow: View {
                 Text(content.title)
                     .font(.fitnexTitle(size: 13))
                     .foregroundColor(FitnexColor.black)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.75)
                 Text(content.detail)
                     .font(.fitnexBody(size: 9, weight: .regular))
                     .foregroundColor(content.isCritical ? Color(hex: 0xE5484D) : FitnexColor.lightText)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.65)
                 ProgressView(value: content.progress)
                     .tint(content.accent)
-                    .frame(width: 180)
+                    .frame(maxWidth: .infinity)
             }
-
-            Spacer()
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Text(content.percentText)
                 .font(.fitnexTitle(size: 12))
                 .foregroundColor(content.accent)
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+                .frame(width: 44, alignment: .trailing)
         }
         .padding(.horizontal, 15)
         .frame(height: 80)
@@ -2429,12 +2435,60 @@ private final class DiskStatusViewModel: ObservableObject {
     var temperatureChart: DiskTemperatureChartContent {
         let palette = diskPalette
         let historyItems = history?.items ?? []
-        let series: [DiskTemperatureSeriesContent] = historyItems.enumerated().map { index, item in
-            let points = item.points.compactMap { point -> DiskTemperaturePointValue? in
+
+        func historyPoints(from item: DiskTemperatureHistoryResponse.DiskTemperatureHistoryItem?) -> [DiskTemperaturePointValue] {
+            guard let item else { return [] }
+            return item.points.compactMap { point -> DiskTemperaturePointValue? in
                 guard let value = point.temperatureCelsius,
                       let sampledAt = parseTimestamp(point.sampledAt) else { return nil }
                 return DiskTemperaturePointValue(sampledAt: sampledAt, temperature: Double(value))
             }.sorted { $0.sampledAt < $1.sampledAt }
+        }
+
+        func appendCurrentPointIfNeeded(
+            to points: [DiskTemperaturePointValue],
+            disk: PhysicalDisksResponse.PhysicalDisk,
+            snapshotTimestamp: String?
+        ) -> [DiskTemperaturePointValue] {
+            guard points.count < 2, let temperature = disk.temperatureCelsius else { return points }
+            let sampledAt = parseTimestamp(disk.temperatureUpdatedAt ?? "")
+                ?? parseTimestamp(snapshotTimestamp ?? "")
+                ?? Date()
+            let currentPoint = DiskTemperaturePointValue(sampledAt: sampledAt, temperature: Double(temperature))
+            var merged = points.filter { abs($0.sampledAt.timeIntervalSince(sampledAt)) > 1 }
+            merged.append(currentPoint)
+            return merged.sorted { $0.sampledAt < $1.sampledAt }
+        }
+
+        var usedHistoryItemIds = Set<String>()
+        var series: [DiskTemperatureSeriesContent] = []
+
+        if let disks {
+            series = disks.physicalDisks.enumerated().map { index, disk in
+                let historyItem = historyItems.first { item in
+                    item.deviceId == disk.deviceId || item.serialNumber == disk.serialNumber
+                }
+                if let historyItem {
+                    usedHistoryItemIds.insert(historyItem.deviceId)
+                }
+                let points = appendCurrentPointIfNeeded(
+                    to: historyPoints(from: historyItem),
+                    disk: disk,
+                    snapshotTimestamp: disks.timestamp
+                )
+                return DiskTemperatureSeriesContent(
+                    id: disk.deviceId,
+                    title: disk.friendlyName,
+                    color: palette[index % palette.count],
+                    points: points
+                )
+            }
+        }
+
+        let extraHistorySeries = historyItems.enumerated().compactMap { index, item -> DiskTemperatureSeriesContent? in
+            guard !usedHistoryItemIds.contains(item.deviceId) else { return nil }
+            let points = historyPoints(from: item)
+            guard !points.isEmpty || disks == nil else { return nil }
             return DiskTemperatureSeriesContent(
                 id: item.deviceId,
                 title: item.friendlyName,
@@ -2442,6 +2496,7 @@ private final class DiskStatusViewModel: ObservableObject {
                 points: points
             )
         }
+        series.append(contentsOf: extraHistorySeries)
 
         let values = series.flatMap { $0.points.map(\.temperature) }
         let minValue = floor((values.min() ?? 30) - 1)
