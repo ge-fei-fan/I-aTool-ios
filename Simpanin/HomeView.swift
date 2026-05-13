@@ -691,8 +691,6 @@ private struct FitnexTabBar: View {
         .buttonStyle(.plain)
         .animation(.spring(response: 0.3, dampingFraction: 0.66), value: isSelected)
     }
-
-    }
 }
 
 private struct PlaceholderScreen: View {
