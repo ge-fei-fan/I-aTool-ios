@@ -839,6 +839,7 @@ private struct ActivityRingCard: View {
 private struct SettingsView: View {
     let back: () -> Void
     let feedback: (String) -> Void
+    @StateObject private var updateVM = UpdateViewModel()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -852,21 +853,45 @@ private struct SettingsView: View {
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
                     Button {
-                        feedback("\u{68C0}\u{67E5}\u{66F4}\u{65B0}")
+                        if updateVM.latestRelease?.ipaAsset != nil && updateVM.localIPAURL == nil {
+                            updateVM.downloadIPA()
+                        } else if updateVM.localIPAURL != nil {
+                            updateVM.installViaTrollStore()
+                        } else {
+                            Task { await updateVM.checkForUpdate() }
+                        }
                     } label: {
                         HStack(spacing: 14) {
                             Circle()
                                 .fill(FitnexColor.orangeSoft)
                                 .frame(width: 42, height: 42)
                                 .overlay {
-                                    Image(systemName: "arrow.triangle.2.circlepath")
-                                        .font(.system(size: 18, weight: .semibold))
-                                        .foregroundColor(FitnexColor.orange)
+                                    if updateVM.isChecking || updateVM.isDownloading {
+                                        ProgressView()
+                                            .scaleEffect(0.9)
+                                    } else {
+                                        Image(systemName: updateVM.localIPAURL != nil ? "square.and.arrow.down.fill" : "arrow.triangle.2.circlepath")
+                                            .font(.system(size: 18, weight: .semibold))
+                                            .foregroundColor(FitnexColor.orange)
+                                    }
                                 }
 
-                            Text("\u{68C0}\u{67E5}\u{66F4}\u{65B0}")
-                                .font(.fitnexTitle(size: 15))
-                                .foregroundColor(FitnexColor.black)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(buttonTitle)
+                                    .font(.fitnexTitle(size: 15))
+                                    .foregroundColor(FitnexColor.black)
+                                if let msg = updateVM.statusMessage {
+                                    Text(msg)
+                                        .font(.fitnexBody(size: 11, weight: .regular))
+                                        .foregroundColor(FitnexColor.grayText)
+                                        .lineLimit(1)
+                                }
+                                if let asset = updateVM.latestRelease?.ipaAsset, updateVM.localIPAURL == nil && !updateVM.isDownloading {
+                                    Text(asset.formattedSize)
+                                        .font(.fitnexBody(size: 11, weight: .regular))
+                                        .foregroundColor(FitnexColor.orange)
+                                }
+                            }
 
                             Spacer()
 
@@ -883,12 +908,47 @@ private struct SettingsView: View {
                         }
                     }
                     .buttonStyle(.plain)
+                    .disabled(updateVM.isChecking || updateVM.isDownloading)
+
+                    if updateVM.isDownloading {
+                        VStack(spacing: 8) {
+                            ProgressView(value: updateVM.downloadProgress)
+                                .tint(FitnexColor.orange)
+                            Text("Downloading \(Int(updateVM.downloadProgress * 100))%")
+                                .font(.fitnexBody(size: 11, weight: .regular))
+                                .foregroundColor(FitnexColor.grayText)
+                        }
+                        .padding(.horizontal, 15)
+                    }
+
+                    if let error = updateVM.errorMessage {
+                        Text(error)
+                            .font(.fitnexBody(size: 11, weight: .regular))
+                            .foregroundColor(Color(hex: 0xE5484D))
+                            .padding(.horizontal, 15)
+                    }
                 }
                 .padding(.horizontal, 25)
                 .padding(.top, 28)
             }
         }
         .background(FitnexColor.background)
+        .onChange(of: updateVM.localIPAURL) { url in
+            if url != nil {
+                updateVM.installViaTrollStore()
+            }
+        }
+        .onChange(of: updateVM.errorMessage) { msg in
+            if let msg { feedback(msg) }
+        }
+    }
+
+    private var buttonTitle: String {
+        if updateVM.isChecking { return "Checking..." }
+        if updateVM.isDownloading { return "Downloading..." }
+        if updateVM.localIPAURL != nil { return "Install Update" }
+        if updateVM.latestRelease?.ipaAsset != nil { return "Download Update" }
+        return "Check for Updates"
     }
 }
 private struct DiskInfoCard: View {
@@ -1428,23 +1488,27 @@ private struct SquareIconButton: View {
 
     var body: some View {
         Button(action: action) {
-            ZStack(alignment: .topTrailing) {
-                RoundedRectangle(cornerRadius: 11, style: .continuous)
-                    .fill(Color.white)
-                    .overlay {
-                        RoundedRectangle(cornerRadius: 11, style: .continuous)
-                            .stroke(FitnexColor.border, lineWidth: 1)
-                    }
-                Image(systemName: systemName)
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(FitnexColor.grayText)
-                if dot {
-                    Circle()
-                        .fill(FitnexColor.orange)
-                        .frame(width: 5, height: 5)
-                        .offset(x: -8, y: 8)
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .fill(Color.white)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 11, style: .continuous)
+                        .stroke(FitnexColor.border, lineWidth: 1)
                 }
-            }
+                .overlay {
+                    Image(systemName: systemName)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(FitnexColor.grayText)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+                }
+                .overlay(alignment: .topTrailing) {
+                    if dot {
+                        Circle()
+                            .fill(FitnexColor.orange)
+                            .frame(width: 5, height: 5)
+                            .padding(.top, 8)
+                            .padding(.trailing, 8)
+                    }
+                }
             .frame(width: 35, height: 35)
         }
         .buttonStyle(.plain)
@@ -1967,6 +2031,7 @@ private final class DiskStatusViewModel: ObservableObject {
             smartDetail = try await fetch(DiskSmartResponse.self, from: url)
         } catch {
             smartDetail = nil
+            toastMessage = "SMART data unavailable"
         }
     }
 
@@ -2582,6 +2647,21 @@ private struct DiskSmartAttribute: Decodable, Identifiable {
     let threshold: Int
     let rawValue: String
     let rawString: String
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decode(Int.self, forKey: .id)
+        name = try c.decode(String.self, forKey: .name)
+        value = try c.decode(Int.self, forKey: .value)
+        worst = try c.decodeIfPresent(Int.self, forKey: .worst) ?? 0
+        threshold = try c.decodeIfPresent(Int.self, forKey: .threshold) ?? 0
+        rawValue = try c.decodeIfPresent(String.self, forKey: .rawValue) ?? ""
+        rawString = try c.decodeIfPresent(String.self, forKey: .rawString) ?? ""
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, value, worst, threshold, rawValue, rawString
+    }
 }
 
 private struct PartitionsResponse: Decodable {
@@ -2615,5 +2695,176 @@ private extension Color {
             green: Double((hex >> 8) & 0xff) / 255.0,
             blue: Double(hex & 0xff) / 255.0
         )
+    }
+}
+
+private struct GitHubRelease: Decodable {
+    let tagName: String
+    let name: String
+    let body: String?
+    let assets: [GitHubReleaseAsset]
+
+    enum CodingKeys: String, CodingKey {
+        case tagName = "tag_name"
+        case name, body, assets
+    }
+
+    var ipaAsset: GitHubReleaseAsset? {
+        assets.first { $0.name.hasSuffix(".ipa") }
+    }
+}
+
+private struct GitHubReleaseAsset: Decodable {
+    let id: Int
+    let name: String
+    let size: Int
+    let url: String
+    let browserDownloadURL: String
+
+    enum CodingKeys: String, CodingKey {
+        case id, name, size, url
+        case browserDownloadURL = "browser_download_url"
+    }
+
+    var formattedSize: String {
+        ByteCountFormatter.string(fromByteCount: Int64(size), countStyle: .file)
+    }
+}
+
+@MainActor
+private final class UpdateViewModel: ObservableObject {
+    @Published var latestRelease: GitHubRelease?
+    @Published var isChecking = false
+    @Published var isDownloading = false
+    @Published var downloadProgress: Double = 0
+    @Published var localIPAURL: URL?
+    @Published var errorMessage: String?
+    @Published var statusMessage: String?
+
+    private var downloadDelegateRef: DownloadProgressDelegate?
+
+    private static let repoAPI = "https://api.github.com/repos/ge-fei-fan/I-aTool-ios/releases/latest"
+
+    func checkForUpdate() async {
+        isChecking = true
+        errorMessage = nil
+        latestRelease = nil
+        statusMessage = nil
+
+        do {
+            let url = URL(string: Self.repoAPI)!
+            var request = URLRequest(url: url)
+            request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+            request.timeoutInterval = 15
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                throw NSError(domain: "UpdateError", code: -1, userInfo: [
+                    NSLocalizedDescriptionKey: "GitHub API error"
+                ])
+            }
+            let release = try JSONDecoder().decode(GitHubRelease.self, from: data)
+            if release.ipaAsset != nil {
+                latestRelease = release
+                statusMessage = "Found \(release.name)"
+            } else {
+                errorMessage = "No IPA in latest release"
+            }
+        } catch {
+            errorMessage = "Check failed: \(error.localizedDescription)"
+        }
+
+        isChecking = false
+    }
+
+    func downloadIPA() {
+        guard let asset = latestRelease?.ipaAsset else { return }
+        isDownloading = true
+        downloadProgress = 0
+        localIPAURL = nil
+        errorMessage = nil
+
+        guard let url = URL(string: asset.url) else {
+            isDownloading = false
+            errorMessage = "Invalid download URL"
+            return
+        }
+        var request = URLRequest(url: url)
+        request.setValue("application/octet-stream", forHTTPHeaderField: "Accept")
+
+        let delegate = DownloadProgressDelegate()
+        delegate.viewModel = self
+        downloadDelegateRef = delegate
+
+        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+        session.downloadTask(with: request).resume()
+    }
+
+    func installViaTrollStore() {
+        guard let url = localIPAURL else { return }
+        let docController = UIDocumentInteractionController(url: url)
+        docController.uti = "com.apple.itunes.ipa"
+        docController.name = url.lastPathComponent
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let root = scene.windows.first?.rootViewController else { return }
+        var top = root
+        while let p = top.presentedViewController { top = p }
+        let sourceRect = CGRect(x: top.view.bounds.midX, y: top.view.bounds.midY, width: 1, height: 1)
+        docController.presentOpenInMenu(from: sourceRect, in: top.view, animated: true)
+    }
+}
+
+private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelegate {
+    @MainActor weak var viewModel: UpdateViewModel?
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        let fm = FileManager.default
+        let dest = fm.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("aTool_update.ipa")
+
+        do {
+            if let http = downloadTask.response as? HTTPURLResponse,
+               !(200..<300).contains(http.statusCode) {
+                throw NSError(domain: "UpdateError", code: http.statusCode, userInfo: [
+                    NSLocalizedDescriptionKey: "Download failed: HTTP \(http.statusCode)"
+                ])
+            }
+            if fm.fileExists(atPath: dest.path) {
+                try fm.removeItem(at: dest)
+            }
+            try fm.copyItem(at: location, to: dest)
+            guard let handle = try? FileHandle(forReadingFrom: dest),
+                  let data = try? handle.read(upToCount: 2),
+                  data.count >= 2 && data[0] == 0x50 && data[1] == 0x4B else {
+                try? fm.removeItem(at: dest)
+                throw NSError(domain: "UpdateError", code: -2, userInfo: [
+                    NSLocalizedDescriptionKey: "Not a valid IPA file"
+                ])
+            }
+            try? handle.close()
+            Task { @MainActor [weak self] in
+                self?.viewModel?.isDownloading = false
+                self?.viewModel?.localIPAURL = dest
+            }
+        } catch {
+            Task { @MainActor [weak self] in
+                self?.viewModel?.isDownloading = false
+                self?.viewModel?.errorMessage = "Save failed: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        guard let error else { return }
+        Task { @MainActor [weak self] in
+            self?.viewModel?.isDownloading = false
+            self?.viewModel?.errorMessage = "Download failed: \(error.localizedDescription)"
+        }
+    }
+
+    func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        let progress = totalBytesExpectedToWrite > 0 ? Double(totalBytesWritten) / Double(totalBytesExpectedToWrite) : 0
+        Task { @MainActor [weak self] in
+            self?.viewModel?.downloadProgress = progress
+        }
     }
 }
