@@ -131,6 +131,105 @@ private struct IdentifiableString: Identifiable {
     }
 }
 
+private struct AppVersionInfo: Codable, Equatable {
+    let version: String
+    let build: String
+
+    static var current: AppVersionInfo {
+        let info = Bundle.main.infoDictionary ?? [:]
+        let version = info["CFBundleShortVersionString"] as? String ?? "1.0"
+        let build = info["CFBundleVersion"] as? String ?? "1"
+        return AppVersionInfo(version: version, build: build)
+    }
+
+    var identifier: String {
+        "\(version)-\(build)"
+    }
+
+    var displayText: String {
+        "\(version) (\(build))"
+    }
+}
+
+private struct VersionHistoryEntry: Codable, Identifiable {
+    let id: String
+    let version: String
+    let build: String
+    let installedAt: Date
+
+    var displayText: String {
+        "\(version) (\(build))"
+    }
+}
+
+@MainActor
+private final class VersionHistoryStore: ObservableObject {
+    @Published private(set) var current = AppVersionInfo.current
+    @Published private(set) var entries: [VersionHistoryEntry] = []
+
+    private let defaults = UserDefaults.standard
+    private let entriesKey = "fitnex.versionHistory.entries"
+    private let lastSeenKey = "fitnex.versionHistory.lastSeen"
+
+    init() {
+        load()
+        recordCurrentIfNeeded()
+    }
+
+    func recordCurrentIfNeeded() {
+        current = .current
+        let lastSeen = defaults.string(forKey: lastSeenKey)
+        guard lastSeen != current.identifier else { return }
+
+        let entry = VersionHistoryEntry(
+            id: UUID().uuidString,
+            version: current.version,
+            build: current.build,
+            installedAt: Date()
+        )
+        entries.insert(entry, at: 0)
+        entries = Array(entries.prefix(20))
+        save()
+        defaults.set(current.identifier, forKey: lastSeenKey)
+    }
+
+    var latestRecordText: String {
+        guard let entry = entries.first else {
+            return "\u{6682}\u{65E0}\u{66F4}\u{65B0}\u{8BB0}\u{5F55}"
+        }
+        return "\(Self.dateFormatter.string(from: entry.installedAt)) -> \(entry.displayText)"
+    }
+
+    var compactHistoryText: String {
+        if entries.isEmpty {
+            return latestRecordText
+        }
+        return entries.prefix(3).map { entry in
+            "\(Self.dateFormatter.string(from: entry.installedAt))  \(entry.displayText)"
+        }.joined(separator: "\n")
+    }
+
+    private func load() {
+        guard let data = defaults.data(forKey: entriesKey),
+              let decoded = try? JSONDecoder().decode([VersionHistoryEntry].self, from: data) else {
+            entries = []
+            return
+        }
+        entries = decoded
+    }
+
+    private func save() {
+        guard let data = try? JSONEncoder().encode(entries) else { return }
+        defaults.set(data, forKey: entriesKey)
+    }
+
+    private static let dateFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd HH:mm"
+        return formatter
+    }()
+}
+
 private struct HTTPLogChunk: Identifiable, Hashable {
     let id: String
     let date: Date
@@ -974,6 +1073,7 @@ private struct ActivityRingCard: View {
 private struct SettingsView: View {
     let feedback: (String) -> Void
     @StateObject private var updateVM = UpdateViewModel()
+    @StateObject private var versionStore = VersionHistoryStore()
     @ObservedObject private var logStore = HTTPLogStore.shared
     @State private var showingLogs = false
 
@@ -1004,6 +1104,20 @@ private struct SettingsView: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
+                    settingsRow(
+                        icon: "number.circle.fill",
+                        title: "\u{5F53}\u{524D}\u{7248}\u{672C}",
+                        subtitle: versionStore.current.displayText,
+                        showsChevron: false
+                    )
+
+                    settingsRow(
+                        icon: "clock.arrow.circlepath",
+                        title: "\u{66F4}\u{65B0}\u{8BB0}\u{5F55}",
+                        subtitle: versionStore.latestRecordText,
+                        showsChevron: false
+                    )
+
                     Button {
                         logStore.reloadChunks(selectCurrentIfNeeded: true)
                         showingLogs = true
@@ -1063,6 +1177,7 @@ private struct SettingsView: View {
                 .presentationDetents([.medium, .large])
         }
         .onAppear {
+            versionStore.recordCurrentIfNeeded()
             logStore.reloadChunks(selectCurrentIfNeeded: true)
         }
         .onChange(of: updateVM.localIPAURL) { url in
@@ -1093,7 +1208,7 @@ private struct SettingsView: View {
         return nil
     }
 
-    private func settingsRow(icon: String, title: String, subtitle: String? = nil, showsProgress: Bool = false) -> some View {
+    private func settingsRow(icon: String, title: String, subtitle: String? = nil, showsProgress: Bool = false, showsChevron: Bool = true) -> some View {
         HStack(spacing: 14) {
             Circle()
                 .fill(FitnexColor.orangeSoft)
@@ -1123,9 +1238,11 @@ private struct SettingsView: View {
 
             Spacer()
 
-            Image(systemName: "chevron.right")
-                .font(.system(size: 12, weight: .bold))
-                .foregroundColor(FitnexColor.orange)
+            if showsChevron {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(FitnexColor.orange)
+            }
         }
         .padding(.horizontal, 15)
         .frame(height: 72)
@@ -3066,6 +3183,10 @@ private struct GitHubRelease: Decodable {
     var ipaAsset: GitHubReleaseAsset? {
         assets.first { $0.name.hasSuffix(".ipa") }
     }
+
+    var displayName: String {
+        name.isEmpty ? tagName : name
+    }
 }
 
 private struct GitHubReleaseAsset: Decodable {
@@ -3120,7 +3241,7 @@ private final class UpdateViewModel: ObservableObject {
             let release = try JSONDecoder().decode(GitHubRelease.self, from: data)
             if release.ipaAsset != nil {
                 latestRelease = release
-                statusMessage = "Found \(release.name)"
+                statusMessage = "\u{6700}\u{65B0}\u{7248}\u{672C} \(release.displayName)"
             } else {
                 errorMessage = "No IPA in latest release"
             }
