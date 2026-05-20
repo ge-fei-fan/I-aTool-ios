@@ -975,8 +975,6 @@ private struct MonitorDashboardView: View {
     let feedback: (String) -> Void
     @StateObject private var viewModel = NezhaMonitorViewModel(settings: .shared)
     @ObservedObject private var settings = NezhaSettingsStore.shared
-    @State private var now = Date()
-    private let clockTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
 
     var body: some View {
         VStack(spacing: 0) {
@@ -992,12 +990,7 @@ private struct MonitorDashboardView: View {
                         }
                     }
 
-                    VStack(alignment: .leading, spacing: 10) {
-                        Text("当前时间 \(Self.timeFormatter.string(from: now))")
-                            .font(.fitnexBody(size: 12, weight: .regular))
-                            .foregroundColor(FitnexColor.grayText)
-                        MetricsStatusStrip(status: viewModel.statusText, isLive: viewModel.isConnected)
-                    }
+                    MetricsStatusStrip(status: viewModel.statusText, isLive: viewModel.isConnected)
 
                     LazyVGrid(columns: [
                         GridItem(.flexible(), spacing: 14),
@@ -1008,47 +1001,6 @@ private struct MonitorDashboardView: View {
                         MonitorOverviewCard(content: viewModel.offlineCard)
                         MonitorNetworkCard(content: viewModel.networkCard)
                     }
-
-                    HStack(spacing: 10) {
-                        ForEach(MonitorServerFilter.allCases, id: \.self) { filter in
-                            Button {
-                                viewModel.selectedFilter = filter
-                            } label: {
-                                Image(systemName: filter.icon)
-                                    .font(.system(size: 12, weight: .bold))
-                                    .foregroundColor(viewModel.selectedFilter == filter ? FitnexColor.orange : Color(hex: 0x3E7BFA))
-                                    .frame(width: 30, height: 30)
-                                    .background(
-                                        viewModel.selectedFilter == filter ? FitnexColor.orangeSoft : Color(hex: 0xEAF2FF),
-                                        in: Circle()
-                                    )
-                            }
-                            .buttonStyle(.plain)
-                        }
-
-                        Spacer()
-
-                        Button {
-                            viewModel.toggleSort()
-                        } label: {
-                            HStack(spacing: 5) {
-                                Text("Sort")
-                                    .font(.fitnexBody(size: 11, weight: .semibold))
-                                Image(systemName: viewModel.sortDescending ? "arrow.up.arrow.down" : "arrow.down.arrow.up")
-                                    .font(.system(size: 10, weight: .bold))
-                            }
-                            .foregroundColor(FitnexColor.black)
-                            .padding(.horizontal, 12)
-                            .frame(height: 32)
-                            .background(FitnexColor.card, in: Capsule())
-                            .overlay {
-                                Capsule()
-                                    .stroke(FitnexColor.border, lineWidth: 1)
-                            }
-                        }
-                        .buttonStyle(.plain)
-                    }
-                    .padding(.top, 2)
 
                     if viewModel.serverRows.isEmpty {
                         MonitorEmptyServerCard(isConfigured: settings.isConfigured)
@@ -1083,38 +1035,20 @@ private struct MonitorDashboardView: View {
             feedback(message)
             viewModel.toastMessage = nil
         }
-        .onReceive(clockTimer) { date in
-            now = date
-        }
     }
 
     private var monitorHeader: some View {
-        HStack(spacing: 12) {
-            ProfileAvatar(size: 42)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("监控")
-                    .font(.fitnexTitle(size: 24))
-                    .foregroundColor(FitnexColor.black)
-                Text(settings.displayHost)
-                    .font(.fitnexBody(size: 12, weight: .regular))
-                    .foregroundColor(FitnexColor.grayText)
-                    .lineLimit(1)
-            }
-
-            Spacer()
-
-            SquareIconButton(systemName: "arrow.clockwise", action: {
-                Task { await viewModel.reconnect() }
-            }, dot: viewModel.isConnected)
+        VStack(alignment: .leading, spacing: 4) {
+            Text("监控列表")
+                .font(.fitnexTitle(size: 24))
+                .foregroundColor(FitnexColor.black)
+            Text(settings.displayHost)
+                .font(.fitnexBody(size: 12, weight: .regular))
+                .foregroundColor(FitnexColor.grayText)
+                .lineLimit(1)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
-
-    private static let timeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm:ss"
-        return formatter
-    }()
 }
 
 private struct MonitorOverviewCard: View {
@@ -1152,7 +1086,7 @@ private struct MonitorOverviewCard: View {
             }
         }
         .padding(14)
-        .frame(maxWidth: .infinity, minHeight: 78, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 86, maxHeight: 86, alignment: .leading)
         .background(FitnexColor.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
@@ -1192,7 +1126,7 @@ private struct MonitorNetworkCard: View {
                 .lineLimit(1)
         }
         .padding(14)
-        .frame(maxWidth: .infinity, minHeight: 78, alignment: .leading)
+        .frame(maxWidth: .infinity, minHeight: 86, maxHeight: 86, alignment: .leading)
         .background(FitnexColor.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
