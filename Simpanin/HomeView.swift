@@ -542,7 +542,7 @@ private struct JournalCaptureView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            DetailTopBar(title: "手帐生成", back: back, feedback: feedback)
+            DetailTopBar(title: "贴纸生成", back: back, feedback: feedback)
                 .padding(.horizontal, 25)
                 .padding(.top, 44)
 
@@ -630,19 +630,11 @@ private struct JournalCaptureView: View {
                         .font(.fitnexTitle(size: 15))
                         .foregroundColor(FitnexColor.black)
 
-                    Image(uiImage: result)
-                        .resizable()
-                        .scaledToFit()
-                        .frame(maxWidth: .infinity)
-                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .stroke(FitnexColor.border, lineWidth: 1)
-                        }
+                    StickerPreviewImage(image: result)
 
                     HStack(spacing: 10) {
                         JournalThumbnail(title: "原图", image: original)
-                        JournalThumbnail(title: "手帐", image: result)
+                        JournalThumbnail(title: "贴纸", image: result)
                     }
                 }
             } else {
@@ -705,8 +697,8 @@ private struct JournalActionCard: View {
 }
 
 private struct JournalPlaceholderCard: View {
-    var title = "拍照生成手帐贴纸"
-    var subtitle = "本地处理照片，把主体转成纸感、描边的手帐风图片"
+    var title = "拍照生成透明贴纸"
+    var subtitle = "本地识别图中最大的物品，生成粗白边可爱风贴纸"
 
     var body: some View {
         VStack(spacing: 12) {
@@ -737,10 +729,10 @@ private struct JournalLoadingCard: View {
         VStack(spacing: 14) {
             ProgressView()
                 .tint(FitnexColor.orange)
-            Text("正在生成手帐风...")
+            Text("正在识别最大物品...")
                 .font(.fitnexTitle(size: 15))
                 .foregroundColor(FitnexColor.black)
-            Text("使用本地 Vision 和 Core Image 处理")
+            Text("使用本地 Vision 和 Core Image 生成透明贴纸")
                 .font(.fitnexBody(size: 11, weight: .regular))
                 .foregroundColor(FitnexColor.grayText)
         }
@@ -750,6 +742,50 @@ private struct JournalLoadingCard: View {
         .overlay {
             RoundedRectangle(cornerRadius: 20, style: .continuous)
                 .stroke(FitnexColor.border, lineWidth: 1)
+        }
+    }
+}
+
+private struct StickerPreviewImage: View {
+    let image: UIImage
+
+    var body: some View {
+        Image(uiImage: image)
+            .resizable()
+            .scaledToFit()
+            .frame(maxWidth: .infinity)
+            .padding(16)
+            .background {
+                StickerTransparencyBackground()
+            }
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(FitnexColor.border, lineWidth: 1)
+            }
+    }
+}
+
+private struct StickerTransparencyBackground: View {
+    private let tileSize: CGFloat = 14
+
+    var body: some View {
+        Canvas { context, size in
+            context.fill(Path(CGRect(origin: .zero, size: size)), with: .color(Color(hex: 0xF8F8F8)))
+
+            let columns = Int(ceil(size.width / tileSize))
+            let rows = Int(ceil(size.height / tileSize))
+            for row in 0...rows {
+                for column in 0...columns where (row + column).isMultiple(of: 2) {
+                    let rect = CGRect(
+                        x: CGFloat(column) * tileSize,
+                        y: CGFloat(row) * tileSize,
+                        width: tileSize,
+                        height: tileSize
+                    )
+                    context.fill(Path(rect), with: .color(Color(hex: 0xECECEC)))
+                }
+            }
         }
     }
 }
@@ -3006,10 +3042,10 @@ private final class JournalGeneratorViewModel: ObservableObject {
                 let generated = try await JournalImageProcessor.generate(from: image)
                 resultImage = generated
                 state = .completed
-                toastMessage = "Journal image ready"
+                toastMessage = "Sticker ready"
             } catch {
                 state = .failed
-                errorMessage = "Local generation failed"
+                errorMessage = "Sticker generation failed"
                 toastMessage = "Generation failed"
             }
         }
@@ -3021,7 +3057,10 @@ private final class JournalGeneratorViewModel: ObservableObject {
         defer { isSaving = false }
 
         do {
-            try await JournalPhotoSaver.save(resultImage)
+            guard let pngData = resultImage.pngData() else {
+                throw JournalPhotoSaveError.writeFailed
+            }
+            try await JournalPhotoSaver.save(pngData)
             toastMessage = "Saved to Photos"
         } catch {
             toastMessage = "Save failed"
@@ -3046,32 +3085,30 @@ private enum JournalImageProcessor {
             }
 
             let extent = input.extent
-            let paper = paperBackground(extent: extent)
-            let stylized = stylize(input)
-
-            let output: CIImage
-            if let mask = saliencyMask(for: cgImage, extent: extent) {
-                let cutout = blend(input: stylized, background: clear(extent: extent), mask: mask)
-                let outlineMask = morphologyMaximum(mask, radius: 12)
-                let outline = blend(
-                    input: CIImage(color: CIColor(red: 1, green: 1, blue: 1, alpha: 1)).cropped(to: extent),
-                    background: clear(extent: extent),
-                    mask: outlineMask
-                )
-                output = sourceOver(cutout, over: sourceOver(outline, over: paper))
-            } else {
-                output = sourceOver(stylized, over: paper)
+            let detection = largestObjectDetection(for: cgImage, extent: extent) ?? fallbackDetection(for: cgImage, extent: extent)
+            guard let detection else {
+                throw JournalImageError.objectNotFound
             }
 
-            guard let cgOutput = context.createCGImage(output.cropped(to: extent), from: extent) else {
+            let cropRect = paddedRect(around: detection.boundingBox, in: extent, paddingRatio: 0.18)
+            let stylized = stylize(input).cropped(to: cropRect)
+            let mask = refineMask(detection.mask).cropped(to: cropRect)
+            let sticker = stickerComposite(stylized: stylized, mask: mask, extent: cropRect)
+
+            guard let cgOutput = context.createCGImage(sticker, from: cropRect) else {
                 throw JournalImageError.renderFailed
             }
 
-            return decorate(UIImage(cgImage: cgOutput, scale: normalized.scale, orientation: .up))
+            return UIImage(cgImage: cgOutput, scale: normalized.scale, orientation: .up)
         }.value
     }
 
     private static let context = CIContext(options: [.useSoftwareRenderer: false])
+
+    private struct SubjectDetection {
+        let boundingBox: CGRect
+        let mask: CIImage
+    }
 
     private static func normalizedImage(_ image: UIImage, maxDimension: CGFloat) -> UIImage {
         let size = image.size
@@ -3116,53 +3153,93 @@ private enum JournalImageProcessor {
         return output.cropped(to: image.extent)
     }
 
-    private static func saliencyMask(for cgImage: CGImage, extent: CGRect) -> CIImage? {
+    private static func largestObjectDetection(for cgImage: CGImage, extent: CGRect) -> SubjectDetection? {
+        let request = VNGenerateObjectnessBasedSaliencyImageRequest()
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        try? handler.perform([request])
+        guard let observation = request.results?.first else { return nil }
+        let fullMask = scaledMask(from: observation, extent: extent)
+        let largestBox = observation.salientObjects?
+            .map { rect(from: $0.boundingBox, extent: extent) }
+            .filter { $0.width > 4 && $0.height > 4 }
+            .max { ($0.width * $0.height) < ($1.width * $1.height) }
+        guard let largestBox else { return nil }
+
+        return SubjectDetection(boundingBox: largestBox, mask: fullMask)
+    }
+
+    private static func fallbackDetection(for cgImage: CGImage, extent: CGRect) -> SubjectDetection? {
         let request = VNGenerateAttentionBasedSaliencyImageRequest()
         let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
         try? handler.perform([request])
         guard let observation = request.results?.first else { return nil }
+        let fullMask = scaledMask(from: observation, extent: extent)
+        let fallbackBox = observation.salientObjects?
+            .map { rect(from: $0.boundingBox, extent: extent) }
+            .filter { $0.width > 4 && $0.height > 4 }
+            .max { ($0.width * $0.height) < ($1.width * $1.height) }
 
+        return SubjectDetection(boundingBox: fallbackBox ?? centeredRect(in: extent), mask: fullMask)
+    }
+
+    private static func scaledMask(from observation: VNSaliencyImageObservation, extent: CGRect) -> CIImage {
         var mask = CIImage(cvPixelBuffer: observation.pixelBuffer)
         let scaleX = extent.width / max(mask.extent.width, 1)
         let scaleY = extent.height / max(mask.extent.height, 1)
-        mask = mask
+        return mask
             .transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
             .cropped(to: extent)
+    }
 
+    private static func refineMask(_ inputMask: CIImage) -> CIImage {
+        var mask = inputMask
         if let filter = CIFilter(name: "CIColorControls") {
             filter.setValue(mask, forKey: kCIInputImageKey)
             filter.setValue(0.0, forKey: kCIInputSaturationKey)
-            filter.setValue(1.8, forKey: kCIInputContrastKey)
-            filter.setValue(0.08, forKey: kCIInputBrightnessKey)
-            mask = filter.outputImage?.cropped(to: extent) ?? mask
+            filter.setValue(3.2, forKey: kCIInputContrastKey)
+            filter.setValue(0.12, forKey: kCIInputBrightnessKey)
+            mask = filter.outputImage?.cropped(to: inputMask.extent) ?? mask
         }
 
         if let filter = CIFilter(name: "CIGaussianBlur") {
             filter.setValue(mask, forKey: kCIInputImageKey)
-            filter.setValue(2.0, forKey: kCIInputRadiusKey)
-            mask = filter.outputImage?.cropped(to: extent) ?? mask
+            filter.setValue(1.6, forKey: kCIInputRadiusKey)
+            mask = filter.outputImage?.cropped(to: inputMask.extent) ?? mask
         }
 
         return mask
     }
 
-    private static func paperBackground(extent: CGRect) -> CIImage {
-        let base = CIImage(color: CIColor(red: 0.985, green: 0.965, blue: 0.91, alpha: 1)).cropped(to: extent)
-        guard let random = CIFilter(name: "CIRandomGenerator")?.outputImage?.cropped(to: extent),
-              let matrix = CIFilter(name: "CIColorMatrix") else {
-            return base
-        }
-        matrix.setValue(random, forKey: kCIInputImageKey)
-        matrix.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputRVector")
-        matrix.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputGVector")
-        matrix.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputBVector")
-        matrix.setValue(CIVector(x: 0, y: 0, z: 0, w: 0.025), forKey: "inputAVector")
-        let noise = matrix.outputImage?.cropped(to: extent) ?? clear(extent: extent)
-        return sourceOver(noise, over: base)
+    private static func stickerComposite(stylized: CIImage, mask: CIImage, extent: CGRect) -> CIImage {
+        let transparent = clear(extent: extent)
+        let cutout = blend(input: stylized, background: transparent, mask: mask)
+        let outlineMask = morphologyMaximum(mask, radius: max(min(extent.width, extent.height) * 0.035, 8))
+        let shadowMask = blur(morphologyMaximum(mask, radius: max(min(extent.width, extent.height) * 0.028, 7)), radius: 8)
+            .transformed(by: CGAffineTransform(translationX: 0, y: -max(extent.height * 0.018, 5)))
+            .cropped(to: extent)
+        let shadow = blend(
+            input: CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0.22)).cropped(to: extent),
+            background: transparent,
+            mask: shadowMask
+        )
+        let outline = blend(
+            input: CIImage(color: CIColor(red: 1, green: 1, blue: 1, alpha: 1)).cropped(to: extent),
+            background: transparent,
+            mask: outlineMask
+        )
+
+        return sourceOver(cutout, over: sourceOver(outline, over: shadow)).cropped(to: extent)
     }
 
-    private static func morphologyMaximum(_ image: CIImage, radius: Double) -> CIImage {
+    private static func morphologyMaximum(_ image: CIImage, radius: CGFloat) -> CIImage {
         guard let filter = CIFilter(name: "CIMorphologyMaximum") else { return image }
+        filter.setValue(image, forKey: kCIInputImageKey)
+        filter.setValue(radius, forKey: kCIInputRadiusKey)
+        return filter.outputImage?.cropped(to: image.extent) ?? image
+    }
+
+    private static func blur(_ image: CIImage, radius: CGFloat) -> CIImage {
+        guard let filter = CIFilter(name: "CIGaussianBlur") else { return image }
         filter.setValue(image, forKey: kCIInputImageKey)
         filter.setValue(radius, forKey: kCIInputRadiusKey)
         return filter.outputImage?.cropped(to: image.extent) ?? image
@@ -3187,31 +3264,39 @@ private enum JournalImageProcessor {
         CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0)).cropped(to: extent)
     }
 
-    private static func decorate(_ image: UIImage) -> UIImage {
-        let format = UIGraphicsImageRendererFormat.default()
-        format.scale = image.scale
-        return UIGraphicsImageRenderer(size: image.size, format: format).image { context in
-            let rect = CGRect(origin: .zero, size: image.size)
-            UIColor(red: 0.985, green: 0.965, blue: 0.91, alpha: 1).setFill()
-            context.fill(rect)
-            image.draw(in: rect)
+    private static func rect(from normalizedRect: CGRect, extent: CGRect) -> CGRect {
+        CGRect(
+            x: extent.minX + normalizedRect.minX * extent.width,
+            y: extent.minY + normalizedRect.minY * extent.height,
+            width: normalizedRect.width * extent.width,
+            height: normalizedRect.height * extent.height
+        ).intersection(extent)
+    }
 
-            let tapeWidth = image.size.width * 0.22
-            let tapeHeight = max(image.size.height * 0.035, 18)
-            UIColor(red: 1.0, green: 0.82, blue: 0.58, alpha: 0.55).setFill()
-            UIBezierPath(roundedRect: CGRect(x: image.size.width * 0.08, y: image.size.height * 0.055, width: tapeWidth, height: tapeHeight), cornerRadius: tapeHeight * 0.28).fill()
-            UIBezierPath(roundedRect: CGRect(x: image.size.width * 0.70, y: image.size.height * 0.90, width: tapeWidth, height: tapeHeight), cornerRadius: tapeHeight * 0.28).fill()
-        }
+    private static func paddedRect(around rect: CGRect, in extent: CGRect, paddingRatio: CGFloat) -> CGRect {
+        let padding = max(rect.width, rect.height) * paddingRatio
+        return rect.insetBy(dx: -padding, dy: -padding).intersection(extent)
+    }
+
+    private static func centeredRect(in extent: CGRect) -> CGRect {
+        let side = min(extent.width, extent.height) * 0.78
+        return CGRect(
+            x: extent.midX - side / 2,
+            y: extent.midY - side / 2,
+            width: side,
+            height: side
+        ).intersection(extent)
     }
 }
 
 private enum JournalImageError: Error {
     case invalidImage
+    case objectNotFound
     case renderFailed
 }
 
 private enum JournalPhotoSaver {
-    static func save(_ image: UIImage) async throws {
+    static func save(_ pngData: Data) async throws {
         let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
         guard status == .authorized || status == .limited else {
             throw JournalPhotoSaveError.notAuthorized
@@ -3219,7 +3304,9 @@ private enum JournalPhotoSaver {
 
         try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             PHPhotoLibrary.shared().performChanges {
-                PHAssetChangeRequest.creationRequestForAsset(from: image)
+                let options = PHAssetResourceCreationOptions()
+                options.originalFilename = "sticker.png"
+                PHAssetCreationRequest.forAsset().addResource(with: .photo, data: pngData, options: options)
             } completionHandler: { success, error in
                 if let error {
                     continuation.resume(throwing: error)

@@ -253,10 +253,10 @@
 				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Take photos to create local journal-style sticker images.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Take photos to create local sticker images.";
 				INFOPLIST_KEY_NSAppTransportSecurity = "{NSAllowsArbitraryLoads = YES;}";
-				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Save generated journal-style images to your photo library.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Choose photos to create local journal-style sticker images.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Save generated sticker images to your photo library.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Choose photos to create local sticker images.";
 				INFOPLIST_KEY_CFBundleDisplayName = FITNEX;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
@@ -291,10 +291,10 @@
 				DEVELOPMENT_ASSET_PATHS = "";
 				DEVELOPMENT_TEAM = "";
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSCameraUsageDescription = "Take photos to create local journal-style sticker images.";
+				INFOPLIST_KEY_NSCameraUsageDescription = "Take photos to create local sticker images.";
 				INFOPLIST_KEY_NSAppTransportSecurity = "{NSAllowsArbitraryLoads = YES;}";
-				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Save generated journal-style images to your photo library.";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Choose photos to create local journal-style sticker images.";
+				INFOPLIST_KEY_NSPhotoLibraryAddUsageDescription = "Save generated sticker images to your photo library.";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "Choose photos to create local sticker images.";
 				INFOPLIST_KEY_CFBundleDisplayName = FITNEX;
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
