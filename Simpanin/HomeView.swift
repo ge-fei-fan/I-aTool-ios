@@ -3159,10 +3159,9 @@ private enum JournalImageProcessor {
         try? handler.perform([request])
         guard let observation = request.results?.first else { return nil }
         let fullMask = scaledMask(from: observation, extent: extent)
-        let largestBox = observation.salientObjects?
-            .map { rect(from: $0.boundingBox, extent: extent) }
-            .filter { $0.width > 4 && $0.height > 4 }
-            .max { ($0.width * $0.height) < ($1.width * $1.height) }
+        let allRects: [CGRect] = observation.salientObjects?.map { rect(from: $0.boundingBox, extent: extent) } ?? []
+        let largeRects = allRects.filter { $0.width > 4 && $0.height > 4 }
+        let largestBox = largeRects.max { ($0.width * $0.height) < ($1.width * $1.height) }
         guard let largestBox else { return nil }
 
         return SubjectDetection(boundingBox: largestBox, mask: fullMask)
@@ -3174,16 +3173,15 @@ private enum JournalImageProcessor {
         try? handler.perform([request])
         guard let observation = request.results?.first else { return nil }
         let fullMask = scaledMask(from: observation, extent: extent)
-        let fallbackBox = observation.salientObjects?
-            .map { rect(from: $0.boundingBox, extent: extent) }
-            .filter { $0.width > 4 && $0.height > 4 }
-            .max { ($0.width * $0.height) < ($1.width * $1.height) }
+        let allRects: [CGRect] = observation.salientObjects?.map { rect(from: $0.boundingBox, extent: extent) } ?? []
+        let largeRects = allRects.filter { $0.width > 4 && $0.height > 4 }
+        let fallbackBox = largeRects.max { ($0.width * $0.height) < ($1.width * $1.height) }
 
         return SubjectDetection(boundingBox: fallbackBox ?? centeredRect(in: extent), mask: fullMask)
     }
 
     private static func scaledMask(from observation: VNSaliencyImageObservation, extent: CGRect) -> CIImage {
-        var mask = CIImage(cvPixelBuffer: observation.pixelBuffer)
+        let mask = CIImage(cvPixelBuffer: observation.pixelBuffer)
         let scaleX = extent.width / max(mask.extent.width, 1)
         let scaleY = extent.height / max(mask.extent.height, 1)
         return mask
