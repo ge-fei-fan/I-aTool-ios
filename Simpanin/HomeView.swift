@@ -3091,9 +3091,9 @@ private enum JournalImageProcessor {
             }
 
             let cropRect = paddedRect(around: detection.boundingBox, in: extent, paddingRatio: 0.18)
-            let stylized = stylize(input).cropped(to: cropRect)
-            let mask = refineMask(detection.mask).cropped(to: cropRect)
-            let sticker = stickerComposite(stylized: stylized, mask: mask, extent: cropRect)
+            let source = stylize(input.cropped(to: cropRect))
+            let mask = stickerMask(from: detection.mask, cropRect: cropRect)
+            let sticker = stickerComposite(subject: source, mask: mask, extent: cropRect)
 
             guard let cgOutput = context.createCGImage(sticker, from: cropRect) else {
                 throw JournalImageError.renderFailed
@@ -3127,26 +3127,15 @@ private enum JournalImageProcessor {
 
         if let filter = CIFilter(name: "CIColorControls") {
             filter.setValue(output, forKey: kCIInputImageKey)
-            filter.setValue(1.35, forKey: kCIInputSaturationKey)
-            filter.setValue(0.06, forKey: kCIInputBrightnessKey)
-            filter.setValue(1.12, forKey: kCIInputContrastKey)
-            output = filter.outputImage ?? output
-        }
-
-        if let filter = CIFilter(name: "CIPhotoEffectInstant") {
-            filter.setValue(output, forKey: kCIInputImageKey)
-            output = filter.outputImage ?? output
-        }
-
-        if let filter = CIFilter(name: "CIColorPosterize") {
-            filter.setValue(output, forKey: kCIInputImageKey)
-            filter.setValue(7.0, forKey: "inputLevels")
+            filter.setValue(1.14, forKey: kCIInputSaturationKey)
+            filter.setValue(0.035, forKey: kCIInputBrightnessKey)
+            filter.setValue(1.04, forKey: kCIInputContrastKey)
             output = filter.outputImage ?? output
         }
 
         if let filter = CIFilter(name: "CISharpenLuminance") {
             filter.setValue(output, forKey: kCIInputImageKey)
-            filter.setValue(0.35, forKey: kCIInputSharpnessKey)
+            filter.setValue(0.18, forKey: kCIInputSharpnessKey)
             output = filter.outputImage ?? output
         }
 
@@ -3184,39 +3173,63 @@ private enum JournalImageProcessor {
         let mask = CIImage(cvPixelBuffer: observation.pixelBuffer)
         let scaleX = extent.width / max(mask.extent.width, 1)
         let scaleY = extent.height / max(mask.extent.height, 1)
-        return mask
-            .transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
-            .cropped(to: extent)
+        if let filter = CIFilter(name: "CILanczosScaleTransform") {
+            filter.setValue(mask, forKey: kCIInputImageKey)
+            filter.setValue(scaleX, forKey: kCIInputScaleKey)
+            filter.setValue(scaleY / max(scaleX, 0.0001), forKey: "inputAspectRatio")
+            if let output = filter.outputImage {
+                return output.cropped(to: extent)
+            }
+        }
+
+        return mask.transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY)).cropped(to: extent)
     }
 
-    private static func refineMask(_ inputMask: CIImage) -> CIImage {
-        var mask = inputMask
+    private static func stickerMask(from inputMask: CIImage, cropRect: CGRect) -> CIImage {
+        var mask = inputMask.cropped(to: cropRect)
+
         if let filter = CIFilter(name: "CIColorControls") {
             filter.setValue(mask, forKey: kCIInputImageKey)
             filter.setValue(0.0, forKey: kCIInputSaturationKey)
-            filter.setValue(3.2, forKey: kCIInputContrastKey)
-            filter.setValue(0.12, forKey: kCIInputBrightnessKey)
-            mask = filter.outputImage?.cropped(to: inputMask.extent) ?? mask
+            filter.setValue(5.0, forKey: kCIInputContrastKey)
+            filter.setValue(0.22, forKey: kCIInputBrightnessKey)
+            mask = filter.outputImage?.cropped(to: cropRect) ?? mask
         }
+
+        if let filter = CIFilter(name: "CIColorThreshold") {
+            filter.setValue(mask, forKey: kCIInputImageKey)
+            filter.setValue(0.34, forKey: "inputThreshold")
+            mask = filter.outputImage?.cropped(to: cropRect) ?? mask
+        }
+
+        mask = morphologyMaximum(mask, radius: max(min(cropRect.width, cropRect.height) * 0.012, 3))
 
         if let filter = CIFilter(name: "CIGaussianBlur") {
             filter.setValue(mask, forKey: kCIInputImageKey)
-            filter.setValue(1.6, forKey: kCIInputRadiusKey)
-            mask = filter.outputImage?.cropped(to: inputMask.extent) ?? mask
+            filter.setValue(1.0, forKey: kCIInputRadiusKey)
+            mask = filter.outputImage?.cropped(to: cropRect) ?? mask
         }
 
-        return mask
+        if let filter = CIFilter(name: "CIColorControls") {
+            filter.setValue(mask, forKey: kCIInputImageKey)
+            filter.setValue(0.0, forKey: kCIInputSaturationKey)
+            filter.setValue(2.2, forKey: kCIInputContrastKey)
+            filter.setValue(0.04, forKey: kCIInputBrightnessKey)
+            mask = filter.outputImage?.cropped(to: cropRect) ?? mask
+        }
+
+        return mask.cropped(to: cropRect)
     }
 
-    private static func stickerComposite(stylized: CIImage, mask: CIImage, extent: CGRect) -> CIImage {
+    private static func stickerComposite(subject: CIImage, mask: CIImage, extent: CGRect) -> CIImage {
         let transparent = clear(extent: extent)
-        let cutout = blend(input: stylized, background: transparent, mask: mask)
+        let cutout = blend(input: subject, background: transparent, mask: mask)
         let outlineMask = morphologyMaximum(mask, radius: max(min(extent.width, extent.height) * 0.035, 8))
         let shadowMask = blur(morphologyMaximum(mask, radius: max(min(extent.width, extent.height) * 0.028, 7)), radius: 8)
             .transformed(by: CGAffineTransform(translationX: 0, y: -max(extent.height * 0.018, 5)))
             .cropped(to: extent)
         let shadow = blend(
-            input: CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0.22)).cropped(to: extent),
+            input: CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0.12)).cropped(to: extent),
             background: transparent,
             mask: shadowMask
         )
