@@ -81,11 +81,7 @@ struct HomeView: View {
                     feedback: feedback
                 )
             case .explore:
-                PlaceholderScreen(
-                    title: "Explore",
-                    subtitle: "Quick access and discovery tools live here.",
-                    icon: "safari"
-                )
+                MonitorDashboardView(feedback: feedback)
             case .location:
                 PlaceholderScreen(
                     title: "Location",
@@ -870,7 +866,7 @@ private struct FitnexTabBar: View {
 
             HStack(spacing: 0) {
                 tab(.home, "house")
-                tab(.explore, "safari")
+                tab(.explore, "chart.bar.xaxis")
                 Spacer(minLength: 62)
                 tab(.location, "location")
                 tab(.settings, "gearshape")
@@ -975,6 +971,373 @@ private struct PlaceholderScreen: View {
     }
 }
 
+private struct MonitorDashboardView: View {
+    let feedback: (String) -> Void
+    @StateObject private var viewModel = NezhaMonitorViewModel(settings: .shared)
+    @ObservedObject private var settings = NezhaSettingsStore.shared
+    @State private var now = Date()
+    private let clockTimer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+
+    var body: some View {
+        VStack(spacing: 0) {
+            monitorHeader
+                .padding(.horizontal, 25)
+                .padding(.top, 48)
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 16) {
+                    if !settings.isConfigured {
+                        MonitorEmptyConfigCard {
+                            feedback("Configure Nezha in Settings")
+                        }
+                    }
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("当前时间 \(Self.timeFormatter.string(from: now))")
+                            .font(.fitnexBody(size: 12, weight: .regular))
+                            .foregroundColor(FitnexColor.grayText)
+                        MetricsStatusStrip(status: viewModel.statusText, isLive: viewModel.isConnected)
+                    }
+
+                    LazyVGrid(columns: [
+                        GridItem(.flexible(), spacing: 14),
+                        GridItem(.flexible(), spacing: 14)
+                    ], spacing: 14) {
+                        MonitorOverviewCard(content: viewModel.totalCard)
+                        MonitorOverviewCard(content: viewModel.onlineCard)
+                        MonitorOverviewCard(content: viewModel.offlineCard)
+                        MonitorNetworkCard(content: viewModel.networkCard)
+                    }
+
+                    HStack(spacing: 10) {
+                        ForEach(MonitorServerFilter.allCases, id: \.self) { filter in
+                            Button {
+                                viewModel.selectedFilter = filter
+                            } label: {
+                                Image(systemName: filter.icon)
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundColor(viewModel.selectedFilter == filter ? FitnexColor.orange : Color(hex: 0x3E7BFA))
+                                    .frame(width: 30, height: 30)
+                                    .background(
+                                        viewModel.selectedFilter == filter ? FitnexColor.orangeSoft : Color(hex: 0xEAF2FF),
+                                        in: Circle()
+                                    )
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        Spacer()
+
+                        Button {
+                            viewModel.toggleSort()
+                        } label: {
+                            HStack(spacing: 5) {
+                                Text("Sort")
+                                    .font(.fitnexBody(size: 11, weight: .semibold))
+                                Image(systemName: viewModel.sortDescending ? "arrow.up.arrow.down" : "arrow.down.arrow.up")
+                                    .font(.system(size: 10, weight: .bold))
+                            }
+                            .foregroundColor(FitnexColor.black)
+                            .padding(.horizontal, 12)
+                            .frame(height: 32)
+                            .background(FitnexColor.card, in: Capsule())
+                            .overlay {
+                                Capsule()
+                                    .stroke(FitnexColor.border, lineWidth: 1)
+                            }
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.top, 2)
+
+                    if viewModel.serverRows.isEmpty {
+                        MonitorEmptyServerCard(isConfigured: settings.isConfigured)
+                    } else {
+                        LazyVStack(spacing: 13) {
+                            ForEach(viewModel.serverRows) { server in
+                                MonitorServerRow(content: server)
+                            }
+                        }
+                    }
+                }
+                .padding(.horizontal, 25)
+                .padding(.top, 18)
+                .padding(.bottom, 16)
+            }
+        }
+        .background(FitnexColor.background)
+        .task {
+            await viewModel.start()
+        }
+        .onDisappear {
+            viewModel.stop()
+        }
+        .onChange(of: settings.baseURL) { _ in
+            Task { await viewModel.reconnect() }
+        }
+        .onChange(of: settings.authToken) { _ in
+            Task { await viewModel.reconnect() }
+        }
+        .onChange(of: viewModel.toastMessage) { message in
+            guard let message else { return }
+            feedback(message)
+            viewModel.toastMessage = nil
+        }
+        .onReceive(clockTimer) { date in
+            now = date
+        }
+    }
+
+    private var monitorHeader: some View {
+        HStack(spacing: 12) {
+            ProfileAvatar(size: 42)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("监控")
+                    .font(.fitnexTitle(size: 24))
+                    .foregroundColor(FitnexColor.black)
+                Text(settings.displayHost)
+                    .font(.fitnexBody(size: 12, weight: .regular))
+                    .foregroundColor(FitnexColor.grayText)
+                    .lineLimit(1)
+            }
+
+            Spacer()
+
+            SquareIconButton(systemName: "arrow.clockwise", action: {
+                Task { await viewModel.reconnect() }
+            }, dot: viewModel.isConnected)
+        }
+    }
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter
+    }()
+}
+
+private struct MonitorOverviewCard: View {
+    let content: MonitorOverviewCardContent
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text(content.title)
+                    .font(.fitnexTitle(size: 13))
+                    .foregroundColor(FitnexColor.black)
+                    .lineLimit(1)
+                Spacer()
+                Image(systemName: content.icon)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(content.accent)
+            }
+
+            HStack(spacing: 7) {
+                Circle()
+                    .fill(content.accent)
+                    .frame(width: 7, height: 7)
+                Text(content.value)
+                    .font(.fitnexTitle(size: 17))
+                    .foregroundColor(FitnexColor.black)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.8)
+            }
+
+            if let subtitle = content.subtitle {
+                Text(subtitle)
+                    .font(.fitnexBody(size: 10, weight: .regular))
+                    .foregroundColor(FitnexColor.grayText)
+                    .lineLimit(1)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 78, alignment: .leading)
+        .background(FitnexColor.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(FitnexColor.border, lineWidth: 1)
+        }
+    }
+}
+
+private struct MonitorNetworkCard: View {
+    let content: MonitorNetworkCardContent
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Text("网络")
+                    .font(.fitnexTitle(size: 13))
+                    .foregroundColor(FitnexColor.black)
+                Spacer()
+                Image(systemName: "network")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(Color(hex: 0x3E7BFA))
+            }
+
+            Text(content.transferText)
+                .font(.fitnexBody(size: 10, weight: .semibold))
+                .foregroundColor(Color(hex: 0x8A4DFF))
+                .lineLimit(1)
+                .minimumScaleFactor(0.75)
+
+            Label(content.downloadText, systemImage: "arrow.down.circle.fill")
+                .font(.fitnexBody(size: 10, weight: .semibold))
+                .foregroundColor(FitnexColor.black)
+                .lineLimit(1)
+            Label(content.uploadText, systemImage: "arrow.up.circle.fill")
+                .font(.fitnexBody(size: 10, weight: .semibold))
+                .foregroundColor(FitnexColor.black)
+                .lineLimit(1)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, minHeight: 78, alignment: .leading)
+        .background(FitnexColor.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(FitnexColor.border, lineWidth: 1)
+        }
+    }
+}
+
+private struct MonitorServerRow: View {
+    let content: MonitorServerRowContent
+
+    var body: some View {
+        VStack(spacing: 13) {
+            HStack(spacing: 8) {
+                Circle()
+                    .fill(content.isOnline ? Color(hex: 0x14A46A) : Color(hex: 0xD31645))
+                    .frame(width: 7, height: 7)
+                Circle()
+                    .fill(Color(hex: 0xD31645))
+                    .frame(width: 7, height: 7)
+                Text(content.title)
+                    .font(.fitnexTitle(size: 12))
+                    .foregroundColor(FitnexColor.black)
+                    .lineLimit(1)
+                Spacer()
+                Text(content.countryText)
+                    .font(.fitnexBody(size: 11, weight: .semibold))
+                    .foregroundColor(FitnexColor.grayText)
+                    .lineLimit(1)
+            }
+
+            HStack(spacing: 0) {
+                MonitorServerMetric(title: "CPU", value: content.cpuText, progress: content.cpuProgress)
+                MonitorServerMetric(title: "内存", value: content.memoryText, progress: content.memoryProgress)
+                MonitorServerMetric(title: "存储", value: content.diskText, progress: content.diskProgress)
+                MonitorServerMetric(title: "上传", value: content.uploadText, progress: nil)
+                MonitorServerMetric(title: "下载", value: content.downloadText, progress: nil)
+            }
+        }
+        .padding(.horizontal, 15)
+        .padding(.vertical, 14)
+        .background(FitnexColor.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(FitnexColor.border, lineWidth: 1)
+        }
+    }
+}
+
+private struct MonitorServerMetric: View {
+    let title: String
+    let value: String
+    let progress: Double?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title)
+                .font(.fitnexBody(size: 10, weight: .regular))
+                .foregroundColor(FitnexColor.grayText)
+                .lineLimit(1)
+            Text(value)
+                .font(.fitnexTitle(size: 10))
+                .foregroundColor(FitnexColor.black)
+                .lineLimit(1)
+                .minimumScaleFactor(0.65)
+            if let progress {
+                GeometryReader { proxy in
+                    ZStack(alignment: .leading) {
+                        Capsule()
+                            .fill(FitnexColor.pale)
+                        Capsule()
+                            .fill(Color(hex: 0x14A46A))
+                            .frame(width: max(3, proxy.size.width * CGFloat(min(max(progress, 0), 1))))
+                    }
+                }
+                .frame(height: 3)
+            } else {
+                Color.clear.frame(height: 3)
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+}
+
+private struct MonitorEmptyConfigCard: View {
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Circle()
+                    .fill(FitnexColor.orangeSoft)
+                    .frame(width: 38, height: 38)
+                    .overlay {
+                        Image(systemName: "link")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(FitnexColor.orange)
+                    }
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("需要配置 Nezha 服务")
+                        .font(.fitnexTitle(size: 13))
+                        .foregroundColor(FitnexColor.black)
+                    Text("前往 Settings 填写 Base URL 后开始连接")
+                        .font(.fitnexBody(size: 10, weight: .regular))
+                        .foregroundColor(FitnexColor.grayText)
+                }
+                Spacer()
+            }
+            .padding(14)
+            .background(FitnexColor.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(FitnexColor.border, lineWidth: 1)
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+private struct MonitorEmptyServerCard: View {
+    let isConfigured: Bool
+
+    var body: some View {
+        VStack(spacing: 10) {
+            Image(systemName: isConfigured ? "server.rack" : "exclamationmark.triangle")
+                .font(.system(size: 26, weight: .medium))
+                .foregroundColor(FitnexColor.grayText)
+            Text(isConfigured ? "暂无服务器数据" : "未配置数据源")
+                .font(.fitnexTitle(size: 14))
+                .foregroundColor(FitnexColor.black)
+            Text(isConfigured ? "等待 WebSocket 返回 Nezha 服务器状态" : "请先在 Settings 配置 Nezha Base URL")
+                .font(.fitnexBody(size: 11, weight: .regular))
+                .foregroundColor(FitnexColor.grayText)
+                .multilineTextAlignment(.center)
+        }
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 28)
+        .background(FitnexColor.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(FitnexColor.border, lineWidth: 1)
+        }
+    }
+}
+
 private struct ActivityRingCard: View {
     let title: String
     let value: String
@@ -1037,7 +1400,9 @@ private struct SettingsView: View {
     let feedback: (String) -> Void
     @StateObject private var updateVM = UpdateViewModel()
     @ObservedObject private var logStore = HTTPLogStore.shared
+    @ObservedObject private var nezhaSettings = NezhaSettingsStore.shared
     @State private var showingLogs = false
+    @State private var showingNezhaSettings = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1066,6 +1431,18 @@ private struct SettingsView: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 18) {
+                    Button {
+                        showingNezhaSettings = true
+                    } label: {
+                        settingsRow(
+                            icon: "server.rack",
+                            title: "Nezha",
+                            trailingText: nezhaSettings.isConfigured ? "Configured" : "Missing",
+                            subtitle: nezhaSettings.displayHost
+                        )
+                    }
+                    .buttonStyle(.plain)
+
                     Button {
                         logStore.reloadChunks(selectCurrentIfNeeded: true)
                         showingLogs = true
@@ -1124,6 +1501,10 @@ private struct SettingsView: View {
         .sheet(isPresented: $showingLogs) {
             HTTPLogSheet(store: logStore)
                 .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showingNezhaSettings) {
+            NezhaSettingsSheet(settings: nezhaSettings)
+                .presentationDetents([.medium])
         }
         .onAppear {
             logStore.reloadChunks(selectCurrentIfNeeded: true)
@@ -1360,6 +1741,80 @@ private struct HTTPLogEntryRow: View {
         return formatter
     }()
 }
+
+private struct NezhaSettingsSheet: View {
+    @ObservedObject var settings: NezhaSettingsStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var draftBaseURL = ""
+    @State private var draftToken = ""
+
+    var body: some View {
+        NavigationView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Base URL")
+                        .font(.fitnexTitle(size: 13))
+                        .foregroundColor(FitnexColor.black)
+                    TextField("http://example.com:8008", text: $draftBaseURL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                        .font(.fitnexBody(size: 13, weight: .regular))
+                        .padding(.horizontal, 12)
+                        .frame(height: 44)
+                        .background(FitnexColor.pale, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Authorization Token")
+                        .font(.fitnexTitle(size: 13))
+                        .foregroundColor(FitnexColor.black)
+                    SecureField("Optional Bearer token", text: $draftToken)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .font(.fitnexBody(size: 13, weight: .regular))
+                        .padding(.horizontal, 12)
+                        .frame(height: 44)
+                        .background(FitnexColor.pale, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+
+                Text("WebSocket will connect to /api/v1/ws/server. Leave token empty when the endpoint is public.")
+                    .font(.fitnexBody(size: 11, weight: .regular))
+                    .foregroundColor(FitnexColor.grayText)
+
+                Spacer()
+            }
+            .padding(20)
+            .background(FitnexColor.background)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("Nezha Settings")
+                        .font(.fitnexTitle(size: 16))
+                        .foregroundColor(FitnexColor.black)
+                }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel") {
+                        dismiss()
+                    }
+                    .foregroundColor(FitnexColor.grayText)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        settings.save(baseURL: draftBaseURL, authToken: draftToken)
+                        dismiss()
+                    }
+                    .foregroundColor(FitnexColor.orange)
+                }
+            }
+        }
+        .onAppear {
+            draftBaseURL = settings.baseURL
+            draftToken = settings.authToken
+        }
+    }
+}
+
 private struct DiskInfoCard: View {
     let content: DiskInfoCardContent
     var onTap: (() -> Void)?
@@ -2291,6 +2746,405 @@ private struct PartitionRowContent: Identifiable {
     let isCritical: Bool
 }
 
+private enum MonitorServerFilter: CaseIterable, Hashable {
+    case all
+    case online
+    case offline
+
+    var icon: String {
+        switch self {
+        case .all: return "server.rack"
+        case .online: return "checkmark.circle.fill"
+        case .offline: return "pause.circle.fill"
+        }
+    }
+}
+
+private struct MonitorOverviewCardContent {
+    let title: String
+    let value: String
+    let subtitle: String?
+    let icon: String
+    let accent: Color
+}
+
+private struct MonitorNetworkCardContent {
+    let transferText: String
+    let downloadText: String
+    let uploadText: String
+}
+
+private struct MonitorServerRowContent: Identifiable {
+    let id: Int
+    let title: String
+    let countryText: String
+    let isOnline: Bool
+    let cpuText: String
+    let cpuProgress: Double?
+    let memoryText: String
+    let memoryProgress: Double?
+    let diskText: String
+    let diskProgress: Double?
+    let uploadText: String
+    let downloadText: String
+}
+
+@MainActor
+private final class NezhaSettingsStore: ObservableObject {
+    static let shared = NezhaSettingsStore()
+
+    @Published private(set) var baseURL: String
+    @Published private(set) var authToken: String
+
+    private let defaults = UserDefaults.standard
+    private let baseURLKey = "nezha.baseURL"
+    private let authTokenKey = "nezha.authToken"
+
+    private init() {
+        baseURL = defaults.string(forKey: baseURLKey) ?? ""
+        authToken = defaults.string(forKey: authTokenKey) ?? ""
+    }
+
+    var isConfigured: Bool {
+        !baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var displayHost: String {
+        let trimmed = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "Nezha service not configured" }
+        return URL(string: normalizedHTTPBaseURL(trimmed))?.host ?? trimmed
+    }
+
+    func save(baseURL: String, authToken: String) {
+        let normalizedBaseURL = normalizedHTTPBaseURL(baseURL)
+        let trimmedToken = authToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.baseURL = normalizedBaseURL
+        self.authToken = trimmedToken
+        defaults.set(normalizedBaseURL, forKey: baseURLKey)
+        defaults.set(trimmedToken, forKey: authTokenKey)
+    }
+
+    private func normalizedHTTPBaseURL(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !trimmed.isEmpty else { return "" }
+        if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
+            return trimmed
+        }
+        if trimmed.hasPrefix("ws://") {
+            return "http://" + String(trimmed.dropFirst(5))
+        }
+        if trimmed.hasPrefix("wss://") {
+            return "https://" + String(trimmed.dropFirst(6))
+        }
+        return "http://\(trimmed)"
+    }
+}
+
+@MainActor
+private final class NezhaMonitorViewModel: ObservableObject {
+    @Published private(set) var servers: [NezhaStreamServer] = []
+    @Published private(set) var connectionState: NezhaConnectionState = .notConfigured
+    @Published private(set) var lastUpdated: Date?
+    @Published var selectedFilter: MonitorServerFilter = .all
+    @Published var sortDescending = true
+    @Published var toastMessage: String?
+
+    private let settings: NezhaSettingsStore
+    private var socketTask: URLSessionWebSocketTask?
+    private var receiveTask: Task<Void, Never>?
+    private var reconnectTask: Task<Void, Never>?
+    private var hasShownFailure = false
+    private var isActive = false
+
+    init(settings: NezhaSettingsStore) {
+        self.settings = settings
+    }
+
+    var isConnected: Bool {
+        if case .connected = connectionState { return true }
+        return false
+    }
+
+    var statusText: String {
+        switch connectionState {
+        case .notConfigured:
+            return "Configure Nezha in Settings"
+        case .connecting:
+            return "Connecting to \(settings.displayHost)"
+        case .connected:
+            if let lastUpdated {
+                return "Updated \(Self.timeFormatter.string(from: lastUpdated))"
+            }
+            return "Connected"
+        case .disconnected:
+            return "Disconnected, retrying"
+        case .failed(let message):
+            return message
+        }
+    }
+
+    var totalCard: MonitorOverviewCardContent {
+        MonitorOverviewCardContent(
+            title: "服务器总数",
+            value: "\(servers.count)",
+            subtitle: nil,
+            icon: "server.rack",
+            accent: Color(hex: 0x3E7BFA)
+        )
+    }
+
+    var onlineCard: MonitorOverviewCardContent {
+        MonitorOverviewCardContent(
+            title: "在线服务器",
+            value: "\(servers.filter { isOnline($0) }.count)",
+            subtitle: nil,
+            icon: "checkmark.circle.fill",
+            accent: Color(hex: 0x14A46A)
+        )
+    }
+
+    var offlineCard: MonitorOverviewCardContent {
+        MonitorOverviewCardContent(
+            title: "离线服务器",
+            value: "\(servers.filter { !isOnline($0) }.count)",
+            subtitle: nil,
+            icon: "xmark.circle.fill",
+            accent: Color(hex: 0xE5484D)
+        )
+    }
+
+    var networkCard: MonitorNetworkCardContent {
+        let down = servers.reduce(Int64(0)) { $0 + ($1.state?.netInSpeed ?? 0) }
+        let up = servers.reduce(Int64(0)) { $0 + ($1.state?.netOutSpeed ?? 0) }
+        let downTransfer = servers.reduce(Int64(0)) { $0 + ($1.state?.netInTransfer ?? 0) }
+        let upTransfer = servers.reduce(Int64(0)) { $0 + ($1.state?.netOutTransfer ?? 0) }
+        return MonitorNetworkCardContent(
+            transferText: "↓\(bytes(downTransfer)) ↑\(bytes(upTransfer))",
+            downloadText: rate(down),
+            uploadText: rate(up)
+        )
+    }
+
+    var serverRows: [MonitorServerRowContent] {
+        filteredServers.map { server in
+            let cpu = server.state?.cpu
+            let memoryProgress = fraction(used: server.state?.memUsed, total: server.host?.memTotal)
+            let diskProgress = fraction(used: server.state?.diskUsed, total: server.host?.diskTotal)
+            return MonitorServerRowContent(
+                id: server.id,
+                title: server.name.isEmpty ? "Server \(server.id)" : server.name,
+                countryText: server.countryCode?.uppercased() ?? "",
+                isOnline: isOnline(server),
+                cpuText: cpu.map { percent($0) } ?? "--",
+                cpuProgress: cpu.map { min(max($0 / 100, 0), 1) },
+                memoryText: memoryProgress.map { percent($0 * 100) } ?? "--",
+                memoryProgress: memoryProgress,
+                diskText: diskProgress.map { percent($0 * 100) } ?? "--",
+                diskProgress: diskProgress,
+                uploadText: rate(server.state?.netOutSpeed ?? 0),
+                downloadText: rate(server.state?.netInSpeed ?? 0)
+            )
+        }
+    }
+
+    func start() async {
+        isActive = true
+        stopSocketOnly()
+        await connect()
+    }
+
+    func stop() {
+        isActive = false
+        reconnectTask?.cancel()
+        receiveTask?.cancel()
+        socketTask?.cancel(with: .goingAway, reason: nil)
+        reconnectTask = nil
+        receiveTask = nil
+        socketTask = nil
+    }
+
+    func reconnect() async {
+        stopSocketOnly()
+        await connect()
+    }
+
+    func toggleSort() {
+        sortDescending.toggle()
+    }
+
+    private var filteredServers: [NezhaStreamServer] {
+        let filtered = servers.filter { server in
+            switch selectedFilter {
+            case .all:
+                return true
+            case .online:
+                return isOnline(server)
+            case .offline:
+                return !isOnline(server)
+            }
+        }
+
+        return filtered.sorted { lhs, rhs in
+            if lhs.displayIndex != rhs.displayIndex {
+                return sortDescending ? lhs.displayIndex > rhs.displayIndex : lhs.displayIndex < rhs.displayIndex
+            }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+    }
+
+    private func connect() async {
+        guard isActive else { return }
+        guard let url = webSocketURL() else {
+            connectionState = .notConfigured
+            servers = []
+            return
+        }
+
+        connectionState = .connecting
+        var request = URLRequest(url: url)
+        if !settings.authToken.isEmpty {
+            request.setValue("Bearer \(settings.authToken)", forHTTPHeaderField: "Authorization")
+        }
+
+        let task = URLSession.shared.webSocketTask(with: request)
+        socketTask = task
+        task.resume()
+        connectionState = .connected
+        hasShownFailure = false
+
+        receiveTask = Task { [weak self] in
+            await self?.receiveLoop(task: task)
+        }
+    }
+
+    private func receiveLoop(task: URLSessionWebSocketTask) async {
+        while !Task.isCancelled {
+            do {
+                let message = try await task.receive()
+                switch message {
+                case .string(let text):
+                    handlePayload(Data(text.utf8))
+                case .data(let data):
+                    handlePayload(data)
+                @unknown default:
+                    break
+                }
+            } catch {
+                guard !Task.isCancelled else { return }
+                connectionState = .disconnected
+                scheduleReconnect()
+                return
+            }
+        }
+    }
+
+    private func handlePayload(_ data: Data) {
+        let decoder = JSONDecoder()
+        do {
+            if let stream = try? decoder.decode(NezhaStreamServerData.self, from: data) {
+                servers = stream.servers
+            } else if let streamServers = try? decoder.decode([NezhaStreamServer].self, from: data) {
+                servers = streamServers
+            } else {
+                let wrapped = try decoder.decode(NezhaCommonResponse<NezhaStreamServerData>.self, from: data)
+                servers = wrapped.data?.servers ?? []
+            }
+            lastUpdated = Date()
+            connectionState = .connected
+        } catch {
+            if !hasShownFailure {
+                toastMessage = "Nezha payload decode failed"
+                hasShownFailure = true
+            }
+        }
+    }
+
+    private func scheduleReconnect() {
+        guard isActive, settings.isConfigured else { return }
+        reconnectTask?.cancel()
+        reconnectTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 5_000_000_000)
+            await self?.connect()
+        }
+    }
+
+    private func stopSocketOnly() {
+        reconnectTask?.cancel()
+        receiveTask?.cancel()
+        socketTask?.cancel(with: .goingAway, reason: nil)
+        reconnectTask = nil
+        receiveTask = nil
+        socketTask = nil
+    }
+
+    private func webSocketURL() -> URL? {
+        let base = settings.baseURL.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !base.isEmpty else { return nil }
+        let suffix = base.hasSuffix("/api/v1") ? "/ws/server" : "/api/v1/ws/server"
+        guard var components = URLComponents(string: base + suffix) else { return nil }
+        if components.scheme == "https" {
+            components.scheme = "wss"
+        } else if components.scheme == "http" {
+            components.scheme = "ws"
+        }
+        return components.url
+    }
+
+    private func isOnline(_ server: NezhaStreamServer) -> Bool {
+        server.state != nil
+    }
+
+    private func fraction(used: Int64?, total: Int64?) -> Double? {
+        guard let used, let total, total > 0 else { return nil }
+        return min(max(Double(used) / Double(total), 0), 1)
+    }
+
+    private func percent(_ value: Double) -> String {
+        String(format: "%.2f%%", value)
+    }
+
+    private func rate(_ value: Int64) -> String {
+        let bytes = Double(max(value, 0))
+        if bytes == 0 { return "0B/s" }
+        if bytes < 1024 { return String(format: "%.0fB/s", bytes) }
+        let units = ["KiB/s", "MiB/s", "GiB/s", "TiB/s"]
+        var scaled = bytes / 1024
+        var index = 0
+        while scaled >= 1024, index < units.count - 1 {
+            scaled /= 1024
+            index += 1
+        }
+        return String(format: "%.2f%@", scaled, units[index])
+    }
+
+    private func bytes(_ value: Int64) -> String {
+        Self.byteFormatter.string(fromByteCount: value)
+    }
+
+    private static let timeFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "HH:mm:ss"
+        return formatter
+    }()
+
+    private static let byteFormatter: ByteCountFormatter = {
+        let formatter = ByteCountFormatter()
+        formatter.allowedUnits = [.useKB, .useMB, .useGB, .useTB]
+        formatter.countStyle = .binary
+        formatter.includesUnit = true
+        formatter.isAdaptive = true
+        return formatter
+    }()
+}
+
+private enum NezhaConnectionState: Equatable {
+    case notConfigured
+    case connecting
+    case connected
+    case disconnected
+    case failed(String)
+}
+
 @MainActor
 private final class DiskStatusViewModel: ObservableObject {
     private static let disksURL = URL(string: "http://192.168.2.202:12225/api/public/system/disks")!
@@ -3196,6 +4050,136 @@ private struct SystemMetricsResponse: Decodable {
         let goroutines: Int
         let allocBytes: Int64
         let sysBytes: Int64
+    }
+}
+
+private struct NezhaCommonResponse<T: Decodable>: Decodable {
+    let success: Bool?
+    let error: String?
+    let data: T?
+}
+
+private struct NezhaStreamServerData: Decodable {
+    let servers: [NezhaStreamServer]
+}
+
+private struct NezhaStreamServer: Decodable, Identifiable {
+    let id: Int
+    let name: String
+    let countryCode: String?
+    let displayIndex: Int
+    let host: NezhaHost?
+    let state: NezhaHostState?
+    let lastActive: String?
+    let publicNote: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, host, state
+        case countryCode = "country_code"
+        case displayIndex = "display_index"
+        case lastActive = "last_active"
+        case publicNote = "public_note"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id = try c.decodeIfPresent(Int.self, forKey: .id) ?? 0
+        name = try c.decodeIfPresent(String.self, forKey: .name) ?? ""
+        countryCode = try c.decodeIfPresent(String.self, forKey: .countryCode)
+        displayIndex = try c.decodeIfPresent(Int.self, forKey: .displayIndex) ?? 0
+        host = try c.decodeIfPresent(NezhaHost.self, forKey: .host)
+        state = try c.decodeIfPresent(NezhaHostState.self, forKey: .state)
+        lastActive = try c.decodeIfPresent(String.self, forKey: .lastActive)
+        publicNote = try c.decodeIfPresent(String.self, forKey: .publicNote)
+    }
+}
+
+private struct NezhaHost: Decodable {
+    let arch: String?
+    let bootTime: Int64?
+    let cpu: [String]
+    let diskTotal: Int64?
+    let gpu: [String]
+    let memTotal: Int64?
+    let platform: String?
+    let platformVersion: String?
+    let swapTotal: Int64?
+    let version: String?
+    let virtualization: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case arch, cpu, gpu, platform, version, virtualization
+        case bootTime = "boot_time"
+        case diskTotal = "disk_total"
+        case memTotal = "mem_total"
+        case platformVersion = "platform_version"
+        case swapTotal = "swap_total"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        arch = try c.decodeIfPresent(String.self, forKey: .arch)
+        bootTime = try c.decodeIfPresent(Int64.self, forKey: .bootTime)
+        cpu = try c.decodeIfPresent([String].self, forKey: .cpu) ?? []
+        diskTotal = try c.decodeIfPresent(Int64.self, forKey: .diskTotal)
+        gpu = try c.decodeIfPresent([String].self, forKey: .gpu) ?? []
+        memTotal = try c.decodeIfPresent(Int64.self, forKey: .memTotal)
+        platform = try c.decodeIfPresent(String.self, forKey: .platform)
+        platformVersion = try c.decodeIfPresent(String.self, forKey: .platformVersion)
+        swapTotal = try c.decodeIfPresent(Int64.self, forKey: .swapTotal)
+        version = try c.decodeIfPresent(String.self, forKey: .version)
+        virtualization = try c.decodeIfPresent(String.self, forKey: .virtualization)
+    }
+}
+
+private struct NezhaHostState: Decodable {
+    let cpu: Double?
+    let diskUsed: Int64?
+    let gpu: [Double]
+    let load1: Double?
+    let load5: Double?
+    let load15: Double?
+    let memUsed: Int64?
+    let netInSpeed: Int64?
+    let netInTransfer: Int64?
+    let netOutSpeed: Int64?
+    let netOutTransfer: Int64?
+    let processCount: Int?
+    let swapUsed: Int64?
+    let tcpConnCount: Int?
+
+    private enum CodingKeys: String, CodingKey {
+        case cpu, gpu
+        case diskUsed = "disk_used"
+        case load1 = "load_1"
+        case load5 = "load_5"
+        case load15 = "load_15"
+        case memUsed = "mem_used"
+        case netInSpeed = "net_in_speed"
+        case netInTransfer = "net_in_transfer"
+        case netOutSpeed = "net_out_speed"
+        case netOutTransfer = "net_out_transfer"
+        case processCount = "process_count"
+        case swapUsed = "swap_used"
+        case tcpConnCount = "tcp_conn_count"
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        cpu = try c.decodeIfPresent(Double.self, forKey: .cpu)
+        diskUsed = try c.decodeIfPresent(Int64.self, forKey: .diskUsed)
+        gpu = try c.decodeIfPresent([Double].self, forKey: .gpu) ?? []
+        load1 = try c.decodeIfPresent(Double.self, forKey: .load1)
+        load5 = try c.decodeIfPresent(Double.self, forKey: .load5)
+        load15 = try c.decodeIfPresent(Double.self, forKey: .load15)
+        memUsed = try c.decodeIfPresent(Int64.self, forKey: .memUsed)
+        netInSpeed = try c.decodeIfPresent(Int64.self, forKey: .netInSpeed)
+        netInTransfer = try c.decodeIfPresent(Int64.self, forKey: .netInTransfer)
+        netOutSpeed = try c.decodeIfPresent(Int64.self, forKey: .netOutSpeed)
+        netOutTransfer = try c.decodeIfPresent(Int64.self, forKey: .netOutTransfer)
+        processCount = try c.decodeIfPresent(Int.self, forKey: .processCount)
+        swapUsed = try c.decodeIfPresent(Int64.self, forKey: .swapUsed)
+        tcpConnCount = try c.decodeIfPresent(Int.self, forKey: .tcpConnCount)
     }
 }
 
