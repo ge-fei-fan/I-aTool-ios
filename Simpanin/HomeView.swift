@@ -1,5 +1,10 @@
 import Foundation
+import CoreImage
+import Photos
+import PhotosUI
 import SwiftUI
+import UIKit
+import Vision
 
 struct HomeView: View {
     @Environment(\.scenePhase) private var scenePhase
@@ -29,7 +34,7 @@ struct HomeView: View {
         .safeAreaInset(edge: .bottom) {
             FitnexTabBar(
                 selected: selectedTab,
-                isActivityPresented: detailScreen == .activity,
+                isActivityPresented: detailScreen == .journal,
                 selectTab: selectTab,
                 openActivity: openActivity
             )
@@ -67,6 +72,12 @@ struct HomeView: View {
             case .disk:
                 DiskStatusView(
                     viewModel: diskStatus,
+                    back: { self.detailScreen = nil },
+                    feedback: feedback
+                )
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            case .journal:
+                JournalCaptureView(
                     back: { self.detailScreen = nil },
                     feedback: feedback
                 )
@@ -109,13 +120,14 @@ struct HomeView: View {
     }
 
     private func openActivity() {
-        detailScreen = .activity
+        detailScreen = .journal
     }
 }
 
 private enum DetailScreen {
     case activity
     case disk
+    case journal
 }
 
 private struct IdentifiableString: Identifiable {
@@ -520,6 +532,289 @@ private struct ActivityStatusView: View {
     }
 }
 
+private struct JournalCaptureView: View {
+    let back: () -> Void
+    let feedback: (String) -> Void
+
+    @StateObject private var viewModel = JournalGeneratorViewModel()
+    @State private var selectedPhoto: PhotosPickerItem?
+    @State private var showingCamera = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            DetailTopBar(title: "手帐生成", back: back, feedback: feedback)
+                .padding(.horizontal, 25)
+                .padding(.top, 44)
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    previewSection
+
+                    HStack(spacing: 14) {
+                        Button {
+                            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                                showingCamera = true
+                            } else {
+                                feedback("Camera unavailable")
+                            }
+                        } label: {
+                            JournalActionCard(icon: "camera.viewfinder", title: "拍照", subtitle: "拍一个物品")
+                        }
+                        .buttonStyle(.plain)
+
+                        PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                            JournalActionCard(icon: "photo.on.rectangle", title: "相册", subtitle: "选择图片")
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    if viewModel.hasResult {
+                        Button {
+                            Task { await viewModel.saveResult() }
+                        } label: {
+                            HStack {
+                                Image(systemName: "square.and.arrow.down")
+                                    .font(.system(size: 15, weight: .semibold))
+                                Text(viewModel.isSaving ? "保存中..." : "保存到相册")
+                                    .font(.fitnexTitle(size: 14))
+                            }
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(FitnexColor.orange, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(viewModel.isSaving)
+                    }
+
+                    if let errorMessage = viewModel.errorMessage {
+                        Text(errorMessage)
+                            .font(.fitnexBody(size: 11, weight: .regular))
+                            .foregroundColor(Color(hex: 0xE5484D))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(.horizontal, 25)
+                .padding(.top, 22)
+                .padding(.bottom, 18)
+            }
+        }
+        .background(FitnexColor.background)
+        .sheet(isPresented: $showingCamera) {
+            CameraPicker { image in
+                viewModel.generate(from: image)
+            }
+        }
+        .onChange(of: selectedPhoto) { item in
+            guard let item else { return }
+            Task { await loadPhoto(item) }
+        }
+        .onChange(of: viewModel.toastMessage) { message in
+            guard let message else { return }
+            feedback(message)
+            viewModel.toastMessage = nil
+        }
+    }
+
+    @ViewBuilder
+    private var previewSection: some View {
+        switch viewModel.state {
+        case .idle:
+            JournalPlaceholderCard()
+        case .generating:
+            JournalLoadingCard()
+        case .completed:
+            if let original = viewModel.originalImage, let result = viewModel.resultImage {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("生成结果")
+                        .font(.fitnexTitle(size: 15))
+                        .foregroundColor(FitnexColor.black)
+
+                    Image(uiImage: result)
+                        .resizable()
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity)
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .stroke(FitnexColor.border, lineWidth: 1)
+                        }
+
+                    HStack(spacing: 10) {
+                        JournalThumbnail(title: "原图", image: original)
+                        JournalThumbnail(title: "手帐", image: result)
+                    }
+                }
+            } else {
+                JournalPlaceholderCard()
+            }
+        case .failed:
+            JournalPlaceholderCard(title: "生成失败", subtitle: "换一张主体更清晰的照片再试")
+        }
+    }
+
+    private func loadPhoto(_ item: PhotosPickerItem) async {
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self),
+                  let image = UIImage(data: data) else {
+                viewModel.fail("Image load failed")
+                return
+            }
+            viewModel.generate(from: image)
+            selectedPhoto = nil
+        } catch {
+            viewModel.fail("Image load failed")
+        }
+    }
+}
+
+private struct JournalActionCard: View {
+    let icon: String
+    let title: String
+    let subtitle: String
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Circle()
+                .fill(FitnexColor.orangeSoft)
+                .frame(width: 42, height: 42)
+                .overlay {
+                    Image(systemName: icon)
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(FitnexColor.orange)
+                }
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.fitnexTitle(size: 14))
+                    .foregroundColor(FitnexColor.black)
+                Text(subtitle)
+                    .font(.fitnexBody(size: 10, weight: .regular))
+                    .foregroundColor(FitnexColor.grayText)
+                    .lineLimit(1)
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, minHeight: 72, alignment: .leading)
+        .background(FitnexColor.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(FitnexColor.border, lineWidth: 1)
+        }
+    }
+}
+
+private struct JournalPlaceholderCard: View {
+    var title = "拍照生成手帐贴纸"
+    var subtitle = "本地处理照片，把主体转成纸感、描边的手帐风图片"
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "sparkles")
+                .font(.system(size: 34, weight: .semibold))
+                .foregroundColor(FitnexColor.orange)
+            Text(title)
+                .font(.fitnexTitle(size: 17))
+                .foregroundColor(FitnexColor.black)
+            Text(subtitle)
+                .font(.fitnexBody(size: 12, weight: .regular))
+                .foregroundColor(FitnexColor.grayText)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 250)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 260)
+        .background(FitnexColor.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(FitnexColor.border, lineWidth: 1)
+        }
+    }
+}
+
+private struct JournalLoadingCard: View {
+    var body: some View {
+        VStack(spacing: 14) {
+            ProgressView()
+                .tint(FitnexColor.orange)
+            Text("正在生成手帐风...")
+                .font(.fitnexTitle(size: 15))
+                .foregroundColor(FitnexColor.black)
+            Text("使用本地 Vision 和 Core Image 处理")
+                .font(.fitnexBody(size: 11, weight: .regular))
+                .foregroundColor(FitnexColor.grayText)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 260)
+        .background(FitnexColor.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(FitnexColor.border, lineWidth: 1)
+        }
+    }
+}
+
+private struct JournalThumbnail: View {
+    let title: String
+    let image: UIImage
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(title)
+                .font(.fitnexBody(size: 10, weight: .regular))
+                .foregroundColor(FitnexColor.grayText)
+            Image(uiImage: image)
+                .resizable()
+                .scaledToFill()
+                .frame(height: 92)
+                .frame(maxWidth: .infinity)
+                .clipped()
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+        .frame(maxWidth: .infinity)
+    }
+}
+
+private struct CameraPicker: UIViewControllerRepresentable {
+    let completion: (UIImage) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.delegate = context.coordinator
+        picker.allowsEditing = false
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(completion: completion, dismiss: dismiss)
+    }
+
+    final class Coordinator: NSObject, UINavigationControllerDelegate, UIImagePickerControllerDelegate {
+        let completion: (UIImage) -> Void
+        let dismiss: DismissAction
+
+        init(completion: @escaping (UIImage) -> Void, dismiss: DismissAction) {
+            self.completion = completion
+            self.dismiss = dismiss
+        }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            if let image = info[.originalImage] as? UIImage {
+                completion(image)
+            }
+            dismiss()
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            dismiss()
+        }
+    }
+}
+
 private struct DiskStatusView: View {
     @ObservedObject var viewModel: DiskStatusViewModel
     let back: () -> Void
@@ -879,7 +1174,7 @@ private struct FitnexTabBar: View {
                         .fill(FitnexColor.orange)
                         .frame(width: 58, height: 58)
                         .shadow(color: FitnexColor.orange.opacity(0.35), radius: 16, y: 8)
-                    Image(systemName: "chart.line.uptrend.xyaxis")
+                    Image(systemName: "camera.viewfinder")
                         .font(.system(size: 20, weight: .bold))
                         .foregroundColor(.white)
                 }
@@ -2678,6 +2973,269 @@ private struct PartitionRowContent: Identifiable {
     let progress: Double
     let accent: Color
     let isCritical: Bool
+}
+
+private enum JournalGenerationState {
+    case idle
+    case generating
+    case completed
+    case failed
+}
+
+@MainActor
+private final class JournalGeneratorViewModel: ObservableObject {
+    @Published private(set) var state: JournalGenerationState = .idle
+    @Published private(set) var originalImage: UIImage?
+    @Published private(set) var resultImage: UIImage?
+    @Published private(set) var isSaving = false
+    @Published var errorMessage: String?
+    @Published var toastMessage: String?
+
+    var hasResult: Bool {
+        resultImage != nil
+    }
+
+    func generate(from image: UIImage) {
+        originalImage = image
+        resultImage = nil
+        errorMessage = nil
+        state = .generating
+
+        Task {
+            do {
+                let generated = try await JournalImageProcessor.generate(from: image)
+                resultImage = generated
+                state = .completed
+                toastMessage = "Journal image ready"
+            } catch {
+                state = .failed
+                errorMessage = "Local generation failed"
+                toastMessage = "Generation failed"
+            }
+        }
+    }
+
+    func saveResult() async {
+        guard let resultImage, !isSaving else { return }
+        isSaving = true
+        defer { isSaving = false }
+
+        do {
+            try await JournalPhotoSaver.save(resultImage)
+            toastMessage = "Saved to Photos"
+        } catch {
+            toastMessage = "Save failed"
+            errorMessage = "Unable to save image to Photos"
+        }
+    }
+
+    func fail(_ message: String) {
+        state = .failed
+        errorMessage = message
+        toastMessage = message
+    }
+}
+
+private enum JournalImageProcessor {
+    static func generate(from image: UIImage) async throws -> UIImage {
+        try await Task.detached(priority: .userInitiated) {
+            let normalized = normalizedImage(image, maxDimension: 1536)
+            guard let cgImage = normalized.cgImage,
+                  let input = CIImage(image: normalized) else {
+                throw JournalImageError.invalidImage
+            }
+
+            let extent = input.extent
+            let paper = paperBackground(extent: extent)
+            let stylized = stylize(input)
+
+            let output: CIImage
+            if let mask = saliencyMask(for: cgImage, extent: extent) {
+                let cutout = blend(input: stylized, background: clear(extent: extent), mask: mask)
+                let outlineMask = morphologyMaximum(mask, radius: 12)
+                let outline = blend(
+                    input: CIImage(color: CIColor(red: 1, green: 1, blue: 1, alpha: 1)).cropped(to: extent),
+                    background: clear(extent: extent),
+                    mask: outlineMask
+                )
+                output = sourceOver(cutout, over: sourceOver(outline, over: paper))
+            } else {
+                output = sourceOver(stylized, over: paper)
+            }
+
+            guard let cgOutput = context.createCGImage(output.cropped(to: extent), from: extent) else {
+                throw JournalImageError.renderFailed
+            }
+
+            return decorate(UIImage(cgImage: cgOutput, scale: normalized.scale, orientation: .up))
+        }.value
+    }
+
+    private static let context = CIContext(options: [.useSoftwareRenderer: false])
+
+    private static func normalizedImage(_ image: UIImage, maxDimension: CGFloat) -> UIImage {
+        let size = image.size
+        let longest = max(size.width, size.height)
+        let scale = longest > maxDimension ? maxDimension / longest : 1
+        let targetSize = CGSize(width: size.width * scale, height: size.height * scale)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: targetSize, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: targetSize))
+        }
+    }
+
+    private static func stylize(_ image: CIImage) -> CIImage {
+        var output = image
+
+        if let filter = CIFilter(name: "CIColorControls") {
+            filter.setValue(output, forKey: kCIInputImageKey)
+            filter.setValue(1.35, forKey: kCIInputSaturationKey)
+            filter.setValue(0.06, forKey: kCIInputBrightnessKey)
+            filter.setValue(1.12, forKey: kCIInputContrastKey)
+            output = filter.outputImage ?? output
+        }
+
+        if let filter = CIFilter(name: "CIPhotoEffectInstant") {
+            filter.setValue(output, forKey: kCIInputImageKey)
+            output = filter.outputImage ?? output
+        }
+
+        if let filter = CIFilter(name: "CIColorPosterize") {
+            filter.setValue(output, forKey: kCIInputImageKey)
+            filter.setValue(7.0, forKey: "inputLevels")
+            output = filter.outputImage ?? output
+        }
+
+        if let filter = CIFilter(name: "CISharpenLuminance") {
+            filter.setValue(output, forKey: kCIInputImageKey)
+            filter.setValue(0.35, forKey: kCIInputSharpnessKey)
+            output = filter.outputImage ?? output
+        }
+
+        return output.cropped(to: image.extent)
+    }
+
+    private static func saliencyMask(for cgImage: CGImage, extent: CGRect) -> CIImage? {
+        let request = VNGenerateAttentionBasedSaliencyImageRequest()
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        try? handler.perform([request])
+        guard let observation = request.results?.first else { return nil }
+
+        var mask = CIImage(cvPixelBuffer: observation.pixelBuffer)
+        let scaleX = extent.width / max(mask.extent.width, 1)
+        let scaleY = extent.height / max(mask.extent.height, 1)
+        mask = mask
+            .transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY))
+            .cropped(to: extent)
+
+        if let filter = CIFilter(name: "CIColorControls") {
+            filter.setValue(mask, forKey: kCIInputImageKey)
+            filter.setValue(0.0, forKey: kCIInputSaturationKey)
+            filter.setValue(1.8, forKey: kCIInputContrastKey)
+            filter.setValue(0.08, forKey: kCIInputBrightnessKey)
+            mask = filter.outputImage?.cropped(to: extent) ?? mask
+        }
+
+        if let filter = CIFilter(name: "CIGaussianBlur") {
+            filter.setValue(mask, forKey: kCIInputImageKey)
+            filter.setValue(2.0, forKey: kCIInputRadiusKey)
+            mask = filter.outputImage?.cropped(to: extent) ?? mask
+        }
+
+        return mask
+    }
+
+    private static func paperBackground(extent: CGRect) -> CIImage {
+        let base = CIImage(color: CIColor(red: 0.985, green: 0.965, blue: 0.91, alpha: 1)).cropped(to: extent)
+        guard let random = CIFilter(name: "CIRandomGenerator")?.outputImage?.cropped(to: extent),
+              let matrix = CIFilter(name: "CIColorMatrix") else {
+            return base
+        }
+        matrix.setValue(random, forKey: kCIInputImageKey)
+        matrix.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputRVector")
+        matrix.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputGVector")
+        matrix.setValue(CIVector(x: 0, y: 0, z: 0, w: 0), forKey: "inputBVector")
+        matrix.setValue(CIVector(x: 0, y: 0, z: 0, w: 0.025), forKey: "inputAVector")
+        let noise = matrix.outputImage?.cropped(to: extent) ?? clear(extent: extent)
+        return sourceOver(noise, over: base)
+    }
+
+    private static func morphologyMaximum(_ image: CIImage, radius: Double) -> CIImage {
+        guard let filter = CIFilter(name: "CIMorphologyMaximum") else { return image }
+        filter.setValue(image, forKey: kCIInputImageKey)
+        filter.setValue(radius, forKey: kCIInputRadiusKey)
+        return filter.outputImage?.cropped(to: image.extent) ?? image
+    }
+
+    private static func blend(input: CIImage, background: CIImage, mask: CIImage) -> CIImage {
+        guard let filter = CIFilter(name: "CIBlendWithMask") else { return input }
+        filter.setValue(input, forKey: kCIInputImageKey)
+        filter.setValue(background, forKey: kCIInputBackgroundImageKey)
+        filter.setValue(mask, forKey: kCIInputMaskImageKey)
+        return filter.outputImage?.cropped(to: input.extent) ?? input
+    }
+
+    private static func sourceOver(_ input: CIImage, over background: CIImage) -> CIImage {
+        guard let filter = CIFilter(name: "CISourceOverCompositing") else { return input }
+        filter.setValue(input, forKey: kCIInputImageKey)
+        filter.setValue(background, forKey: kCIInputBackgroundImageKey)
+        return filter.outputImage?.cropped(to: background.extent) ?? input
+    }
+
+    private static func clear(extent: CGRect) -> CIImage {
+        CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0)).cropped(to: extent)
+    }
+
+    private static func decorate(_ image: UIImage) -> UIImage {
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = image.scale
+        return UIGraphicsImageRenderer(size: image.size, format: format).image { context in
+            let rect = CGRect(origin: .zero, size: image.size)
+            UIColor(red: 0.985, green: 0.965, blue: 0.91, alpha: 1).setFill()
+            context.fill(rect)
+            image.draw(in: rect)
+
+            let tapeWidth = image.size.width * 0.22
+            let tapeHeight = max(image.size.height * 0.035, 18)
+            UIColor(red: 1.0, green: 0.82, blue: 0.58, alpha: 0.55).setFill()
+            UIBezierPath(roundedRect: CGRect(x: image.size.width * 0.08, y: image.size.height * 0.055, width: tapeWidth, height: tapeHeight), cornerRadius: tapeHeight * 0.28).fill()
+            UIBezierPath(roundedRect: CGRect(x: image.size.width * 0.70, y: image.size.height * 0.90, width: tapeWidth, height: tapeHeight), cornerRadius: tapeHeight * 0.28).fill()
+        }
+    }
+}
+
+private enum JournalImageError: Error {
+    case invalidImage
+    case renderFailed
+}
+
+private enum JournalPhotoSaver {
+    static func save(_ image: UIImage) async throws {
+        let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        guard status == .authorized || status == .limited else {
+            throw JournalPhotoSaveError.notAuthorized
+        }
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            PHPhotoLibrary.shared().performChanges {
+                PHAssetChangeRequest.creationRequestForAsset(from: image)
+            } completionHandler: { success, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else if success {
+                    continuation.resume()
+                } else {
+                    continuation.resume(throwing: JournalPhotoSaveError.writeFailed)
+                }
+            }
+        }
+    }
+}
+
+private enum JournalPhotoSaveError: Error {
+    case notAuthorized
+    case writeFailed
 }
 
 private enum MonitorServerFilter: CaseIterable, Hashable {
