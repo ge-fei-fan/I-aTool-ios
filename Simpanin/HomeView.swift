@@ -1668,6 +1668,7 @@ private struct SettingsView: View {
     @ObservedObject private var nezhaSettings = NezhaSettingsStore.shared
     @State private var showingLogs = false
     @State private var showingNezhaSettings = false
+    @State private var showingKeyboardGuide = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1704,6 +1705,18 @@ private struct SettingsView: View {
                             title: "Nezha",
                             trailingText: nezhaSettings.isConfigured ? "Configured" : "Missing",
                             subtitle: nezhaSettings.displayHost
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    Button {
+                        showingKeyboardGuide = true
+                    } label: {
+                        settingsRow(
+                            icon: "keyboard",
+                            title: "中文键盘",
+                            trailingText: "离线",
+                            subtitle: "启用系统键盘扩展并测试拼音输入"
                         )
                     }
                     .buttonStyle(.plain)
@@ -1770,6 +1783,10 @@ private struct SettingsView: View {
         .sheet(isPresented: $showingNezhaSettings) {
             NezhaSettingsSheet(settings: nezhaSettings)
                 .presentationDetents([.medium])
+        }
+        .sheet(isPresented: $showingKeyboardGuide) {
+            KeyboardGuideSheet()
+                .presentationDetents([.medium, .large])
         }
         .onAppear {
             logStore.reloadChunks(selectCurrentIfNeeded: true)
@@ -2076,6 +2093,71 @@ private struct NezhaSettingsSheet: View {
         .onAppear {
             draftBaseURL = settings.baseURL
             draftToken = settings.authToken
+        }
+    }
+}
+
+private struct KeyboardGuideSheet: View {
+    @State private var testText = ""
+
+    var body: some View {
+        NavigationView {
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("启用步骤")
+                            .font(.fitnexTitle(size: 16))
+                            .foregroundColor(FitnexColor.black)
+                        keyboardStep("1", "打开系统 设置")
+                        keyboardStep("2", "进入 通用 > 键盘 > 键盘")
+                        keyboardStep("3", "点击 添加新键盘，选择 FITNEX")
+                        keyboardStep("4", "切换到 FITNEX 中文键盘后输入拼音")
+                    }
+
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("测试输入")
+                            .font(.fitnexTitle(size: 16))
+                            .foregroundColor(FitnexColor.black)
+                        TextEditor(text: $testText)
+                            .font(.fitnexBody(size: 14, weight: .regular))
+                            .foregroundColor(FitnexColor.black)
+                            .frame(minHeight: 120)
+                            .padding(10)
+                            .background(FitnexColor.pale, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                    .stroke(FitnexColor.border, lineWidth: 1)
+                            }
+                    }
+
+                    Text("键盘离线运行，不需要 Full Access，不会联网。首版支持简易拼音候选，例如 nihao、wo、shi、xiexie。")
+                        .font(.fitnexBody(size: 11, weight: .regular))
+                        .foregroundColor(FitnexColor.grayText)
+                }
+                .padding(20)
+            }
+            .background(FitnexColor.background)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("中文键盘")
+                        .font(.fitnexTitle(size: 16))
+                        .foregroundColor(FitnexColor.black)
+                }
+            }
+        }
+    }
+
+    private func keyboardStep(_ number: String, _ text: String) -> some View {
+        HStack(spacing: 10) {
+            Text(number)
+                .font(.fitnexTitle(size: 12))
+                .foregroundColor(.white)
+                .frame(width: 24, height: 24)
+                .background(FitnexColor.orange, in: Circle())
+            Text(text)
+                .font(.fitnexBody(size: 13, weight: .regular))
+                .foregroundColor(FitnexColor.black)
         }
     }
 }
