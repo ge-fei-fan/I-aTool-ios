@@ -1,0 +1,16 @@
+fcitx5-pinyin-zhwiki dictionary notice
+
+This keyboard bundles converted dictionary data derived from:
+https://github.com/felixonmars/fcitx5-pinyin-zhwiki
+
+The fcitx5-pinyin-zhwiki build scripts are released under the Unlicense.
+The generated dictionary data follows Wikimedia dump licensing terms.
+
+Project README:
+https://github.com/felixonmars/fcitx5-pinyin-zhwiki
+
+Wikimedia legal and licensing information:
+https://dumps.wikimedia.org/legal.html
+
+The bundled data was converted into the local PinyinLexicon.tsv and
+PinyinLexicon.idx resource format for offline lookup in the keyboard extension.

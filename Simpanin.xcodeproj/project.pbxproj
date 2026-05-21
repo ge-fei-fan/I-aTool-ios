@@ -13,6 +13,7 @@
 		222222222222222222222101 /* KeyboardViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222001 /* KeyboardViewController.swift */; };
 		222222222222222222222102 /* SimpaninKeyboard.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 222222222222222222222003 /* SimpaninKeyboard.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
 		222222222222222222222104 /* rime-ice-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222005 /* rime-ice-LICENSE.txt */; };
+		222222222222222222222109 /* fcitx5-pinyin-zhwiki-NOTICE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222009 /* fcitx5-pinyin-zhwiki-NOTICE.txt */; };
 		222222222222222222222107 /* PinyinLexicon.tsv in Resources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222105 /* PinyinLexicon.tsv */; };
 		222222222222222222222108 /* PinyinLexicon.idx in Resources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222106 /* PinyinLexicon.idx */; };
 /* End PBXBuildFile section */
@@ -52,6 +53,7 @@
 		222222222222222222222003 /* SimpaninKeyboard.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SimpaninKeyboard.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		222222222222222222222005 /* rime-ice-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "ThirdPartyLicenses/rime-ice-LICENSE.txt"; sourceTree = "<group>"; };
 		222222222222222222222006 /* SimpaninKeyboard.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SimpaninKeyboard.entitlements; sourceTree = "<group>"; };
+		222222222222222222222009 /* fcitx5-pinyin-zhwiki-NOTICE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "ThirdPartyLicenses/fcitx5-pinyin-zhwiki-NOTICE.txt"; sourceTree = "<group>"; };
 		222222222222222222222105 /* PinyinLexicon.tsv */ = {isa = PBXFileReference; lastKnownFileType = text; path = PinyinLexicon.tsv; sourceTree = "<group>"; };
 		222222222222222222222106 /* PinyinLexicon.idx */ = {isa = PBXFileReference; lastKnownFileType = file; path = PinyinLexicon.idx; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -112,6 +114,7 @@
 				222222222222222222222105 /* PinyinLexicon.tsv */,
 				222222222222222222222106 /* PinyinLexicon.idx */,
 				222222222222222222222005 /* rime-ice-LICENSE.txt */,
+				222222222222222222222009 /* fcitx5-pinyin-zhwiki-NOTICE.txt */,
 			);
 			path = SimpaninKeyboard;
 			sourceTree = "<group>";
@@ -208,6 +211,7 @@
 				222222222222222222222107 /* PinyinLexicon.tsv in Resources */,
 				222222222222222222222108 /* PinyinLexicon.idx in Resources */,
 				222222222222222222222104 /* rime-ice-LICENSE.txt in Resources */,
+				222222222222222222222109 /* fcitx5-pinyin-zhwiki-NOTICE.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
