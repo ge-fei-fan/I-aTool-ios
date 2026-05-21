@@ -13,6 +13,7 @@ final class KeyboardViewController: UIInputViewController {
 
     private let candidateProvider = PinyinCandidateProvider()
     private let rootStack = UIStackView()
+    private let candidateScrollView = UIScrollView()
     private let candidateStack = UIStackView()
     private let bufferLabel = UILabel()
     private var bufferWidthConstraint: NSLayoutConstraint?
@@ -52,12 +53,25 @@ final class KeyboardViewController: UIInputViewController {
             view.heightAnchor.constraint(greaterThanOrEqualToConstant: 258)
         ])
 
+        candidateScrollView.showsHorizontalScrollIndicator = false
+        candidateScrollView.alwaysBounceHorizontal = true
+        rootStack.addArrangedSubview(candidateScrollView)
+        candidateScrollView.heightAnchor.constraint(equalToConstant: 38).isActive = true
+
         candidateStack.axis = .horizontal
         candidateStack.spacing = 6
         candidateStack.alignment = .fill
         candidateStack.distribution = .fill
-        rootStack.addArrangedSubview(candidateStack)
-        candidateStack.heightAnchor.constraint(equalToConstant: 38).isActive = true
+        candidateStack.translatesAutoresizingMaskIntoConstraints = false
+        candidateScrollView.addSubview(candidateStack)
+
+        NSLayoutConstraint.activate([
+            candidateStack.leadingAnchor.constraint(equalTo: candidateScrollView.contentLayoutGuide.leadingAnchor),
+            candidateStack.trailingAnchor.constraint(equalTo: candidateScrollView.contentLayoutGuide.trailingAnchor),
+            candidateStack.topAnchor.constraint(equalTo: candidateScrollView.contentLayoutGuide.topAnchor),
+            candidateStack.bottomAnchor.constraint(equalTo: candidateScrollView.contentLayoutGuide.bottomAnchor),
+            candidateStack.heightAnchor.constraint(equalTo: candidateScrollView.frameLayoutGuide.heightAnchor)
+        ])
     }
 
     private func renderKeyboard() {
@@ -80,15 +94,13 @@ final class KeyboardViewController: UIInputViewController {
             rowStack.axis = .horizontal
             rowStack.spacing = 6
             rowStack.alignment = .fill
-            rowStack.distribution = .fill
+            rowStack.distribution = .fillProportionally
 
             for key in row {
                 let button = makeButton(for: key)
+                button.widthUnit = key.widthUnit
                 rowStack.addArrangedSubview(button)
                 button.heightAnchor.constraint(equalToConstant: 44).isActive = true
-                if key.width > 1 {
-                    button.widthAnchor.constraint(greaterThanOrEqualToConstant: 44 * key.width).isActive = true
-                }
                 keyButtons.append(button)
             }
 
@@ -102,11 +114,11 @@ final class KeyboardViewController: UIInputViewController {
     private var letterRows: [[KeySpec]] {
         let row1 = "qwertyuiop".map { KeySpec(.character(String($0))) }
         let row2 = "asdfghjkl".map { KeySpec(.character(String($0))) }
-        let row3 = [KeySpec(.shift, width: 1.35)] + "zxcvbnm".map { KeySpec(.character(String($0))) } + [KeySpec(.backspace, width: 1.35)]
+        let row3 = [KeySpec(.shift, widthUnit: 1.35)] + "zxcvbnm".map { KeySpec(.character(String($0))) } + [KeySpec(.backspace, widthUnit: 1.35)]
         let row4 = [
-            KeySpec(.modeSwitch, title: "123", width: 1.35),
-            KeySpec(.space, title: "空格", width: 4.8),
-            KeySpec(.returnKey, title: "换行", width: 1.55)
+            KeySpec(.modeSwitch, title: "123", widthUnit: 1.35),
+            KeySpec(.space, title: "空格", widthUnit: 4.8),
+            KeySpec(.returnKey, title: "换行", widthUnit: 1.55)
         ]
         return [row1, row2, row3, row4]
     }
@@ -115,17 +127,17 @@ final class KeyboardViewController: UIInputViewController {
         [
             "1234567890".map { KeySpec(.character(String($0))) },
             ["-", "/", ":", ";", "(", ")", "$", "&", "@", "\""].map { KeySpec(.character($0)) },
-            [KeySpec(.modeSwitch, title: "ABC", width: 1.35)] + [".", ",", "?", "!", "'"].map { KeySpec(.character($0)) } + [KeySpec(.backspace, width: 1.35)],
+            [KeySpec(.modeSwitch, title: "拼音", widthUnit: 1.35)] + [".", ",", "?", "!", "'"].map { KeySpec(.character($0)) } + [KeySpec(.backspace, widthUnit: 1.35)],
             [
-                KeySpec(.modeSwitch, title: "ABC", width: 1.35),
-                KeySpec(.space, title: "空格", width: 4.8),
-                KeySpec(.returnKey, title: "换行", width: 1.55)
+                KeySpec(.modeSwitch, title: "拼音", widthUnit: 1.35),
+                KeySpec(.space, title: "空格", widthUnit: 4.8),
+                KeySpec(.returnKey, title: "换行", widthUnit: 1.55)
             ]
         ]
     }
 
-    private func makeButton(for spec: KeySpec) -> UIButton {
-        let button = UIButton(type: .system)
+    private func makeButton(for spec: KeySpec) -> KeyboardKeyButton {
+        let button = KeyboardKeyButton(type: .system)
         button.layer.cornerRadius = 6
         button.layer.shadowOpacity = 0.22
         button.layer.shadowRadius = 0
@@ -155,7 +167,7 @@ final class KeyboardViewController: UIInputViewController {
         case .returnKey:
             return "换行"
         case .modeSwitch:
-            return keyboardMode == .letters ? "123" : "ABC"
+            return keyboardMode == .letters ? "123" : "拼音"
         }
     }
 
@@ -260,7 +272,7 @@ final class KeyboardViewController: UIInputViewController {
 
         for button in keyButtons {
             let title = button.title(for: .normal) ?? ""
-            let isSpecial = ["123", "ABC", "⌫", "⇧", "换行"].contains(title)
+            let isSpecial = ["123", "拼音", "⌫", "⇧", "换行"].contains(title)
             button.backgroundColor = isSpecial ? specialKeyBackground : keyBackground
             button.setTitleColor(primaryText, for: .normal)
             button.layer.shadowColor = shadowColor.cgColor
@@ -299,12 +311,20 @@ final class KeyboardViewController: UIInputViewController {
 private struct KeySpec {
     let kind: KeyKind
     let title: String?
-    let width: CGFloat
+    let widthUnit: CGFloat
 
-    init(_ kind: KeyKind, title: String? = nil, width: CGFloat = 1) {
+    init(_ kind: KeyKind, title: String? = nil, widthUnit: CGFloat = 1) {
         self.kind = kind
         self.title = title
-        self.width = width
+        self.widthUnit = widthUnit
+    }
+}
+
+private final class KeyboardKeyButton: UIButton {
+    var widthUnit: CGFloat = 1
+
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: 32 * widthUnit, height: 44)
     }
 }
 
@@ -325,52 +345,73 @@ private enum KeyKind {
 }
 
 private final class PinyinCandidateProvider {
-    private let dictionary: [String: [String]] = [
-        "a": ["啊", "阿"],
-        "ai": ["爱", "唉", "矮"],
-        "an": ["安", "按", "俺"],
-        "ba": ["把", "吧", "爸"],
-        "bei": ["北", "被", "杯"],
-        "bu": ["不", "部", "步"],
-        "de": ["的", "得", "德"],
-        "hao": ["好", "号", "浩"],
-        "he": ["和", "喝", "河"],
-        "ji": ["机", "几", "记"],
-        "jia": ["家", "加", "假"],
-        "jian": ["见", "间", "件"],
-        "jin": ["今", "进", "金"],
-        "kan": ["看"],
-        "le": ["了", "乐"],
-        "ma": ["吗", "妈", "马"],
-        "mei": ["没", "美", "每"],
-        "men": ["们", "门"],
-        "ni": ["你", "呢", "尼"],
-        "nihao": ["你好"],
-        "shi": ["是", "时", "事"],
-        "ta": ["他", "她", "它"],
-        "tian": ["天", "田"],
-        "wo": ["我", "握"],
-        "women": ["我们"],
-        "xiang": ["想", "像", "向"],
-        "xie": ["写", "谢"],
-        "xiexie": ["谢谢"],
-        "yi": ["一", "以", "已"],
-        "you": ["有", "又", "友"],
-        "zai": ["在", "再"],
-        "zhong": ["中", "种"],
-        "zhongguo": ["中国"],
-    ]
+    private let dictionary: [String: [String]]
+
+    init() {
+        dictionary = Self.loadBundledDictionary() ?? Self.fallbackDictionary
+    }
 
     func candidates(for pinyin: String) -> [String] {
         let key = pinyin.lowercased()
         guard !key.isEmpty else { return [] }
+
         if let exact = dictionary[key] {
-            return exact
+            return Array(exact.prefix(24))
         }
-        return dictionary
+
+        var results: [String] = []
+        var seen = Set<String>()
+
+        func append(_ words: [String]) {
+            for word in words where !seen.contains(word) {
+                seen.insert(word)
+                results.append(word)
+            }
+        }
+
+        let prefixMatches = dictionary
             .filter { $0.key.hasPrefix(key) }
-            .sorted { $0.key < $1.key }
-            .prefix(5)
-            .flatMap(\.value)
+            .sorted {
+                if $0.key.count != $1.key.count {
+                    return $0.key.count < $1.key.count
+                }
+                return $0.key < $1.key
+            }
+
+        for match in prefixMatches {
+            append(match.value)
+            if results.count >= 24 { break }
+        }
+
+        return Array(results.prefix(24))
     }
+
+    private static func loadBundledDictionary() -> [String: [String]]? {
+        guard let url = Bundle.main.url(forResource: "PinyinLexicon", withExtension: "json"),
+              let data = try? Data(contentsOf: url),
+              let decoded = try? JSONDecoder().decode([String: [String]].self, from: data) else {
+            return nil
+        }
+        return decoded
+    }
+
+    private static let fallbackDictionary: [String: [String]] = [
+        "a": ["啊", "阿"],
+        "ai": ["爱", "唉", "矮"],
+        "an": ["安", "按", "安全"],
+        "ba": ["把", "吧", "爸"],
+        "bei": ["北", "被", "杯", "北京"],
+        "bu": ["不", "部", "步", "不错"],
+        "de": ["的", "得", "德"],
+        "hao": ["好", "号", "浩"],
+        "he": ["和", "喝", "河"],
+        "ma": ["吗", "妈", "马"],
+        "ni": ["你", "呢", "尼", "你好", "你们"],
+        "nihao": ["你好"],
+        "shi": ["是", "时", "事", "时间"],
+        "wo": ["我", "我们"],
+        "xiexie": ["谢谢"],
+        "zhong": ["中", "种", "中国"],
+        "zhongguo": ["中国"]
+    ]
 }

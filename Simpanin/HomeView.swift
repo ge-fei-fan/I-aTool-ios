@@ -2130,7 +2130,7 @@ private struct KeyboardGuideSheet: View {
                             }
                     }
 
-                    Text("键盘离线运行，不需要 Full Access，不会联网。首版支持简易拼音候选，例如 nihao、wo、shi、xiexie。")
+                    Text("键盘离线运行，不需要 Full Access，不会联网。拼音候选词库基于 rime-ice（GPL-3.0）转换，来源：https://github.com/iDvel/rime-ice。")
                         .font(.fitnexBody(size: 11, weight: .regular))
                         .foregroundColor(FitnexColor.grayText)
                 }
