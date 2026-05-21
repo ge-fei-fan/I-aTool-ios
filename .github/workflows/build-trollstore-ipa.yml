@@ -75,7 +75,7 @@ jobs:
           /usr/libexec/PlistBuddy -c "Print :NSExtension:NSExtensionPointIdentifier" "$KEYBOARD_PATH/Info.plist"
           /usr/libexec/PlistBuddy -c "Print :NSExtension:NSExtensionPrincipalClass" "$KEYBOARD_PATH/Info.plist"
           REQUESTS_OPEN_ACCESS=$(/usr/libexec/PlistBuddy -c "Print :NSExtension:NSExtensionAttributes:RequestsOpenAccess" "$KEYBOARD_PATH/Info.plist")
-          test "$REQUESTS_OPEN_ACCESS" = "false"
+          test "$REQUESTS_OPEN_ACCESS" = "true"
 
       - name: Package IPA
         run: |
