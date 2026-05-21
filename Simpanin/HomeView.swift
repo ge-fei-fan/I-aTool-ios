@@ -166,6 +166,85 @@ private struct AppVersionInfo {
     }
 }
 
+private struct KeyboardExtensionDiagnostics {
+    struct Item: Identifiable {
+        let id: String
+        let title: String
+        let value: String
+        let isExpected: Bool?
+
+        init(_ title: String, _ value: String, isExpected: Bool? = nil) {
+            self.id = title
+            self.title = title
+            self.value = value
+            self.isExpected = isExpected
+        }
+    }
+
+    let status: String
+    let items: [Item]
+
+    static var current: KeyboardExtensionDiagnostics {
+        guard let pluginURL = Bundle.main.builtInPlugInsURL else {
+            return KeyboardExtensionDiagnostics(
+                status: "未找到 PlugIns 目录",
+                items: [
+                    Item("App Bundle", Bundle.main.bundleIdentifier ?? "unknown", isExpected: nil)
+                ]
+            )
+        }
+
+        let appExtensions = ((try? FileManager.default.contentsOfDirectory(
+            at: pluginURL,
+            includingPropertiesForKeys: nil
+        )) ?? [])
+            .filter { $0.pathExtension == "appex" }
+            .sorted { $0.lastPathComponent < $1.lastPathComponent }
+
+        guard let extensionBundle = appExtensions
+            .compactMap({ Bundle(url: $0) })
+            .first(where: { bundle in
+                let info = bundle.infoDictionary ?? [:]
+                let extensionInfo = info["NSExtension"] as? [String: Any]
+                return extensionInfo?["NSExtensionPointIdentifier"] as? String == "com.apple.keyboard-service"
+            }) else {
+            return KeyboardExtensionDiagnostics(
+                status: "未找到键盘扩展",
+                items: [
+                    Item("PlugIns", pluginURL.lastPathComponent, isExpected: nil),
+                    Item("AppeX Count", "\(appExtensions.count)", isExpected: appExtensions.count > 0)
+                ]
+            )
+        }
+
+        let info = extensionBundle.infoDictionary ?? [:]
+        let extensionInfo = info["NSExtension"] as? [String: Any] ?? [:]
+        let attributes = extensionInfo["NSExtensionAttributes"] as? [String: Any] ?? [:]
+        let isASCIICapable = attributes["IsASCIICapable"] as? Bool
+        let requestsOpenAccess = attributes["RequestsOpenAccess"] as? Bool
+        let primaryLanguage = attributes["PrimaryLanguage"] as? String ?? "missing"
+        let extensionPoint = extensionInfo["NSExtensionPointIdentifier"] as? String ?? "missing"
+        let bundleID = extensionBundle.bundleIdentifier ?? "missing"
+
+        return KeyboardExtensionDiagnostics(
+            status: isASCIICapable == true ? "搜索输入可用元数据已开启" : "搜索输入元数据异常",
+            items: [
+                Item("Bundle ID", bundleID, isExpected: bundleID.hasSuffix(".keyboard2")),
+                Item("Extension Point", extensionPoint, isExpected: extensionPoint == "com.apple.keyboard-service"),
+                Item("Primary Language", primaryLanguage, isExpected: primaryLanguage == "zh-Hans"),
+                Item("ASCII Capable", boolText(isASCIICapable), isExpected: isASCIICapable == true),
+                Item("Open Access", boolText(requestsOpenAccess), isExpected: requestsOpenAccess == false),
+                Item("AppeX", extensionBundle.bundleURL.lastPathComponent, isExpected: nil)
+            ]
+        )
+    }
+
+    private static func boolText(_ value: Bool?) -> String {
+        guard let value else { return "missing" }
+        return value ? "true" : "false"
+    }
+}
+
 private struct LogChunk: Identifiable, Hashable {
     let id: String
     let date: Date
@@ -2563,6 +2642,7 @@ private struct NezhaSettingsSheet: View {
 
 private struct KeyboardGuideSheet: View {
     @State private var testText = ""
+    @State private var diagnostics = KeyboardExtensionDiagnostics.current
 
     var body: some View {
         NavigationView {
@@ -2594,6 +2674,41 @@ private struct KeyboardGuideSheet: View {
                             }
                     }
 
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack {
+                            Text("键盘扩展诊断")
+                                .font(.fitnexTitle(size: 16))
+                                .foregroundColor(FitnexColor.black)
+                            Spacer()
+                            Button {
+                                diagnostics = KeyboardExtensionDiagnostics.current
+                            } label: {
+                                Image(systemName: "arrow.clockwise")
+                                    .font(.system(size: 15, weight: .semibold))
+                                    .foregroundColor(FitnexColor.orange)
+                                    .frame(width: 32, height: 32)
+                            }
+                            .buttonStyle(.plain)
+                        }
+
+                        VStack(alignment: .leading, spacing: 0) {
+                            Text(diagnostics.status)
+                                .font(.fitnexBody(size: 12, weight: .semibold))
+                                .foregroundColor(FitnexColor.black)
+                                .padding(.horizontal, 12)
+                                .padding(.vertical, 10)
+
+                            ForEach(diagnostics.items) { item in
+                                keyboardDiagnosticRow(item)
+                            }
+                        }
+                        .background(FitnexColor.pale, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 12, style: .continuous)
+                                .stroke(FitnexColor.border, lineWidth: 1)
+                        }
+                    }
+
                     Text("键盘离线运行，不需要允许完全访问。拼音候选词库基于 rime-ice（GPL-3.0）转换，来源：https://github.com/iDvel/rime-ice。")
                         .font(.fitnexBody(size: 11, weight: .regular))
                         .foregroundColor(FitnexColor.grayText)
@@ -2623,6 +2738,30 @@ private struct KeyboardGuideSheet: View {
                 .font(.fitnexBody(size: 13, weight: .regular))
                 .foregroundColor(FitnexColor.black)
         }
+    }
+
+    private func keyboardDiagnosticRow(_ item: KeyboardExtensionDiagnostics.Item) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 10) {
+            Text(item.title)
+                .font(.fitnexBody(size: 11, weight: .regular))
+                .foregroundColor(FitnexColor.grayText)
+                .frame(width: 104, alignment: .leading)
+
+            Text(item.value)
+                .font(.fitnexBody(size: 11, weight: .semibold))
+                .foregroundColor(FitnexColor.black)
+                .lineLimit(2)
+                .minimumScaleFactor(0.8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let isExpected = item.isExpected {
+                Image(systemName: isExpected ? "checkmark.circle.fill" : "exclamationmark.triangle.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(isExpected ? FitnexColor.orange : Color(hex: 0xE5484D))
+            }
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
     }
 }
 
