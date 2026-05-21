@@ -1,14 +1,20 @@
 import UIKit
 
 final class KeyboardViewController: UIInputViewController {
-    private enum KeyboardMode {
+    fileprivate enum KeyboardMode {
         case letters
         case numbers
+        case symbols
     }
 
     private enum ShiftState {
         case off
         case on
+    }
+
+    private struct PinyinCursorContext {
+        let text: String
+        let rightCount: Int
     }
 
     private let candidateProvider = PinyinCandidateProvider()
@@ -21,16 +27,16 @@ final class KeyboardViewController: UIInputViewController {
     private var compositionBuffer = ""
     private var keyboardMode: KeyboardMode = .letters
     private var shiftState: ShiftState = .off
+    private var isSpaceTrackpadActive = false
+    private var suppressNextSpaceTap = false
+    private var spaceTrackpadPreviousX: CGFloat = 0
+    private var spaceTrackpadAccumulatedX: CGFloat = 0
 
     private static let candidateBatchSize = 30
+    private static let spaceTrackpadStepWidth: CGFloat = 10
 
     private var isDark: Bool {
         traitCollection.userInterfaceStyle == .dark
-    }
-
-    private var compositionIsBeforeCursor: Bool {
-        guard !compositionBuffer.isEmpty else { return false }
-        return textDocumentProxy.documentContextBeforeInput?.hasSuffix(compositionBuffer) == true
     }
 
     override func viewDidLoad() {
@@ -62,6 +68,7 @@ final class KeyboardViewController: UIInputViewController {
 
         candidateScrollView.showsHorizontalScrollIndicator = false
         candidateScrollView.alwaysBounceHorizontal = true
+        candidateScrollView.clipsToBounds = false
         candidateScrollView.delegate = self
         rootStack.addArrangedSubview(candidateScrollView)
         candidateScrollView.heightAnchor.constraint(equalToConstant: 38).isActive = true
@@ -70,6 +77,8 @@ final class KeyboardViewController: UIInputViewController {
         candidateStack.spacing = 6
         candidateStack.alignment = .fill
         candidateStack.distribution = .fill
+        candidateStack.isLayoutMarginsRelativeArrangement = true
+        candidateStack.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 1, leading: 0, bottom: 2, trailing: 0)
         candidateStack.translatesAutoresizingMaskIntoConstraints = false
         candidateScrollView.addSubview(candidateStack)
 
@@ -95,6 +104,8 @@ final class KeyboardViewController: UIInputViewController {
             rows = letterRows
         case .numbers:
             rows = numberRows
+        case .symbols:
+            rows = symbolRows
         }
 
         for row in rows {
@@ -124,9 +135,9 @@ final class KeyboardViewController: UIInputViewController {
         let row2 = "asdfghjkl".map { KeySpec(.character(String($0))) }
         let row3 = [KeySpec(.shift, widthUnit: 1.35)] + "zxcvbnm".map { KeySpec(.character(String($0))) } + [KeySpec(.backspace, widthUnit: 1.35)]
         let row4 = [
-            KeySpec(.modeSwitch, title: "123", widthUnit: 1.35),
+            KeySpec(.modeSwitch(.numbers), title: "123", widthUnit: 1.35),
             KeySpec(.space, title: "空格", widthUnit: 4.8),
-            KeySpec(.returnKey, title: "换行", widthUnit: 1.55)
+            KeySpec(.returnKey, title: "搜索", widthUnit: 1.55)
         ]
         return [row1, row2, row3, row4]
     }
@@ -135,11 +146,24 @@ final class KeyboardViewController: UIInputViewController {
         [
             "1234567890".map { KeySpec(.character(String($0))) },
             ["-", "/", ":", ";", "(", ")", "$", "&", "@", "\""].map { KeySpec(.character($0)) },
-            [KeySpec(.modeSwitch, title: "拼音", widthUnit: 1.35)] + [".", ",", "?", "!", "'"].map { KeySpec(.character($0)) } + [KeySpec(.backspace, widthUnit: 1.35)],
+            [KeySpec(.modeSwitch(.symbols), title: "#+=", widthUnit: 1.35)] + [".", ",", "?", "!", "'"].map { KeySpec(.character($0)) } + [KeySpec(.backspace, widthUnit: 1.35)],
             [
-                KeySpec(.modeSwitch, title: "拼音", widthUnit: 1.35),
+                KeySpec(.modeSwitch(.letters), title: "ABC", widthUnit: 1.35),
                 KeySpec(.space, title: "空格", widthUnit: 4.8),
-                KeySpec(.returnKey, title: "换行", widthUnit: 1.55)
+                KeySpec(.returnKey, title: "搜索", widthUnit: 1.55)
+            ]
+        ]
+    }
+
+    private var symbolRows: [[KeySpec]] {
+        [
+            ["[", "]", "{", "}", "#", "%", "^", "*", "+", "="].map { KeySpec(.character($0)) },
+            ["_", "\\", "|", "~", "<", ">", "€", "£", "¥", "·"].map { KeySpec(.character($0)) },
+            [KeySpec(.modeSwitch(.numbers), title: "123", widthUnit: 1.35)] + [".", ",", "?", "!", "'"].map { KeySpec(.character($0)) } + [KeySpec(.backspace, widthUnit: 1.35)],
+            [
+                KeySpec(.modeSwitch(.letters), title: "ABC", widthUnit: 1.35),
+                KeySpec(.space, title: "空格", widthUnit: 4.8),
+                KeySpec(.returnKey, title: "搜索", widthUnit: 1.55)
             ]
         ]
     }
@@ -150,11 +174,17 @@ final class KeyboardViewController: UIInputViewController {
         button.layer.shadowOpacity = 0.22
         button.layer.shadowRadius = 0
         button.layer.shadowOffset = CGSize(width: 0, height: 1)
-        button.titleLabel?.font = spec.kind.isPrimary ? .systemFont(ofSize: 22, weight: .regular) : .systemFont(ofSize: 16, weight: .regular)
+        button.titleLabel?.font = font(for: spec.kind)
         button.setTitle(title(for: spec), for: .normal)
         button.addAction(UIAction { [weak self] _ in
             self?.handle(spec.kind)
         }, for: .touchUpInside)
+        if case .space = spec.kind {
+            let recognizer = UILongPressGestureRecognizer(target: self, action: #selector(handleSpaceLongPress(_:)))
+            recognizer.minimumPressDuration = 0.35
+            recognizer.cancelsTouchesInView = true
+            button.addGestureRecognizer(recognizer)
+        }
         return button
     }
 
@@ -173,9 +203,27 @@ final class KeyboardViewController: UIInputViewController {
         case .space:
             return "空格"
         case .returnKey:
-            return "换行"
-        case .modeSwitch:
-            return keyboardMode == .letters ? "123" : "拼音"
+            return "搜索"
+        case .modeSwitch(let target):
+            switch target {
+            case .letters:
+                return "ABC"
+            case .numbers:
+                return "123"
+            case .symbols:
+                return "#+="
+            }
+        }
+    }
+
+    private func font(for kind: KeyKind) -> UIFont {
+        switch kind {
+        case .character:
+            return .systemFont(ofSize: 22, weight: .regular)
+        case .shift, .backspace:
+            return .systemFont(ofSize: 26, weight: .regular)
+        default:
+            return .systemFont(ofSize: 16, weight: .regular)
         }
     }
 
@@ -183,35 +231,30 @@ final class KeyboardViewController: UIInputViewController {
         switch kind {
         case .character(let value):
             if keyboardMode == .letters, value.rangeOfCharacter(from: .letters) != nil {
-                if !compositionBuffer.isEmpty && !compositionIsBeforeCursor {
-                    compositionBuffer = ""
-                }
-                let letter = value.lowercased()
+                let letter = shiftState == .on ? value.uppercased() : value.lowercased()
                 textDocumentProxy.insertText(letter)
-                compositionBuffer.append(letter)
+                syncCompositionFromCursor()
                 updateCandidates(resetScroll: true)
             } else {
                 clearCompositionTracking()
                 textDocumentProxy.insertText(value)
+                syncCompositionFromCursor()
+                updateCandidates(resetScroll: true)
             }
         case .shift:
             shiftState = shiftState == .on ? .off : .on
             renderKeyboard()
         case .backspace:
-            if !compositionBuffer.isEmpty {
-                let shouldTrackDeletion = compositionIsBeforeCursor
-                textDocumentProxy.deleteBackward()
-                if shouldTrackDeletion {
-                    compositionBuffer.removeLast()
-                } else {
-                    compositionBuffer = ""
-                }
-                updateCandidates(resetScroll: true)
-            } else {
-                textDocumentProxy.deleteBackward()
-            }
+            textDocumentProxy.deleteBackward()
+            syncCompositionFromCursor()
+            updateCandidates(resetScroll: true)
         case .space:
-            if compositionIsBeforeCursor, let first = candidates(for: compositionBuffer).first {
+            if suppressNextSpaceTap || isSpaceTrackpadActive {
+                suppressNextSpaceTap = false
+                return
+            }
+            syncCompositionFromCursor()
+            if let context = currentPinyinContext(), !context.text.isEmpty, let first = candidates(for: context.text).first {
                 replaceCompositionWith(first)
             } else {
                 clearCompositionTracking()
@@ -219,32 +262,87 @@ final class KeyboardViewController: UIInputViewController {
             }
         case .returnKey:
             clearCompositionTracking()
-            textDocumentProxy.insertText("\n")
-        case .modeSwitch:
+            allCandidates = []
+            visibleCandidateCount = 0
+            renderVisibleCandidates()
+        case .modeSwitch(let target):
             clearCompositionTracking()
-            keyboardMode = keyboardMode == .letters ? .numbers : .letters
+            keyboardMode = target
             renderKeyboard()
+        }
+    }
+
+    @objc private func handleSpaceLongPress(_ recognizer: UILongPressGestureRecognizer) {
+        guard let button = recognizer.view else { return }
+        let locationX = recognizer.location(in: button).x
+
+        switch recognizer.state {
+        case .began:
+            isSpaceTrackpadActive = true
+            suppressNextSpaceTap = true
+            spaceTrackpadPreviousX = locationX
+            spaceTrackpadAccumulatedX = 0
+        case .changed:
+            guard isSpaceTrackpadActive else { return }
+            let delta = locationX - spaceTrackpadPreviousX
+            spaceTrackpadPreviousX = locationX
+            spaceTrackpadAccumulatedX += delta
+
+            while abs(spaceTrackpadAccumulatedX) >= Self.spaceTrackpadStepWidth {
+                let offset = spaceTrackpadAccumulatedX > 0 ? 1 : -1
+                textDocumentProxy.adjustTextPosition(byCharacterOffset: offset)
+                spaceTrackpadAccumulatedX -= CGFloat(offset) * Self.spaceTrackpadStepWidth
+            }
+            syncCompositionFromCursor()
+            updateCandidates()
+        case .ended, .cancelled, .failed:
+            isSpaceTrackpadActive = false
+            spaceTrackpadAccumulatedX = 0
+            syncCompositionFromCursor()
+            updateCandidates()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
+                self?.suppressNextSpaceTap = false
+            }
+        default:
+            break
         }
     }
 
     private func clearCompositionTracking() {
         guard !compositionBuffer.isEmpty else { return }
         compositionBuffer = ""
-        updateCandidates(resetScroll: true)
+        updateCandidates(resetScroll: true, syncFromCursor: false)
     }
 
     private func replaceCompositionWith(_ text: String) {
-        if compositionIsBeforeCursor {
-            for _ in compositionBuffer {
-                textDocumentProxy.deleteBackward()
-            }
+        guard let context = currentPinyinContext(), !context.text.isEmpty else {
+            textDocumentProxy.insertText(text)
+            compositionBuffer = ""
+            updateCandidates(resetScroll: true)
+            return
+        }
+
+        if context.rightCount > 0 {
+            textDocumentProxy.adjustTextPosition(byCharacterOffset: context.rightCount)
+        }
+        for _ in 0..<context.text.count {
+            textDocumentProxy.deleteBackward()
         }
         textDocumentProxy.insertText(text)
         compositionBuffer = ""
         updateCandidates(resetScroll: true)
     }
 
-    private func updateCandidates(resetScroll: Bool = false) {
+    private func updateCandidates(resetScroll: Bool = false, syncFromCursor: Bool = true) {
+        guard keyboardMode == .letters else {
+            allCandidates = []
+            visibleCandidateCount = 0
+            renderVisibleCandidates()
+            return
+        }
+        if syncFromCursor {
+            syncCompositionFromCursor()
+        }
         if compositionBuffer.isEmpty {
             allCandidates = []
         } else {
@@ -271,7 +369,14 @@ final class KeyboardViewController: UIInputViewController {
             button.titleLabel?.font = .systemFont(ofSize: 18, weight: .regular)
             button.setTitleColor(primaryText, for: .normal)
             button.backgroundColor = candidateBackground
+            button.contentEdgeInsets = UIEdgeInsets(top: 7, left: 14, bottom: 7, right: 14)
             button.layer.cornerRadius = 8
+            button.layer.borderWidth = 0.5
+            button.layer.borderColor = candidateBorder.cgColor
+            button.layer.shadowColor = candidateShadow.cgColor
+            button.layer.shadowOpacity = isDark ? 0.35 : 0.18
+            button.layer.shadowRadius = 1
+            button.layer.shadowOffset = CGSize(width: 0, height: 1)
             button.addAction(UIAction { [weak self] _ in
                 self?.replaceCompositionWith(candidate)
             }, for: .touchUpInside)
@@ -291,7 +396,7 @@ final class KeyboardViewController: UIInputViewController {
 
         for button in keyButtons {
             let title = button.title(for: .normal) ?? ""
-            let isSpecial = ["123", "拼音", "⌫", "⇧", "换行"].contains(title)
+            let isSpecial = ["123", "ABC", "#+=", "⌫", "⇧", "搜索"].contains(title)
             button.backgroundColor = isSpecial ? specialKeyBackground : keyBackground
             button.setTitleColor(primaryText, for: .normal)
             button.layer.shadowColor = shadowColor.cgColor
@@ -311,7 +416,15 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private var candidateBackground: UIColor {
-        isDark ? UIColor(red: 0.25, green: 0.25, blue: 0.27, alpha: 1) : UIColor(red: 0.91, green: 0.92, blue: 0.94, alpha: 1)
+        isDark ? UIColor(red: 0.31, green: 0.31, blue: 0.33, alpha: 1) : UIColor(red: 0.98, green: 0.98, blue: 0.99, alpha: 1)
+    }
+
+    private var candidateBorder: UIColor {
+        isDark ? UIColor(white: 1, alpha: 0.08) : UIColor(white: 0, alpha: 0.06)
+    }
+
+    private var candidateShadow: UIColor {
+        isDark ? .black : UIColor(white: 0.35, alpha: 1)
     }
 
     private var primaryText: UIColor {
@@ -329,6 +442,42 @@ final class KeyboardViewController: UIInputViewController {
     private func candidates(for pinyin: String) -> [String] {
         guard !pinyin.isEmpty else { return [] }
         return candidateProvider.candidates(for: pinyin)
+    }
+
+    private func syncCompositionFromCursor() {
+        compositionBuffer = currentPinyinContext()?.text ?? ""
+    }
+
+    private func currentPinyinContext() -> PinyinCursorContext? {
+        let before = textDocumentProxy.documentContextBeforeInput ?? ""
+        let after = textDocumentProxy.documentContextAfterInput ?? ""
+        let left = asciiLetterSuffix(in: before)
+        let right = asciiLetterPrefix(in: after)
+        let text = left + right
+        guard !text.isEmpty else { return nil }
+        return PinyinCursorContext(text: text.lowercased(), rightCount: right.count)
+    }
+
+    private func asciiLetterSuffix(in text: String) -> String {
+        var characters: [Character] = []
+        for scalar in text.unicodeScalars.reversed() {
+            guard Self.isASCIILetter(scalar) else { break }
+            characters.append(Character(scalar))
+        }
+        return String(characters.reversed())
+    }
+
+    private func asciiLetterPrefix(in text: String) -> String {
+        var characters: [Character] = []
+        for scalar in text.unicodeScalars {
+            guard Self.isASCIILetter(scalar) else { break }
+            characters.append(Character(scalar))
+        }
+        return String(characters)
+    }
+
+    private static func isASCIILetter(_ scalar: UnicodeScalar) -> Bool {
+        (scalar.value >= 65 && scalar.value <= 90) || (scalar.value >= 97 && scalar.value <= 122)
     }
 }
 
@@ -368,7 +517,7 @@ private enum KeyKind {
     case backspace
     case space
     case returnKey
-    case modeSwitch
+    case modeSwitch(KeyboardViewController.KeyboardMode)
 
     var isPrimary: Bool {
         if case .character = self {
