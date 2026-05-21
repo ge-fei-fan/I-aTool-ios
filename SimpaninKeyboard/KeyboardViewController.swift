@@ -21,6 +21,7 @@ final class KeyboardViewController: UIInputViewController {
     private let candidateProvider = PinyinCandidateProvider()
     private let rootStack = UIStackView()
     private let trackpadBlurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
+    private let compositionBar = CompositionBarView()
     private let candidateScrollView = UIScrollView()
     private let candidateStack = UIStackView()
     private var allCandidates: [String] = []
@@ -36,7 +37,6 @@ final class KeyboardViewController: UIInputViewController {
     private var trackpadPreviousX: CGFloat = 0
     private var trackpadAccumulatedX: CGFloat = 0
     private var hasInsertedTextInCurrentContext = false
-    private var isApplyingMarkedTextUpdate = false
     private let trackpadActivationFeedback = UIImpactFeedbackGenerator(style: .medium)
     private let trackpadMovementFeedback = UISelectionFeedbackGenerator()
 
@@ -64,14 +64,6 @@ final class KeyboardViewController: UIInputViewController {
             hasInsertedTextInCurrentContext = false
         }
         updateReturnKeyAppearance()
-    }
-
-    override func selectionDidChange(_ textInput: UITextInput?) {
-        super.selectionDidChange(textInput)
-        guard hasActiveComposition, !isApplyingMarkedTextUpdate else { return }
-        guard synchronizeCompositionCursorWithDocumentSelection(in: textInput) else { return }
-        refreshMarkedComposition()
-        updateCandidates(resetScroll: true)
     }
 
     private func setupKeyboard() {
@@ -102,6 +94,14 @@ final class KeyboardViewController: UIInputViewController {
         trackpadActivationFeedback.prepare()
         trackpadMovementFeedback.prepare()
 
+        compositionBar.isHidden = true
+        compositionBar.translatesAutoresizingMaskIntoConstraints = false
+        compositionBar.onOffsetSelected = { [weak self] offset in
+            self?.moveCompositionCursor(toCompositionTextOffset: offset)
+        }
+        rootStack.addArrangedSubview(compositionBar)
+        compositionBar.heightAnchor.constraint(equalToConstant: 26).isActive = true
+
         candidateScrollView.showsHorizontalScrollIndicator = false
         candidateScrollView.alwaysBounceHorizontal = true
         candidateScrollView.clipsToBounds = false
@@ -129,7 +129,7 @@ final class KeyboardViewController: UIInputViewController {
 
     private func renderKeyboard() {
         keyButtons.removeAll()
-        rootStack.arrangedSubviews.dropFirst().forEach { view in
+        rootStack.arrangedSubviews.dropFirst(2).forEach { view in
             rootStack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
@@ -350,13 +350,13 @@ final class KeyboardViewController: UIInputViewController {
     private func handleReturnKey() {
         guard isReturnKeyEnabled else { return }
         if hasPendingCandidates {
-            finalizeMarkedComposition()
+            finalizeComposition()
         } else if isSearchInput || isMultilineInput {
-            finalizeMarkedComposition()
+            finalizeComposition()
             textDocumentProxy.insertText("\n")
             hasInsertedTextInCurrentContext = true
         } else {
-            finalizeMarkedComposition()
+            finalizeComposition()
         }
         updateReturnKeyAppearance()
     }
@@ -386,7 +386,7 @@ final class KeyboardViewController: UIInputViewController {
                     textDocumentProxy.adjustTextPosition(byCharacterOffset: offset)
                 } else {
                     compositionCursorOffset = max(0, min(compositionBuffer.count, compositionCursorOffset + offset))
-                    refreshMarkedComposition()
+                    refreshCompositionDisplay()
                 }
                 trackpadAccumulatedX -= CGFloat(offset) * Self.trackpadStepWidth
                 triggerTrackpadMovementFeedback()
@@ -429,6 +429,7 @@ final class KeyboardViewController: UIInputViewController {
             textDocumentProxy.insertText(text)
             hasInsertedTextInCurrentContext = true
             resetCompositionState()
+            refreshCompositionDisplay()
             updateCandidates(resetScroll: true)
             return
         }
@@ -443,13 +444,13 @@ final class KeyboardViewController: UIInputViewController {
         selectedCompositionSegments.append(SelectedCompositionSegment(pinyin: pinyin, text: text))
 
         if compositionBuffer.isEmpty {
-            refreshMarkedComposition()
-            textDocumentProxy.unmarkText()
+            textDocumentProxy.insertText(selectedCompositionText)
             hasInsertedTextInCurrentContext = true
             resetCompositionState()
+            refreshCompositionDisplay()
         } else {
             compositionCursorOffset = compositionBuffer.count
-            refreshMarkedComposition()
+            refreshCompositionDisplay()
         }
         updateCandidates(resetScroll: true)
     }
@@ -529,6 +530,7 @@ final class KeyboardViewController: UIInputViewController {
             button.setTitleColor(primaryText, for: .normal)
             button.layer.shadowColor = shadowColor.cgColor
         }
+        updateCompositionBarAppearance()
     }
 
     private func updateReturnKeyAppearance() {
@@ -538,6 +540,10 @@ final class KeyboardViewController: UIInputViewController {
             button.isEnabled = isReturnKeyEnabled
             button.alpha = isReturnKeyEnabled ? 1 : 0.45
         }
+    }
+
+    private func updateCompositionBarAppearance() {
+        compositionBar.configure(backgroundColor: compositionBackground, textColor: primaryText, cursorColor: compositionCursorColor)
     }
 
     private var keyboardBackground: UIColor {
@@ -562,6 +568,14 @@ final class KeyboardViewController: UIInputViewController {
 
     private var candidateShadow: UIColor {
         isDark ? .black : UIColor(white: 0.35, alpha: 1)
+    }
+
+    private var compositionBackground: UIColor {
+        isDark ? UIColor(red: 0.25, green: 0.25, blue: 0.27, alpha: 1) : UIColor(red: 0.93, green: 0.94, blue: 0.96, alpha: 1)
+    }
+
+    private var compositionCursorColor: UIColor {
+        isDark ? UIColor(red: 0.62, green: 0.78, blue: 1, alpha: 1) : UIColor(red: 0.05, green: 0.36, blue: 0.86, alpha: 1)
     }
 
     private var primaryText: UIColor {
@@ -641,7 +655,7 @@ final class KeyboardViewController: UIInputViewController {
         selectedCompositionSegments.map(\.text).joined()
     }
 
-    private var markedCompositionText: String {
+    private var compositionText: String {
         selectedCompositionText + compositionBuffer
     }
 
@@ -661,7 +675,7 @@ final class KeyboardViewController: UIInputViewController {
         let insertIndex = compositionBuffer.index(compositionBuffer.startIndex, offsetBy: compositionCursorOffset)
         compositionBuffer.insert(contentsOf: text, at: insertIndex)
         compositionCursorOffset += text.count
-        refreshMarkedComposition()
+        refreshCompositionDisplay()
     }
 
     private func deleteCompositionBackward() {
@@ -674,78 +688,48 @@ final class KeyboardViewController: UIInputViewController {
         compositionBuffer.remove(at: removeIndex)
         compositionCursorOffset -= 1
         if compositionBuffer.isEmpty {
-            clearMarkedCompositionAfterDeletion()
+            clearCompositionAfterDeletion()
         } else {
-            refreshMarkedComposition()
+            refreshCompositionDisplay()
         }
     }
 
-    private func clearMarkedCompositionAfterDeletion() {
-        applyMarkedText("", selectedRange: NSRange(location: 0, length: 0))
+    private func clearCompositionAfterDeletion() {
         resetCompositionState()
+        refreshCompositionDisplay()
     }
 
-    private func synchronizeCompositionCursorWithDocumentSelection(in textInput: UITextInput?) -> Bool {
-        guard let textInput,
-              !markedCompositionText.isEmpty,
-              let selectedRange = textInput.selectedTextRange,
-              let markedRange = textInput.markedTextRange else {
-            return false
-        }
-
-        let markedCursorOffset = textInput.offset(from: markedRange.start, to: selectedRange.start)
-        let markedLength = textInput.offset(from: markedRange.start, to: markedRange.end)
-        guard markedCursorOffset >= 0, markedCursorOffset <= markedLength else {
-            return false
-        }
-
-        let rawCompositionOffset = markedCursorOffset - selectedCompositionText.count
+    private func moveCompositionCursor(toCompositionTextOffset textOffset: Int) {
+        guard hasActiveComposition else { return }
+        let rawCompositionOffset = textOffset - selectedCompositionText.count
         compositionCursorOffset = max(0, min(compositionBuffer.count, rawCompositionOffset))
-        return true
+        refreshCompositionDisplay()
+        updateCandidates(resetScroll: true)
     }
 
-    private func refreshMarkedComposition() {
-        let markedText = markedCompositionText
-        guard !markedText.isEmpty else {
-            textDocumentProxy.unmarkText()
-            return
-        }
-        let cursorLocation = selectedCompositionText.count + compositionCursorOffset
-        let selectedRange = NSRange(location: cursorLocation, length: 0)
-        applyMarkedText(markedText, selectedRange: selectedRange)
-    }
-
-    private func applyMarkedText(_ text: String, selectedRange: NSRange) {
-        isApplyingMarkedTextUpdate = true
-        textDocumentProxy.setMarkedText(text, selectedRange: selectedRange)
-        DispatchQueue.main.async { [weak self] in
-            self?.isApplyingMarkedTextUpdate = false
-        }
+    private func refreshCompositionDisplay() {
+        let text = compositionText
+        compositionBar.isHidden = text.isEmpty
+        compositionBar.update(text: text, cursorOffset: selectedCompositionText.count + compositionCursorOffset)
     }
 
     private func commitCompositionAsText() {
-        finalizeMarkedComposition()
+        finalizeComposition()
     }
 
-    private func finalizeMarkedComposition() {
-        let markedText = markedCompositionText
-        guard !markedText.isEmpty else {
+    private func finalizeComposition() {
+        let text = compositionText
+        guard !text.isEmpty else {
             resetCompositionState()
+            refreshCompositionDisplay()
             updateCandidates(resetScroll: true)
             return
         }
-        let shouldReplaceMarkedText = !selectedCompositionSegments.isEmpty || isMultilineInput
-        if shouldReplaceMarkedText {
-            textDocumentProxy.insertText(markedText)
-        }
-        textDocumentProxy.unmarkText()
+        textDocumentProxy.insertText(text)
         hasInsertedTextInCurrentContext = true
         resetCompositionState()
+        refreshCompositionDisplay()
         updateCandidates(resetScroll: true)
-        DispatchQueue.main.async { [weak self] in
-            self?.textDocumentProxy.unmarkText()
-            self?.updateCandidates(resetScroll: true)
-        }
     }
 
     private func removeActivePinyinPrefix() {
@@ -760,7 +744,7 @@ final class KeyboardViewController: UIInputViewController {
         guard let segment = selectedCompositionSegments.popLast() else { return }
         compositionBuffer = segment.pinyin + compositionBuffer
         compositionCursorOffset = compositionBuffer.count
-        refreshMarkedComposition()
+        refreshCompositionDisplay()
     }
 
     private func resetCompositionState() {
@@ -796,6 +780,100 @@ private final class KeyboardKeySpacer: UIView {
 
     override var intrinsicContentSize: CGSize {
         CGSize(width: 32 * widthUnit, height: 44)
+    }
+}
+
+private final class CompositionBarView: UIView {
+    var onOffsetSelected: ((Int) -> Void)?
+
+    private var text = ""
+    private var cursorOffset = 0
+    private let font = UIFont.systemFont(ofSize: 15, weight: .regular)
+    private let textInsets = UIEdgeInsets(top: 3, left: 10, bottom: 3, right: 10)
+    private var barBackgroundColor = UIColor(white: 0.94, alpha: 1)
+    private var barTextColor = UIColor.black
+    private var barCursorColor = UIColor.systemBlue
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isOpaque = false
+        let recognizer = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
+        addGestureRecognizer(recognizer)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(backgroundColor: UIColor, textColor: UIColor, cursorColor: UIColor) {
+        barBackgroundColor = backgroundColor
+        barTextColor = textColor
+        barCursorColor = cursorColor
+        setNeedsDisplay()
+    }
+
+    func update(text: String, cursorOffset: Int) {
+        self.text = text
+        self.cursorOffset = max(0, min(text.count, cursorOffset))
+        setNeedsDisplay()
+    }
+
+    override func draw(_ rect: CGRect) {
+        guard !text.isEmpty else { return }
+
+        let backgroundRect = bounds.insetBy(dx: 1, dy: 1)
+        let backgroundPath = UIBezierPath(roundedRect: backgroundRect, cornerRadius: 6)
+        barBackgroundColor.setFill()
+        backgroundPath.fill()
+
+        let textRect = bounds.inset(by: textInsets)
+        let attributes: [NSAttributedString.Key: Any] = [
+            .font: font,
+            .foregroundColor: barTextColor
+        ]
+        let textSize = (text as NSString).size(withAttributes: attributes)
+        let textOrigin = CGPoint(x: textRect.minX, y: bounds.midY - textSize.height / 2)
+        (text as NSString).draw(at: textOrigin, withAttributes: attributes)
+
+        let cursorX = max(textRect.minX, min(textRect.minX + width(upTo: cursorOffset), textRect.maxX))
+        let cursorTop = max(textRect.minY + 1, bounds.midY - 8)
+        let cursorBottom = min(textRect.maxY - 1, bounds.midY + 8)
+        let cursorPath = UIBezierPath()
+        cursorPath.move(to: CGPoint(x: cursorX, y: cursorTop))
+        cursorPath.addLine(to: CGPoint(x: cursorX, y: cursorBottom))
+        barCursorColor.setStroke()
+        cursorPath.lineWidth = 1.3
+        cursorPath.stroke()
+    }
+
+    @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
+        let point = recognizer.location(in: self)
+        let textRect = bounds.inset(by: textInsets)
+        let x = max(0, min(point.x - textRect.minX, textRect.width))
+        onOffsetSelected?(nearestOffset(for: x))
+    }
+
+    private func nearestOffset(for x: CGFloat) -> Int {
+        guard !text.isEmpty else { return 0 }
+        var bestOffset = 0
+        var bestDistance = CGFloat.greatestFiniteMagnitude
+
+        for offset in 0...text.count {
+            let distance = abs(width(upTo: offset) - x)
+            if distance < bestDistance {
+                bestDistance = distance
+                bestOffset = offset
+            }
+        }
+        return bestOffset
+    }
+
+    private func width(upTo offset: Int) -> CGFloat {
+        guard offset > 0 else { return 0 }
+        let safeOffset = max(0, min(text.count, offset))
+        let end = text.index(text.startIndex, offsetBy: safeOffset)
+        let prefix = String(text[..<end]) as NSString
+        return ceil(prefix.size(withAttributes: [.font: font]).width)
     }
 }
 
