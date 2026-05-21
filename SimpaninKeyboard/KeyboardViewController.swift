@@ -52,6 +52,11 @@ final class KeyboardViewController: UIInputViewController {
         applyTheme()
     }
 
+    override func textDidChange(_ textInput: UITextInput?) {
+        super.textDidChange(textInput)
+        updateReturnKeyAppearance()
+    }
+
     private func setupKeyboard() {
         view.backgroundColor = keyboardBackground
 
@@ -139,7 +144,7 @@ final class KeyboardViewController: UIInputViewController {
         let row4 = [
             KeySpec(.modeSwitch(.numbers), title: "123", widthUnit: 1.35),
             KeySpec(.space, title: "空格", widthUnit: 4.8),
-            KeySpec(.returnKey, title: "确认", widthUnit: 1.55)
+            KeySpec(.returnKey, widthUnit: 1.55)
         ]
         return [row1, row2, row3, row4]
     }
@@ -152,7 +157,7 @@ final class KeyboardViewController: UIInputViewController {
             [
                 KeySpec(.modeSwitch(.letters), title: "ABC", widthUnit: 1.35),
                 KeySpec(.space, title: "空格", widthUnit: 4.8),
-                KeySpec(.returnKey, title: "确认", widthUnit: 1.55)
+                KeySpec(.returnKey, widthUnit: 1.55)
             ]
         ]
     }
@@ -165,13 +170,14 @@ final class KeyboardViewController: UIInputViewController {
             [
                 KeySpec(.modeSwitch(.letters), title: "ABC", widthUnit: 1.35),
                 KeySpec(.space, title: "空格", widthUnit: 4.8),
-                KeySpec(.returnKey, title: "确认", widthUnit: 1.55)
+                KeySpec(.returnKey, widthUnit: 1.55)
             ]
         ]
     }
 
     private func makeButton(for spec: KeySpec) -> KeyboardKeyButton {
         let button = KeyboardKeyButton(type: .system)
+        button.kind = spec.kind
         button.layer.cornerRadius = 6
         button.layer.shadowOpacity = 0.22
         button.layer.shadowRadius = 0
@@ -205,7 +211,7 @@ final class KeyboardViewController: UIInputViewController {
         case .space:
             return "空格"
         case .returnKey:
-            return "确认"
+            return returnKeyTitle
         case .modeSwitch(let target):
             switch target {
             case .letters:
@@ -267,12 +273,25 @@ final class KeyboardViewController: UIInputViewController {
                 textDocumentProxy.insertText(" ")
             }
         case .returnKey:
-            commitCompositionAsText()
+            handleReturnKey()
         case .modeSwitch(let target):
             commitCompositionAsText()
             keyboardMode = target
             renderKeyboard()
         }
+    }
+
+    private func handleReturnKey() {
+        guard isReturnKeyEnabled else { return }
+        if hasPendingCandidates {
+            finalizeMarkedComposition()
+        } else if isSearchInput || isMultilineInput {
+            finalizeMarkedComposition()
+            textDocumentProxy.insertText("\n")
+        } else {
+            finalizeMarkedComposition()
+        }
+        updateReturnKeyAppearance()
     }
 
     @objc private func handleSpaceLongPress(_ recognizer: UILongPressGestureRecognizer) {
@@ -347,6 +366,7 @@ final class KeyboardViewController: UIInputViewController {
             allCandidates = []
             visibleCandidateCount = 0
             renderVisibleCandidates()
+            updateReturnKeyAppearance()
             return
         }
         let pinyin = activeCandidatePinyin
@@ -360,6 +380,7 @@ final class KeyboardViewController: UIInputViewController {
         if resetScroll {
             candidateScrollView.setContentOffset(.zero, animated: false)
         }
+        updateReturnKeyAppearance()
     }
 
     private func renderVisibleCandidates() {
@@ -402,11 +423,27 @@ final class KeyboardViewController: UIInputViewController {
         view.backgroundColor = keyboardBackground
 
         for button in keyButtons {
+            if let keyButton = button as? KeyboardKeyButton, case .returnKey = keyButton.kind {
+                keyButton.setTitle(returnKeyTitle, for: .normal)
+                keyButton.isEnabled = isReturnKeyEnabled
+                keyButton.alpha = isReturnKeyEnabled ? 1 : 0.45
+            } else {
+                button.alpha = 1
+            }
             let title = button.title(for: .normal) ?? ""
-            let isSpecial = ["123", "ABC", "#+=", "⌫", "⇧", "确认"].contains(title)
+            let isSpecial = ["123", "ABC", "#+=", "⌫", "⇧", "搜索", "确认", "换行"].contains(title)
             button.backgroundColor = isSpecial ? specialKeyBackground : keyBackground
             button.setTitleColor(primaryText, for: .normal)
             button.layer.shadowColor = shadowColor.cgColor
+        }
+    }
+
+    private func updateReturnKeyAppearance() {
+        for button in keyButtons.compactMap({ $0 as? KeyboardKeyButton }) {
+            guard case .returnKey = button.kind else { continue }
+            button.setTitle(returnKeyTitle, for: .normal)
+            button.isEnabled = isReturnKeyEnabled
+            button.alpha = isReturnKeyEnabled ? 1 : 0.45
         }
     }
 
@@ -453,6 +490,50 @@ final class KeyboardViewController: UIInputViewController {
 
     private var hasActiveComposition: Bool {
         !selectedCompositionSegments.isEmpty || !compositionBuffer.isEmpty
+    }
+
+    private var returnKeyTitle: String {
+        if hasPendingCandidates {
+            return "确认"
+        }
+        if isSearchInput {
+            return "搜索"
+        }
+        if isMultilineInput {
+            return "换行"
+        }
+        return "确认"
+    }
+
+    private var isReturnKeyEnabled: Bool {
+        if hasPendingCandidates {
+            return true
+        }
+        if isSearchInput {
+            return hasDocumentText
+        }
+        return true
+    }
+
+    private var hasPendingCandidates: Bool {
+        hasActiveComposition && !allCandidates.isEmpty
+    }
+
+    private var isSearchInput: Bool {
+        textDocumentProxy.returnKeyType == .search || textDocumentProxy.keyboardType == .webSearch
+    }
+
+    private var isMultilineInput: Bool {
+        textDocumentProxy.returnKeyType == .default && !isSearchInput
+    }
+
+    private var hasDocumentText: Bool {
+        if hasActiveComposition {
+            return true
+        }
+        let before = textDocumentProxy.documentContextBeforeInput ?? ""
+        let after = textDocumentProxy.documentContextAfterInput ?? ""
+        return !before.isEmpty || !after.isEmpty
     }
 
     private var selectedCompositionText: String {
@@ -511,6 +592,10 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func commitCompositionAsText() {
+        finalizeMarkedComposition()
+    }
+
+    private func finalizeMarkedComposition() {
         let markedText = markedCompositionText
         guard !markedText.isEmpty else {
             resetCompositionState()
@@ -521,6 +606,10 @@ final class KeyboardViewController: UIInputViewController {
         textDocumentProxy.unmarkText()
         resetCompositionState()
         updateCandidates(resetScroll: true)
+        DispatchQueue.main.async { [weak self] in
+            self?.textDocumentProxy.unmarkText()
+            self?.updateCandidates(resetScroll: true)
+        }
     }
 
     private func removeActivePinyinPrefix() {
@@ -558,6 +647,7 @@ private struct KeySpec {
 }
 
 private final class KeyboardKeyButton: UIButton {
+    var kind: KeyKind = .character("")
     var widthUnit: CGFloat = 1
 
     override var intrinsicContentSize: CGSize {
