@@ -1,4 +1,5 @@
 import UIKit
+import AudioToolbox
 
 final class KeyboardViewController: UIInputViewController {
     fileprivate enum KeyboardMode {
@@ -35,7 +36,7 @@ final class KeyboardViewController: UIInputViewController {
     private var trackpadPreviousX: CGFloat = 0
     private var trackpadAccumulatedX: CGFloat = 0
     private var hasInsertedTextInCurrentContext = false
-    private let trackpadActivationFeedback = UIImpactFeedbackGenerator(style: .light)
+    private let trackpadActivationFeedback = UIImpactFeedbackGenerator(style: .medium)
     private let trackpadMovementFeedback = UISelectionFeedbackGenerator()
 
     private static let candidateBatchSize = 30
@@ -135,18 +136,46 @@ final class KeyboardViewController: UIInputViewController {
         }
 
         for row in rows {
+            let usesUniformLetterKeys = keyboardMode == .letters && row.contains { $0.kind.isPrimary }
             let rowStack = UIStackView()
             rowStack.axis = .horizontal
             rowStack.spacing = 6
             rowStack.alignment = .fill
-            rowStack.distribution = .fillProportionally
+            rowStack.distribution = usesUniformLetterKeys ? .fill : .fillProportionally
+            var rowSpacers: [UIView] = []
+            var sideKeys: [UIButton] = []
 
             for key in row {
+                if case .spacer = key.kind {
+                    let spacer = KeyboardKeySpacer()
+                    spacer.widthUnit = key.widthUnit
+                    rowStack.addArrangedSubview(spacer)
+                    spacer.heightAnchor.constraint(equalToConstant: 44).isActive = true
+                    rowSpacers.append(spacer)
+                    continue
+                }
+
                 let button = makeButton(for: key)
                 button.widthUnit = key.widthUnit
                 rowStack.addArrangedSubview(button)
                 button.heightAnchor.constraint(equalToConstant: 44).isActive = true
+                if usesUniformLetterKeys, key.kind.isPrimary {
+                    button.widthAnchor.constraint(equalTo: rowStack.widthAnchor, multiplier: 0.1, constant: -5.4).isActive = true
+                }
+                if usesUniformLetterKeys, case .shift = key.kind {
+                    sideKeys.append(button)
+                }
+                if usesUniformLetterKeys, case .backspace = key.kind {
+                    sideKeys.append(button)
+                }
                 keyButtons.append(button)
+            }
+
+            if rowSpacers.count == 2 {
+                rowSpacers[0].widthAnchor.constraint(equalTo: rowSpacers[1].widthAnchor).isActive = true
+            }
+            if sideKeys.count == 2 {
+                sideKeys[0].widthAnchor.constraint(equalTo: sideKeys[1].widthAnchor).isActive = true
             }
 
             rootStack.addArrangedSubview(rowStack)
@@ -158,12 +187,11 @@ final class KeyboardViewController: UIInputViewController {
 
     private var letterRows: [[KeySpec]] {
         let row1 = "qwertyuiop".map { KeySpec(.character(String($0))) }
-        let row2 = "asdfghjkl".map { KeySpec(.character(String($0))) }
-        let row3 = [KeySpec(.shift, widthUnit: 1.35)] + "zxcvbnm".map { KeySpec(.character(String($0))) } + [KeySpec(.backspace, widthUnit: 1.35)]
+        let row2 = [KeySpec(.spacer, widthUnit: 0.5)] + "asdfghjkl".map { KeySpec(.character(String($0))) } + [KeySpec(.spacer, widthUnit: 0.5)]
+        let row3 = [KeySpec(.shift, widthUnit: 1.5)] + "zxcvbnm".map { KeySpec(.character(String($0))) } + [KeySpec(.backspace, widthUnit: 1.5)]
         let row4 = [
             KeySpec(.modeSwitch(.numbers), title: "123", widthUnit: 1.35),
-            KeySpec(.nextKeyboard, title: "🌐", widthUnit: 1),
-            KeySpec(.space, title: "空格", widthUnit: 4.15),
+            KeySpec(.space, title: "空格", widthUnit: 4.8),
             KeySpec(.returnKey, widthUnit: 1.55)
         ]
         return [row1, row2, row3, row4]
@@ -176,8 +204,7 @@ final class KeyboardViewController: UIInputViewController {
             [KeySpec(.modeSwitch(.symbols), title: "#+=", widthUnit: 1.35)] + [".", ",", "?", "!", "'"].map { KeySpec(.character($0)) } + [KeySpec(.backspace, widthUnit: 1.35)],
             [
                 KeySpec(.modeSwitch(.letters), title: "ABC", widthUnit: 1.35),
-                KeySpec(.nextKeyboard, title: "🌐", widthUnit: 1),
-                KeySpec(.space, title: "空格", widthUnit: 4.15),
+                KeySpec(.space, title: "空格", widthUnit: 4.8),
                 KeySpec(.returnKey, widthUnit: 1.55)
             ]
         ]
@@ -190,8 +217,7 @@ final class KeyboardViewController: UIInputViewController {
             [KeySpec(.modeSwitch(.numbers), title: "123", widthUnit: 1.35)] + [".", ",", "?", "!", "'"].map { KeySpec(.character($0)) } + [KeySpec(.backspace, widthUnit: 1.35)],
             [
                 KeySpec(.modeSwitch(.letters), title: "ABC", widthUnit: 1.35),
-                KeySpec(.nextKeyboard, title: "🌐", widthUnit: 1),
-                KeySpec(.space, title: "空格", widthUnit: 4.15),
+                KeySpec(.space, title: "空格", widthUnit: 4.8),
                 KeySpec(.returnKey, widthUnit: 1.55)
             ]
         ]
@@ -206,17 +232,13 @@ final class KeyboardViewController: UIInputViewController {
         button.layer.shadowOffset = CGSize(width: 0, height: 1)
         button.titleLabel?.font = font(for: spec.kind)
         button.setTitle(title(for: spec), for: .normal)
-        if case .nextKeyboard = spec.kind {
-            button.addTarget(self, action: #selector(handleInputModeList(from:with:)), for: .allTouchEvents)
-        } else {
-            button.addAction(UIAction { [weak self] _ in
-                self?.handle(spec.kind)
-            }, for: .touchUpInside)
-            let recognizer = UILongPressGestureRecognizer(target: self, action: #selector(handleKeyLongPress(_:)))
-            recognizer.minimumPressDuration = 0.35
-            recognizer.cancelsTouchesInView = true
-            button.addGestureRecognizer(recognizer)
-        }
+        button.addAction(UIAction { [weak self] _ in
+            self?.handle(spec.kind)
+        }, for: .touchUpInside)
+        let recognizer = UILongPressGestureRecognizer(target: self, action: #selector(handleKeyLongPress(_:)))
+        recognizer.minimumPressDuration = 0.35
+        recognizer.cancelsTouchesInView = true
+        button.addGestureRecognizer(recognizer)
         return button
     }
 
@@ -236,8 +258,8 @@ final class KeyboardViewController: UIInputViewController {
             return "空格"
         case .returnKey:
             return returnKeyTitle
-        case .nextKeyboard:
-            return "🌐"
+        case .spacer:
+            return ""
         case .modeSwitch(let target):
             switch target {
             case .letters:
@@ -307,9 +329,8 @@ final class KeyboardViewController: UIInputViewController {
             }
         case .returnKey:
             handleReturnKey()
-        case .nextKeyboard:
-            commitCompositionAsText()
-            advanceToNextInputMode()
+        case .spacer:
+            break
         case .modeSwitch(let target):
             commitCompositionAsText()
             keyboardMode = target
@@ -341,7 +362,7 @@ final class KeyboardViewController: UIInputViewController {
             suppressNextKeyTap = true
             trackpadPreviousX = locationX
             trackpadAccumulatedX = 0
-            trackpadActivationFeedback.impactOccurred()
+            triggerTrackpadActivationFeedback()
             trackpadMovementFeedback.prepare()
             setTrackpadBlurVisible(true)
         case .changed:
@@ -359,7 +380,7 @@ final class KeyboardViewController: UIInputViewController {
                     refreshMarkedComposition()
                 }
                 trackpadAccumulatedX -= CGFloat(offset) * Self.trackpadStepWidth
-                trackpadMovementFeedback.selectionChanged()
+                triggerTrackpadMovementFeedback()
                 trackpadMovementFeedback.prepare()
             }
             updateCandidates()
@@ -381,6 +402,17 @@ final class KeyboardViewController: UIInputViewController {
         UIView.animate(withDuration: 0.12, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
             self.trackpadBlurView.alpha = visible ? 1 : 0
         }
+    }
+
+    private func triggerTrackpadActivationFeedback() {
+        trackpadActivationFeedback.prepare()
+        trackpadActivationFeedback.impactOccurred(intensity: 1)
+        trackpadMovementFeedback.selectionChanged()
+        AudioServicesPlaySystemSound(1519)
+    }
+
+    private func triggerTrackpadMovementFeedback() {
+        trackpadMovementFeedback.selectionChanged()
     }
 
     private func replaceCompositionWith(_ text: String) {
@@ -483,7 +515,7 @@ final class KeyboardViewController: UIInputViewController {
                 button.alpha = 1
             }
             let title = button.title(for: .normal) ?? ""
-            let isSpecial = ["123", "ABC", "#+=", "⌫", "⇧", "🌐", "搜索", "确认", "换行"].contains(title)
+            let isSpecial = ["123", "ABC", "#+=", "⌫", "⇧", "搜索", "确认", "换行"].contains(title)
             button.backgroundColor = isSpecial ? specialKeyBackground : keyBackground
             button.setTitleColor(primaryText, for: .normal)
             button.layer.shadowColor = shadowColor.cgColor
@@ -719,6 +751,14 @@ private final class KeyboardKeyButton: UIButton {
     }
 }
 
+private final class KeyboardKeySpacer: UIView {
+    var widthUnit: CGFloat = 1
+
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: 32 * widthUnit, height: 44)
+    }
+}
+
 extension KeyboardViewController: UIScrollViewDelegate {
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
         guard scrollView === candidateScrollView else { return }
@@ -735,7 +775,7 @@ private enum KeyKind {
     case backspace
     case space
     case returnKey
-    case nextKeyboard
+    case spacer
     case modeSwitch(KeyboardViewController.KeyboardMode)
 
     var isPrimary: Bool {
