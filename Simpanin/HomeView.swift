@@ -1828,6 +1828,237 @@ private struct SettingsView: View {
     @State private var showingKeyboardGuide = false
 
     var body: some View {
+        ScrollView(showsIndicators: false) {
+            VStack(alignment: .leading, spacing: 28) {
+                settingsSection(title: "通用") {
+                    Button {
+                        showingNezhaSettings = true
+                    } label: {
+                        settingsRow(
+                            icon: "server.rack",
+                            title: "哪吒监控设置",
+                            trailingText: nezhaSettings.isConfigured ? "已配置" : "未配置",
+                            subtitle: nezhaSettings.displayHost
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    settingsDivider
+
+                    Button {
+                        showingKeyboardGuide = true
+                    } label: {
+                        settingsRow(
+                            icon: "keyboard",
+                            title: "中文键盘",
+                            trailingText: "离线",
+                            subtitle: "启用系统键盘扩展并测试拼音输入"
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    settingsDivider
+
+                    Button {
+                        logStore.reloadChunks(selectCurrentIfNeeded: true)
+                        showingLogs = true
+                    } label: {
+                        settingsRow(
+                            icon: "doc.text.magnifyingglass",
+                            title: "日志",
+                            subtitle: "\(logStore.chunks.count) hourly slices"
+                        )
+                    }
+                    .buttonStyle(.plain)
+
+                    settingsDivider
+
+                    Button {
+                        handleUpdateTap()
+                    } label: {
+                        settingsRow(
+                            icon: updateVM.localIPAURL != nil ? "square.and.arrow.down.fill" : "arrow.triangle.2.circlepath",
+                            title: buttonTitle,
+                            trailingText: AppVersionInfo.current.displayText,
+                            subtitle: updateSubtitle,
+                            showsProgress: updateVM.isChecking || updateVM.isDownloading
+                        )
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(updateVM.isChecking || updateVM.isDownloading)
+                }
+
+                if updateVM.isDownloading || updateVM.errorMessage != nil {
+                    VStack(alignment: .leading, spacing: 8) {
+                        if updateVM.isDownloading {
+                            ProgressView(value: updateVM.downloadProgress)
+                                .tint(FitnexColor.orange)
+                            Text("Downloading \(Int(updateVM.downloadProgress * 100))%")
+                                .font(.fitnexBody(size: 11, weight: .regular))
+                                .foregroundColor(FitnexColor.grayText)
+                        }
+
+                        if let error = updateVM.errorMessage {
+                            Text(error)
+                                .font(.fitnexBody(size: 11, weight: .regular))
+                                .foregroundColor(Color(hex: 0xE5484D))
+                        }
+                    }
+                    .padding(.horizontal, 18)
+                }
+
+                settingsSection(title: "关于") {
+                    Button {
+                        feedback("Version \(AppVersionInfo.current.displayText)")
+                    } label: {
+                        settingsRow(
+                            icon: "info.circle",
+                            title: "关于 aTool",
+                            trailingText: AppVersionInfo.current.displayText
+                        )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 14)
+            .padding(.top, 18)
+            .padding(.bottom, 120)
+        }
+        .background(Color(hex: 0xF1F1F1))
+        .sheet(isPresented: $showingLogs) {
+            AppLogSheet(store: logStore)
+                .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showingNezhaSettings) {
+            NezhaSettingsSheet(settings: nezhaSettings)
+                .presentationDetents([.medium])
+        }
+        .sheet(isPresented: $showingKeyboardGuide) {
+            KeyboardGuideSheet()
+                .presentationDetents([.medium, .large])
+        }
+        .onAppear {
+            logStore.reloadChunks(selectCurrentIfNeeded: true)
+        }
+        .onChange(of: updateVM.localIPAURL) { url in
+            if url != nil {
+                updateVM.installViaTrollStore()
+            }
+        }
+        .onChange(of: updateVM.errorMessage) { msg in
+            if let msg { feedback(msg) }
+        }
+    }
+
+    private func handleUpdateTap() {
+        if updateVM.latestRelease?.ipaAsset != nil && updateVM.localIPAURL == nil {
+            updateVM.downloadIPA()
+        } else if updateVM.localIPAURL != nil {
+            updateVM.installViaTrollStore()
+        } else {
+            Task { await updateVM.checkForUpdate() }
+        }
+    }
+
+    private var buttonTitle: String {
+        if updateVM.isChecking { return "\u{68C0}\u{67E5}\u{4E2D}..." }
+        if updateVM.isDownloading { return "\u{4E0B}\u{8F7D}\u{4E2D}..." }
+        if updateVM.localIPAURL != nil { return "\u{5B89}\u{88C5}\u{66F4}\u{65B0}" }
+        if updateVM.latestRelease?.ipaAsset != nil { return "\u{4E0B}\u{8F7D}\u{66F4}\u{65B0}" }
+        return "\u{68C0}\u{67E5}\u{66F4}\u{65B0}"
+    }
+
+    private var updateSubtitle: String? {
+        if let msg = updateVM.statusMessage {
+            return msg
+        }
+        if let asset = updateVM.latestRelease?.ipaAsset, updateVM.localIPAURL == nil && !updateVM.isDownloading {
+            return asset.formattedSize
+        }
+        return nil
+    }
+
+    private func settingsSection<Content: View>(title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.fitnexTitle(size: 14))
+                .foregroundColor(FitnexColor.grayText)
+                .padding(.leading, 18)
+
+            VStack(spacing: 0) {
+                content()
+            }
+            .background(FitnexColor.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        }
+    }
+
+    private var settingsDivider: some View {
+        Rectangle()
+            .fill(Color(hex: 0xEEEEEE))
+            .frame(height: 1)
+            .padding(.leading, 52)
+    }
+
+    private func settingsRow(icon: String, title: String, trailingText: String? = nil, subtitle: String? = nil, showsProgress: Bool = false, showsChevron: Bool = true) -> some View {
+        HStack(spacing: 16) {
+            ZStack {
+                if showsProgress {
+                    ProgressView()
+                        .scaleEffect(0.82)
+                } else {
+                    Image(systemName: icon)
+                        .font(.system(size: 19, weight: .regular))
+                        .foregroundColor(Color(hex: 0x30333A))
+                }
+            }
+            .frame(width: 22, height: 22)
+
+            VStack(alignment: .leading, spacing: 2) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(title)
+                        .font(.system(size: 16, weight: .regular))
+                        .foregroundColor(Color(hex: 0x1F2329))
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.8)
+                    if let trailingText {
+                        Text(trailingText)
+                            .font(.fitnexBody(size: 11, weight: .semibold))
+                            .foregroundColor(FitnexColor.grayText)
+                            .lineLimit(1)
+                    }
+                }
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.fitnexBody(size: 11, weight: .regular))
+                        .foregroundColor(FitnexColor.grayText)
+                        .lineLimit(1)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if showsChevron {
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(Color(hex: 0x8F8F8F))
+            }
+        }
+        .padding(.horizontal, 18)
+        .frame(minHeight: subtitle == nil ? 58 : 68)
+        .contentShape(Rectangle())
+    }
+}
+
+/*
+private struct LegacySettingsView: View {
+    let feedback: (String) -> Void
+    @StateObject private var updateVM = UpdateViewModel()
+    @ObservedObject private var logStore = AppLogStore.shared
+    @ObservedObject private var nezhaSettings = NezhaSettingsStore.shared
+    @State private var showingLogs = false
+    @State private var showingNezhaSettings = false
+    @State private var showingKeyboardGuide = false
+
+    var body: some View {
         VStack(spacing: 0) {
             HStack {
                 VStack(alignment: .leading, spacing: 6) {
@@ -2029,6 +2260,8 @@ private struct SettingsView: View {
         }
     }
 }
+
+*/
 
 private struct AppLogSheet: View {
     @ObservedObject var store: AppLogStore
