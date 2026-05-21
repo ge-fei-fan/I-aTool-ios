@@ -15,8 +15,6 @@ final class KeyboardViewController: UIInputViewController {
     private let rootStack = UIStackView()
     private let candidateScrollView = UIScrollView()
     private let candidateStack = UIStackView()
-    private let bufferLabel = UILabel()
-    private var bufferWidthConstraint: NSLayoutConstraint?
     private var allCandidates: [String] = []
     private var visibleCandidateCount = 0
     private var keyButtons: [UIButton] = []
@@ -28,6 +26,11 @@ final class KeyboardViewController: UIInputViewController {
 
     private var isDark: Bool {
         traitCollection.userInterfaceStyle == .dark
+    }
+
+    private var compositionIsBeforeCursor: Bool {
+        guard !compositionBuffer.isEmpty else { return false }
+        return textDocumentProxy.documentContextBeforeInput?.hasSuffix(compositionBuffer) == true
     }
 
     override func viewDidLoad() {
@@ -180,10 +183,15 @@ final class KeyboardViewController: UIInputViewController {
         switch kind {
         case .character(let value):
             if keyboardMode == .letters, value.rangeOfCharacter(from: .letters) != nil {
-                compositionBuffer.append(value.lowercased())
+                if !compositionBuffer.isEmpty && !compositionIsBeforeCursor {
+                    compositionBuffer = ""
+                }
+                let letter = value.lowercased()
+                textDocumentProxy.insertText(letter)
+                compositionBuffer.append(letter)
                 updateCandidates(resetScroll: true)
             } else {
-                commitCompositionIfNeeded()
+                clearCompositionTracking()
                 textDocumentProxy.insertText(value)
             }
         case .shift:
@@ -191,36 +199,47 @@ final class KeyboardViewController: UIInputViewController {
             renderKeyboard()
         case .backspace:
             if !compositionBuffer.isEmpty {
-                compositionBuffer.removeLast()
+                let shouldTrackDeletion = compositionIsBeforeCursor
+                textDocumentProxy.deleteBackward()
+                if shouldTrackDeletion {
+                    compositionBuffer.removeLast()
+                } else {
+                    compositionBuffer = ""
+                }
                 updateCandidates(resetScroll: true)
             } else {
                 textDocumentProxy.deleteBackward()
             }
         case .space:
-            if let first = candidates(for: compositionBuffer).first {
-                textDocumentProxy.insertText(first)
-                compositionBuffer = ""
-                updateCandidates(resetScroll: true)
+            if compositionIsBeforeCursor, let first = candidates(for: compositionBuffer).first {
+                replaceCompositionWith(first)
             } else {
+                clearCompositionTracking()
                 textDocumentProxy.insertText(" ")
             }
         case .returnKey:
-            commitCompositionIfNeeded()
+            clearCompositionTracking()
             textDocumentProxy.insertText("\n")
         case .modeSwitch:
-            commitCompositionIfNeeded()
+            clearCompositionTracking()
             keyboardMode = keyboardMode == .letters ? .numbers : .letters
             renderKeyboard()
         }
     }
 
-    private func commitCompositionIfNeeded() {
+    private func clearCompositionTracking() {
         guard !compositionBuffer.isEmpty else { return }
-        if let first = candidates(for: compositionBuffer).first {
-            textDocumentProxy.insertText(first)
-        } else {
-            textDocumentProxy.insertText(compositionBuffer)
+        compositionBuffer = ""
+        updateCandidates(resetScroll: true)
+    }
+
+    private func replaceCompositionWith(_ text: String) {
+        if compositionIsBeforeCursor {
+            for _ in compositionBuffer {
+                textDocumentProxy.deleteBackward()
+            }
         }
+        textDocumentProxy.insertText(text)
         compositionBuffer = ""
         updateCandidates(resetScroll: true)
     }
@@ -244,26 +263,7 @@ final class KeyboardViewController: UIInputViewController {
             view.removeFromSuperview()
         }
 
-        bufferLabel.text = compositionBuffer.isEmpty ? "中文拼音" : compositionBuffer
-        bufferLabel.font = .systemFont(ofSize: 14, weight: .semibold)
-        bufferLabel.textColor = secondaryText
-        bufferLabel.textAlignment = .center
-        bufferLabel.backgroundColor = candidateBackground
-        bufferLabel.layer.cornerRadius = 8
-        bufferLabel.clipsToBounds = true
-        candidateStack.addArrangedSubview(bufferLabel)
-        bufferWidthConstraint?.isActive = false
-        bufferWidthConstraint = bufferLabel.widthAnchor.constraint(equalToConstant: 88)
-        bufferWidthConstraint?.isActive = true
-
-        if allCandidates.isEmpty {
-            let hint = UILabel()
-            hint.text = compositionBuffer.isEmpty ? "输入拼音后选择候选词" : "无候选，空格提交拼音"
-            hint.font = .systemFont(ofSize: 13, weight: .regular)
-            hint.textColor = secondaryText
-            candidateStack.addArrangedSubview(hint)
-            return
-        }
+        guard !allCandidates.isEmpty else { return }
 
         for candidate in allCandidates.prefix(visibleCandidateCount) {
             let button = UIButton(type: .system)
@@ -273,9 +273,7 @@ final class KeyboardViewController: UIInputViewController {
             button.backgroundColor = candidateBackground
             button.layer.cornerRadius = 8
             button.addAction(UIAction { [weak self] _ in
-                self?.textDocumentProxy.insertText(candidate)
-                self?.compositionBuffer = ""
-                self?.updateCandidates(resetScroll: true)
+                self?.replaceCompositionWith(candidate)
             }, for: .touchUpInside)
             candidateStack.addArrangedSubview(button)
             button.widthAnchor.constraint(greaterThanOrEqualToConstant: 48).isActive = true
@@ -290,8 +288,6 @@ final class KeyboardViewController: UIInputViewController {
 
     private func applyTheme() {
         view.backgroundColor = keyboardBackground
-        bufferLabel.backgroundColor = candidateBackground
-        bufferLabel.textColor = secondaryText
 
         for button in keyButtons {
             let title = button.title(for: .normal) ?? ""
