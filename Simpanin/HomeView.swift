@@ -45,6 +45,11 @@ struct HomeView: View {
         .animation(.easeInOut(duration: 0.22), value: detailScreen)
         .animation(.easeInOut(duration: 0.18), value: feedbackMessage)
         .task {
+            await AppLogStore.shared.record(
+                category: "system",
+                level: "info",
+                message: "home initial load"
+            )
             async let homeTask: Void = homeMetrics.refresh()
             async let diskTask: Void = diskStatus.loadIfNeeded()
             _ = await (homeTask, diskTask)
@@ -52,6 +57,11 @@ struct HomeView: View {
         .onChange(of: scenePhase) { phase in
             guard phase == .active else { return }
             Task {
+                await AppLogStore.shared.record(
+                    category: "system",
+                    level: "info",
+                    message: "app became active"
+                )
                 async let homeTask: Void = homeMetrics.refresh()
                 async let diskTask: Void = diskStatus.refresh()
                 _ = await (homeTask, diskTask)
@@ -158,7 +168,7 @@ private struct AppVersionInfo {
 private struct LogChunk: Identifiable, Hashable {
     let id: String
     let date: Date
-    let url: URL
+    let urls: [URL]
 
     var title: String {
         let formatter = DateFormatter()
@@ -184,6 +194,83 @@ private struct AppLogEntry: Identifiable, Codable {
     let error: String?
     let durationMS: Int
     let metadata: [String: String]
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case timestamp
+        case source
+        case category
+        case level
+        case message
+        case method
+        case url
+        case requestHeaders
+        case requestBody
+        case statusCode
+        case responseHeaders
+        case responseBody
+        case error
+        case durationMS
+        case metadata
+    }
+
+    init(
+        id: String,
+        timestamp: Date,
+        source: String,
+        category: String,
+        level: String,
+        message: String,
+        method: String,
+        url: String,
+        requestHeaders: [String: String],
+        requestBody: String,
+        statusCode: Int?,
+        responseHeaders: [String: String],
+        responseBody: String,
+        error: String?,
+        durationMS: Int,
+        metadata: [String: String]
+    ) {
+        self.id = id
+        self.timestamp = timestamp
+        self.source = source
+        self.category = category
+        self.level = level
+        self.message = message
+        self.method = method
+        self.url = url
+        self.requestHeaders = requestHeaders
+        self.requestBody = requestBody
+        self.statusCode = statusCode
+        self.responseHeaders = responseHeaders
+        self.responseBody = responseBody
+        self.error = error
+        self.durationMS = durationMS
+        self.metadata = metadata
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let url = try container.decodeIfPresent(String.self, forKey: .url) ?? ""
+        let error = try container.decodeIfPresent(String.self, forKey: .error)
+        id = try container.decodeIfPresent(String.self, forKey: .id) ?? UUID().uuidString
+        timestamp = try container.decodeIfPresent(Date.self, forKey: .timestamp) ?? Date()
+        source = try container.decodeIfPresent(String.self, forKey: .source) ?? "app"
+        category = try container.decodeIfPresent(String.self, forKey: .category) ?? "http"
+        level = try container.decodeIfPresent(String.self, forKey: .level) ?? (error == nil ? "info" : "error")
+        message = try container.decodeIfPresent(String.self, forKey: .message) ?? url
+        method = try container.decodeIfPresent(String.self, forKey: .method) ?? ""
+        self.url = url
+        requestHeaders = try container.decodeIfPresent([String: String].self, forKey: .requestHeaders) ?? [:]
+        requestBody = try container.decodeIfPresent(String.self, forKey: .requestBody) ?? ""
+        statusCode = try container.decodeIfPresent(Int.self, forKey: .statusCode)
+        responseHeaders = try container.decodeIfPresent([String: String].self, forKey: .responseHeaders) ?? [:]
+        responseBody = try container.decodeIfPresent(String.self, forKey: .responseBody) ?? ""
+        self.error = error
+        durationMS = try container.decodeIfPresent(Int.self, forKey: .durationMS) ?? 0
+        metadata = try container.decodeIfPresent([String: String].self, forKey: .metadata) ?? [:]
+    }
 
     var statusText: String {
         if category != "http" { return level.capitalized }
@@ -233,10 +320,33 @@ private final class AppLogStore: ObservableObject {
     private let retention: TimeInterval = 3 * 24 * 60 * 60
     private static let appGroupID = "group.com.local.fitnex"
 
-    private var directoryURL: URL {
-        let base = fileManager.containerURL(forSecurityApplicationGroupIdentifier: Self.appGroupID)
-            ?? fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        return base.appendingPathComponent("logs", isDirectory: true)
+    private var appGroupDirectoryURL: URL? {
+        fileManager.containerURL(forSecurityApplicationGroupIdentifier: Self.appGroupID)?
+            .appendingPathComponent("logs", isDirectory: true)
+    }
+
+    private var documentsDirectoryURL: URL {
+        fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("logs", isDirectory: true)
+    }
+
+    private var writeDirectoryURL: URL {
+        appGroupDirectoryURL ?? documentsDirectoryURL
+    }
+
+    private var readDirectoryURLs: [URL] {
+        var urls: [URL] = []
+        var seen = Set<String>()
+
+        func append(_ url: URL?) {
+            guard let url, !seen.contains(url.path) else { return }
+            seen.insert(url.path)
+            urls.append(url)
+        }
+
+        append(appGroupDirectoryURL)
+        append(documentsDirectoryURL)
+        return urls
     }
 
     private static let chunkFileFormatter: DateFormatter = {
@@ -311,7 +421,7 @@ private final class AppLogStore: ObservableObject {
 
     private func write(_ entry: AppLogEntry) {
         do {
-            try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
+            try fileManager.createDirectory(at: writeDirectoryURL, withIntermediateDirectories: true, attributes: nil)
             let fileURL = chunkURL(for: entry.timestamp)
             let data = try JSONEncoder().encode(entry)
             if !fileManager.fileExists(atPath: fileURL.path) {
@@ -330,16 +440,25 @@ private final class AppLogStore: ObservableObject {
 
     func reloadChunks(selectCurrentIfNeeded: Bool = false) {
         cleanupOldLogs()
-        let urls = (try? fileManager.contentsOfDirectory(
-            at: directoryURL,
-            includingPropertiesForKeys: nil
-        )) ?? []
+        var chunksByID: [String: (date: Date, urls: [URL])] = [:]
 
-        chunks = urls.compactMap { url in
-            guard url.pathExtension == "jsonl" else { return nil }
-            let name = url.deletingPathExtension().lastPathComponent
-            guard let date = Self.chunkFileFormatter.date(from: name) else { return nil }
-            return LogChunk(id: name, date: date, url: url)
+        for directoryURL in readDirectoryURLs {
+            let urls = (try? fileManager.contentsOfDirectory(
+                at: directoryURL,
+                includingPropertiesForKeys: nil
+            )) ?? []
+
+            for url in urls where url.pathExtension == "jsonl" {
+                let name = url.deletingPathExtension().lastPathComponent
+                guard let date = Self.chunkFileFormatter.date(from: name) else { continue }
+                var chunk = chunksByID[name] ?? (date: date, urls: [])
+                chunk.urls.append(url)
+                chunksByID[name] = chunk
+            }
+        }
+
+        chunks = chunksByID.map { id, value in
+            LogChunk(id: id, date: value.date, urls: value.urls)
         }
         .sorted { $0.date > $1.date }
 
@@ -357,14 +476,14 @@ private final class AppLogStore: ObservableObject {
 
     private func loadSelectedEntries() {
         guard let selectedChunkID,
-              let chunk = chunks.first(where: { $0.id == selectedChunkID }),
-              let content = try? String(contentsOf: chunk.url, encoding: .utf8) else {
+              let chunk = chunks.first(where: { $0.id == selectedChunkID }) else {
             entries = []
             return
         }
 
-        entries = content
-            .split(separator: "\n")
+        entries = chunk.urls
+            .compactMap { try? String(contentsOf: $0, encoding: .utf8) }
+            .flatMap { $0.split(separator: "\n") }
             .compactMap { line in
                 try? JSONDecoder().decode(AppLogEntry.self, from: Data(line.utf8))
             }
@@ -372,17 +491,19 @@ private final class AppLogStore: ObservableObject {
     }
 
     private func cleanupOldLogs() {
-        guard let urls = try? fileManager.contentsOfDirectory(at: directoryURL, includingPropertiesForKeys: nil) else { return }
         let cutoff = Date().addingTimeInterval(-retention)
-        for url in urls where url.pathExtension == "jsonl" {
-            let name = url.deletingPathExtension().lastPathComponent
-            guard let date = Self.chunkFileFormatter.date(from: name), date < cutoff else { continue }
-            try? fileManager.removeItem(at: url)
+        for directoryURL in readDirectoryURLs {
+            guard let urls = try? fileManager.contentsOfDirectory(at: directoryURL, includingPropertiesForKeys: nil) else { continue }
+            for url in urls where url.pathExtension == "jsonl" {
+                let name = url.deletingPathExtension().lastPathComponent
+                guard let date = Self.chunkFileFormatter.date(from: name), date < cutoff else { continue }
+                try? fileManager.removeItem(at: url)
+            }
         }
     }
 
     private func chunkURL(for date: Date) -> URL {
-        directoryURL.appendingPathComponent("\(Self.chunkFileFormatter.string(from: date)).jsonl")
+        writeDirectoryURL.appendingPathComponent("\(Self.chunkFileFormatter.string(from: date)).jsonl")
     }
 
     private func responseHeaders(_ response: URLResponse?) -> [String: String] {
@@ -2017,6 +2138,18 @@ private struct AppLogEntryRow: View {
                         .padding(.horizontal, 8)
                         .frame(height: 22)
                         .background(FitnexColor.orange, in: Capsule())
+                    Text(entry.source.uppercased())
+                        .font(.fitnexBody(size: 10, weight: .bold))
+                        .foregroundColor(FitnexColor.orange)
+                        .padding(.horizontal, 8)
+                        .frame(height: 22)
+                        .background(FitnexColor.orangeSoft, in: Capsule())
+                    Text(entry.level.uppercased())
+                        .font(.fitnexBody(size: 10, weight: .bold))
+                        .foregroundColor(entry.levelColor)
+                        .padding(.horizontal, 8)
+                        .frame(height: 22)
+                        .background(entry.levelColor.opacity(0.12), in: Capsule())
                     Text(entry.statusText)
                         .font(.fitnexBody(size: 11, weight: .regular))
                         .foregroundColor(entry.error == nil ? FitnexColor.grayText : Color(hex: 0xE5484D))
@@ -2081,11 +2214,24 @@ private struct AppLogEntryRow: View {
 
 private extension AppLogEntry {
     var badgeText: String {
-        category == "http" ? method : source.uppercased()
+        category == "http" ? method : category.uppercased()
     }
 
     var displayText: String {
         category == "http" ? url : message
+    }
+
+    var levelColor: Color {
+        switch level {
+        case "error":
+            return Color(hex: 0xE5484D)
+        case "warning":
+            return Color(hex: 0xE5A000)
+        case "debug":
+            return FitnexColor.grayText
+        default:
+            return FitnexColor.orange
+        }
     }
 
     var metadataText: String {
@@ -2183,7 +2329,8 @@ private struct KeyboardGuideSheet: View {
                         keyboardStep("1", "打开系统 设置")
                         keyboardStep("2", "进入 通用 > 键盘 > 键盘")
                         keyboardStep("3", "点击 添加新键盘，选择 FITNEX")
-                        keyboardStep("4", "切换到 FITNEX 中文键盘后输入拼音")
+                        keyboardStep("4", "打开 FITNEX 键盘的 允许完全访问")
+                        keyboardStep("5", "切换到 FITNEX 中文键盘后输入拼音")
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
@@ -2202,7 +2349,7 @@ private struct KeyboardGuideSheet: View {
                             }
                     }
 
-                    Text("键盘离线运行，不需要 Full Access，不会联网。拼音候选词库基于 rime-ice（GPL-3.0）转换，来源：https://github.com/iDvel/rime-ice。")
+                    Text("键盘基础输入离线运行；如果要在 App 的日志页查看键盘日志，需要在系统设置里开启“允许完全访问”。日志只记录 buffer 长度、候选数量、模式和耗时等调试信息，不记录完整输入内容。拼音候选词库基于 rime-ice（GPL-3.0）转换，来源：https://github.com/iDvel/rime-ice。")
                         .font(.fitnexBody(size: 11, weight: .regular))
                         .foregroundColor(FitnexColor.grayText)
                 }

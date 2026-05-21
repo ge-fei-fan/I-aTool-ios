@@ -45,11 +45,13 @@
 		111111111111111111111002 /* HomeView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HomeView.swift; sourceTree = "<group>"; };
 		111111111111111111111003 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		111111111111111111111004 /* Simpanin.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Simpanin.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		111111111111111111111005 /* Simpanin.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Simpanin.entitlements; sourceTree = "<group>"; };
 		222222222222222222222001 /* KeyboardViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardViewController.swift; sourceTree = "<group>"; };
 		222222222222222222222002 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		222222222222222222222003 /* SimpaninKeyboard.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SimpaninKeyboard.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		222222222222222222222004 /* PinyinLexicon.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = PinyinLexicon.json; sourceTree = "<group>"; };
 		222222222222222222222005 /* rime-ice-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "ThirdPartyLicenses/rime-ice-LICENSE.txt"; sourceTree = "<group>"; };
+		222222222222222222222006 /* SimpaninKeyboard.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SimpaninKeyboard.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -84,6 +86,7 @@
 			children = (
 				111111111111111111111001 /* SimpaninApp.swift */,
 				111111111111111111111002 /* HomeView.swift */,
+				111111111111111111111005 /* Simpanin.entitlements */,
 				111111111111111111111003 /* Assets.xcassets */,
 			);
 			path = Simpanin;
@@ -103,6 +106,7 @@
 			children = (
 				222222222222222222222001 /* KeyboardViewController.swift */,
 				222222222222222222222002 /* Info.plist */,
+				222222222222222222222006 /* SimpaninKeyboard.entitlements */,
 				222222222222222222222004 /* PinyinLexicon.json */,
 				222222222222222222222005 /* rime-ice-LICENSE.txt */,
 			);
@@ -349,6 +353,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Simpanin/Simpanin.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
@@ -387,6 +392,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = Simpanin/Simpanin.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_ASSET_PATHS = "";
@@ -424,6 +430,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = SimpaninKeyboard/SimpaninKeyboard.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
@@ -452,6 +459,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = SimpaninKeyboard/SimpaninKeyboard.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";

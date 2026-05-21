@@ -1,17 +1,37 @@
+import os
 import UIKit
 
 final class KeyboardViewController: UIInputViewController {
     private enum KeyboardMode {
         case letters
         case numbers
+
+        var logValue: String {
+            switch self {
+            case .letters:
+                return "letters"
+            case .numbers:
+                return "numbers"
+            }
+        }
     }
 
     private enum ShiftState {
         case off
         case on
+
+        var logValue: String {
+            switch self {
+            case .off:
+                return "off"
+            case .on:
+                return "on"
+            }
+        }
     }
 
-    private let candidateProvider = PinyinCandidateProvider()
+    private let keyboardLog = SharedKeyboardLogStore()
+    private lazy var candidateProvider = PinyinCandidateProvider(log: keyboardLog)
     private let rootStack = UIStackView()
     private let candidateScrollView = UIScrollView()
     private let candidateStack = UIStackView()
@@ -28,8 +48,24 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        keyboardLog.setFileLoggingEnabled(hasFullAccess)
+        keyboardLog.record(
+            "viewDidLoad",
+            metadata: ["fullAccess": "\(hasFullAccess)"],
+            fileLoggingEnabled: hasFullAccess
+        )
         setupKeyboard()
         renderKeyboard()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        keyboardLog.setFileLoggingEnabled(hasFullAccess)
+        keyboardLog.record(
+            "viewWillAppear",
+            metadata: ["fullAccess": "\(hasFullAccess)"],
+            fileLoggingEnabled: hasFullAccess
+        )
     }
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
@@ -75,6 +111,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func renderKeyboard() {
+        let modeBeforeRender = keyboardMode.logValue
         keyButtons.removeAll()
         rootStack.arrangedSubviews.dropFirst().forEach { view in
             rootStack.removeArrangedSubview(view)
@@ -109,6 +146,15 @@ final class KeyboardViewController: UIInputViewController {
 
         updateCandidates()
         applyTheme()
+        keyboardLog.record(
+            "keyboard rendered",
+            metadata: [
+                "mode": modeBeforeRender,
+                "keyCount": "\(keyButtons.count)",
+                "fullAccess": "\(hasFullAccess)"
+            ],
+            fileLoggingEnabled: hasFullAccess
+        )
     }
 
     private var letterRows: [[KeySpec]] {
@@ -172,55 +218,111 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func handle(_ kind: KeyKind) {
+        let previousMode = keyboardMode
         switch kind {
         case .character(let value):
             if keyboardMode == .letters, value.rangeOfCharacter(from: .letters) != nil {
                 compositionBuffer.append(value.lowercased())
                 updateCandidates()
+                keyboardLog.record(
+                    "letter input",
+                    metadata: [
+                        "bufferLength": "\(compositionBuffer.count)",
+                        "mode": keyboardMode.logValue
+                    ],
+                    fileLoggingEnabled: hasFullAccess
+                )
             } else {
                 commitCompositionIfNeeded()
                 textDocumentProxy.insertText(value)
+                keyboardLog.record(
+                    "direct character input",
+                    metadata: [
+                        "mode": keyboardMode.logValue,
+                        "characterKind": value.rangeOfCharacter(from: .decimalDigits) != nil ? "digit" : "symbol"
+                    ],
+                    fileLoggingEnabled: hasFullAccess
+                )
             }
         case .shift:
             shiftState = shiftState == .on ? .off : .on
             renderKeyboard()
+            keyboardLog.record(
+                "shift toggled",
+                metadata: ["shift": shiftState.logValue],
+                fileLoggingEnabled: hasFullAccess
+            )
         case .backspace:
             if !compositionBuffer.isEmpty {
                 compositionBuffer.removeLast()
                 updateCandidates()
+                keyboardLog.record(
+                    "buffer backspace",
+                    metadata: ["bufferLength": "\(compositionBuffer.count)"],
+                    fileLoggingEnabled: hasFullAccess
+                )
             } else {
                 textDocumentProxy.deleteBackward()
+                keyboardLog.record("document backspace", fileLoggingEnabled: hasFullAccess)
             }
         case .space:
             if let first = candidateProvider.candidates(for: compositionBuffer).first {
                 textDocumentProxy.insertText(first)
+                keyboardLog.record(
+                    "space committed candidate",
+                    metadata: ["bufferLength": "\(compositionBuffer.count)"],
+                    fileLoggingEnabled: hasFullAccess
+                )
                 compositionBuffer = ""
                 updateCandidates()
             } else {
                 textDocumentProxy.insertText(" ")
+                keyboardLog.record("space inserted", fileLoggingEnabled: hasFullAccess)
             }
         case .returnKey:
             commitCompositionIfNeeded()
             textDocumentProxy.insertText("\n")
+            keyboardLog.record("return inserted", fileLoggingEnabled: hasFullAccess)
         case .modeSwitch:
             commitCompositionIfNeeded()
             keyboardMode = keyboardMode == .letters ? .numbers : .letters
             renderKeyboard()
+            keyboardLog.record(
+                "mode switched",
+                metadata: [
+                    "from": previousMode.logValue,
+                    "to": keyboardMode.logValue
+                ],
+                fileLoggingEnabled: hasFullAccess
+            )
         }
     }
 
     private func commitCompositionIfNeeded() {
         guard !compositionBuffer.isEmpty else { return }
+        let bufferLength = compositionBuffer.count
         if let first = candidateProvider.candidates(for: compositionBuffer).first {
             textDocumentProxy.insertText(first)
+            keyboardLog.record(
+                "composition committed candidate",
+                metadata: ["bufferLength": "\(bufferLength)"],
+                fileLoggingEnabled: hasFullAccess
+            )
         } else {
             textDocumentProxy.insertText(compositionBuffer)
+            keyboardLog.record(
+                "composition committed fallback",
+                metadata: ["bufferLength": "\(bufferLength)"],
+                level: "warning",
+                fileLoggingEnabled: hasFullAccess
+            )
         }
         compositionBuffer = ""
         updateCandidates()
     }
 
     private func updateCandidates() {
+        let startedAt = Date()
         candidateStack.arrangedSubviews.forEach { view in
             candidateStack.removeArrangedSubview(view)
             view.removeFromSuperview()
@@ -239,6 +341,16 @@ final class KeyboardViewController: UIInputViewController {
         bufferWidthConstraint?.isActive = true
 
         let candidates = candidateProvider.candidates(for: compositionBuffer)
+        let durationMS = Int(Date().timeIntervalSince(startedAt) * 1000)
+        keyboardLog.record(
+            "candidates updated",
+            metadata: [
+                "bufferLength": "\(compositionBuffer.count)",
+                "candidateCount": "\(candidates.count)",
+                "durationMS": "\(durationMS)"
+            ],
+            fileLoggingEnabled: hasFullAccess
+        )
         if candidates.isEmpty {
             let hint = UILabel()
             hint.text = compositionBuffer.isEmpty ? "输入拼音后选择候选词" : "无候选，空格提交拼音"
@@ -248,7 +360,7 @@ final class KeyboardViewController: UIInputViewController {
             return
         }
 
-        for candidate in candidates.prefix(5) {
+        for (index, candidate) in candidates.prefix(5).enumerated() {
             let button = UIButton(type: .system)
             button.setTitle(candidate, for: .normal)
             button.titleLabel?.font = .systemFont(ofSize: 18, weight: .regular)
@@ -257,6 +369,14 @@ final class KeyboardViewController: UIInputViewController {
             button.layer.cornerRadius = 8
             button.addAction(UIAction { [weak self] _ in
                 self?.textDocumentProxy.insertText(candidate)
+                self?.keyboardLog.record(
+                    "candidate selected",
+                    metadata: [
+                        "candidateIndex": "\(index)",
+                        "bufferLength": "\(self?.compositionBuffer.count ?? 0)"
+                    ],
+                    fileLoggingEnabled: self?.hasFullAccess ?? false
+                )
                 self?.compositionBuffer = ""
                 self?.updateCandidates()
             }, for: .touchUpInside)
@@ -344,11 +464,161 @@ private enum KeyKind {
     }
 }
 
+private struct SharedKeyboardLogEntry: Codable {
+    let id: String
+    let timestamp: Date
+    let source: String
+    let category: String
+    let level: String
+    let message: String
+    let method: String
+    let url: String
+    let requestHeaders: [String: String]
+    let requestBody: String
+    let statusCode: Int?
+    let responseHeaders: [String: String]
+    let responseBody: String
+    let error: String?
+    let durationMS: Int
+    let metadata: [String: String]
+}
+
+private final class SharedKeyboardLogStore {
+    private let fileManager = FileManager.default
+    private let logger = Logger(subsystem: "com.local.fitnex.keyboard", category: "keyboard")
+    private let retention: TimeInterval = 3 * 24 * 60 * 60
+    private let appGroupID = "group.com.local.fitnex"
+    private var fileLoggingEnabled = false
+
+    private static let chunkFileFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd-HH"
+        return formatter
+    }()
+
+    func setFileLoggingEnabled(_ enabled: Bool) {
+        fileLoggingEnabled = enabled
+    }
+
+    func record(
+        _ message: String,
+        metadata: [String: String] = [:],
+        level: String = "info",
+        error: String? = nil,
+        durationMS: Int = 0,
+        fileLoggingEnabled explicitFileLoggingEnabled: Bool? = nil
+    ) {
+        let resolvedLevel = error == nil ? level : "error"
+        writeOSLog(message: message, level: resolvedLevel, metadata: metadata, error: error)
+
+        let shouldWriteFile = explicitFileLoggingEnabled ?? fileLoggingEnabled
+        guard shouldWriteFile, let directoryURL else { return }
+
+        cleanupOldLogs(in: directoryURL)
+        let timestamp = Date()
+        let entry = SharedKeyboardLogEntry(
+            id: UUID().uuidString,
+            timestamp: timestamp,
+            source: "keyboard",
+            category: "keyboard",
+            level: resolvedLevel,
+            message: message,
+            method: "",
+            url: "",
+            requestHeaders: [:],
+            requestBody: "",
+            statusCode: nil,
+            responseHeaders: [:],
+            responseBody: "",
+            error: error,
+            durationMS: durationMS,
+            metadata: metadata
+        )
+
+        do {
+            try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
+            let fileURL = directoryURL.appendingPathComponent("\(Self.chunkFileFormatter.string(from: timestamp)).jsonl")
+            let data = try JSONEncoder().encode(entry)
+            if !fileManager.fileExists(atPath: fileURL.path) {
+                fileManager.createFile(atPath: fileURL.path, contents: nil)
+            }
+            let handle = try FileHandle(forWritingTo: fileURL)
+            handle.seekToEndOfFile()
+            handle.write(data)
+            handle.write(Data([0x0A]))
+            handle.closeFile()
+        } catch {
+            logger.error("keyboard file log write failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    private var directoryURL: URL? {
+        fileManager.containerURL(forSecurityApplicationGroupIdentifier: appGroupID)?
+            .appendingPathComponent("logs", isDirectory: true)
+    }
+
+    private func cleanupOldLogs(in directoryURL: URL) {
+        guard let urls = try? fileManager.contentsOfDirectory(at: directoryURL, includingPropertiesForKeys: nil) else { return }
+        let cutoff = Date().addingTimeInterval(-retention)
+        for url in urls where url.pathExtension == "jsonl" {
+            let name = url.deletingPathExtension().lastPathComponent
+            guard let date = Self.chunkFileFormatter.date(from: name), date < cutoff else { continue }
+            try? fileManager.removeItem(at: url)
+        }
+    }
+
+    private func writeOSLog(message: String, level: String, metadata: [String: String], error: String?) {
+        let metadataText = metadata
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+            .joined(separator: " ")
+        let text = [message, metadataText, error].compactMap { value in
+            guard let value, !value.isEmpty else { return nil }
+            return value
+        }.joined(separator: " | ")
+
+        switch level {
+        case "debug":
+            logger.debug("\(text, privacy: .public)")
+        case "warning":
+            logger.info("warning: \(text, privacy: .public)")
+        case "error":
+            logger.error("\(text, privacy: .public)")
+        default:
+            logger.info("\(text, privacy: .public)")
+        }
+    }
+}
+
 private final class PinyinCandidateProvider {
     private let dictionary: [String: [String]]
+    private let log: SharedKeyboardLogStore
 
-    init() {
-        dictionary = Self.loadBundledDictionary() ?? Self.fallbackDictionary
+    init(log: SharedKeyboardLogStore) {
+        self.log = log
+        let startedAt = Date()
+        if let bundled = Self.loadBundledDictionary() {
+            dictionary = bundled
+            log.record(
+                "lexicon loaded",
+                metadata: [
+                    "source": "bundle",
+                    "entryCount": "\(bundled.count)"
+                ],
+                durationMS: Int(Date().timeIntervalSince(startedAt) * 1000)
+            )
+        } else {
+            dictionary = Self.fallbackDictionary
+            log.record(
+                "lexicon fallback loaded",
+                metadata: [
+                    "source": "fallback",
+                    "entryCount": "\(Self.fallbackDictionary.count)"
+                ],
+                level: "warning",
+                durationMS: Int(Date().timeIntervalSince(startedAt) * 1000)
+            )
+        }
     }
 
     func candidates(for pinyin: String) -> [String] {
