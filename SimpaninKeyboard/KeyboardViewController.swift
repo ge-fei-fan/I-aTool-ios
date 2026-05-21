@@ -17,10 +17,14 @@ final class KeyboardViewController: UIInputViewController {
     private let candidateStack = UIStackView()
     private let bufferLabel = UILabel()
     private var bufferWidthConstraint: NSLayoutConstraint?
+    private var allCandidates: [String] = []
+    private var visibleCandidateCount = 0
     private var keyButtons: [UIButton] = []
     private var compositionBuffer = ""
     private var keyboardMode: KeyboardMode = .letters
     private var shiftState: ShiftState = .off
+
+    private static let candidateBatchSize = 30
 
     private var isDark: Bool {
         traitCollection.userInterfaceStyle == .dark
@@ -55,6 +59,7 @@ final class KeyboardViewController: UIInputViewController {
 
         candidateScrollView.showsHorizontalScrollIndicator = false
         candidateScrollView.alwaysBounceHorizontal = true
+        candidateScrollView.delegate = self
         rootStack.addArrangedSubview(candidateScrollView)
         candidateScrollView.heightAnchor.constraint(equalToConstant: 38).isActive = true
 
@@ -176,7 +181,7 @@ final class KeyboardViewController: UIInputViewController {
         case .character(let value):
             if keyboardMode == .letters, value.rangeOfCharacter(from: .letters) != nil {
                 compositionBuffer.append(value.lowercased())
-                updateCandidates()
+                updateCandidates(resetScroll: true)
             } else {
                 commitCompositionIfNeeded()
                 textDocumentProxy.insertText(value)
@@ -187,7 +192,7 @@ final class KeyboardViewController: UIInputViewController {
         case .backspace:
             if !compositionBuffer.isEmpty {
                 compositionBuffer.removeLast()
-                updateCandidates()
+                updateCandidates(resetScroll: true)
             } else {
                 textDocumentProxy.deleteBackward()
             }
@@ -195,7 +200,7 @@ final class KeyboardViewController: UIInputViewController {
             if let first = candidates(for: compositionBuffer).first {
                 textDocumentProxy.insertText(first)
                 compositionBuffer = ""
-                updateCandidates()
+                updateCandidates(resetScroll: true)
             } else {
                 textDocumentProxy.insertText(" ")
             }
@@ -217,10 +222,23 @@ final class KeyboardViewController: UIInputViewController {
             textDocumentProxy.insertText(compositionBuffer)
         }
         compositionBuffer = ""
-        updateCandidates()
+        updateCandidates(resetScroll: true)
     }
 
-    private func updateCandidates() {
+    private func updateCandidates(resetScroll: Bool = false) {
+        if compositionBuffer.isEmpty {
+            allCandidates = []
+        } else {
+            allCandidates = self.candidates(for: compositionBuffer)
+        }
+        visibleCandidateCount = min(Self.candidateBatchSize, allCandidates.count)
+        renderVisibleCandidates()
+        if resetScroll {
+            candidateScrollView.setContentOffset(.zero, animated: false)
+        }
+    }
+
+    private func renderVisibleCandidates() {
         candidateStack.arrangedSubviews.forEach { view in
             candidateStack.removeArrangedSubview(view)
             view.removeFromSuperview()
@@ -238,13 +256,7 @@ final class KeyboardViewController: UIInputViewController {
         bufferWidthConstraint = bufferLabel.widthAnchor.constraint(equalToConstant: 88)
         bufferWidthConstraint?.isActive = true
 
-        let candidates: [String]
-        if compositionBuffer.isEmpty {
-            candidates = []
-        } else {
-            candidates = self.candidates(for: compositionBuffer)
-        }
-        if candidates.isEmpty {
+        if allCandidates.isEmpty {
             let hint = UILabel()
             hint.text = compositionBuffer.isEmpty ? "输入拼音后选择候选词" : "无候选，空格提交拼音"
             hint.font = .systemFont(ofSize: 13, weight: .regular)
@@ -253,7 +265,7 @@ final class KeyboardViewController: UIInputViewController {
             return
         }
 
-        for candidate in candidates {
+        for candidate in allCandidates.prefix(visibleCandidateCount) {
             let button = UIButton(type: .system)
             button.setTitle(candidate, for: .normal)
             button.titleLabel?.font = .systemFont(ofSize: 18, weight: .regular)
@@ -263,11 +275,17 @@ final class KeyboardViewController: UIInputViewController {
             button.addAction(UIAction { [weak self] _ in
                 self?.textDocumentProxy.insertText(candidate)
                 self?.compositionBuffer = ""
-                self?.updateCandidates()
+                self?.updateCandidates(resetScroll: true)
             }, for: .touchUpInside)
             candidateStack.addArrangedSubview(button)
             button.widthAnchor.constraint(greaterThanOrEqualToConstant: 48).isActive = true
         }
+    }
+
+    private func appendMoreCandidatesIfNeeded() {
+        guard visibleCandidateCount < allCandidates.count else { return }
+        visibleCandidateCount = min(visibleCandidateCount + Self.candidateBatchSize, allCandidates.count)
+        renderVisibleCandidates()
     }
 
     private func applyTheme() {
@@ -338,6 +356,16 @@ private final class KeyboardKeyButton: UIButton {
     }
 }
 
+extension KeyboardViewController: UIScrollViewDelegate {
+    func scrollViewDidScroll(_ scrollView: UIScrollView) {
+        guard scrollView === candidateScrollView else { return }
+        let remaining = scrollView.contentSize.width - scrollView.bounds.width - scrollView.contentOffset.x
+        if remaining < 120 {
+            appendMoreCandidatesIfNeeded()
+        }
+    }
+}
+
 private enum KeyKind {
     case character(String)
     case shift
@@ -351,6 +379,63 @@ private enum KeyKind {
             return true
         }
         return false
+    }
+}
+
+private struct PinyinCandidate {
+    let text: String
+    let weight: Int
+}
+
+private struct PinyinSegmenter {
+    private static let syllables: Set<String> = [
+        "a", "ai", "an", "ang", "ao",
+        "ba", "bai", "ban", "bang", "bao", "bei", "ben", "beng", "bi", "bian", "biao", "bie", "bin", "bing", "bo", "bu",
+        "ca", "cai", "can", "cang", "cao", "ce", "cen", "ceng", "cha", "chai", "chan", "chang", "chao", "che", "chen", "cheng", "chi", "chong", "chou", "chu", "chua", "chuai", "chuan", "chuang", "chui", "chun", "chuo", "ci", "cong", "cou", "cu", "cuan", "cui", "cun", "cuo",
+        "da", "dai", "dan", "dang", "dao", "de", "dei", "den", "deng", "di", "dia", "dian", "diao", "die", "ding", "diu", "dong", "dou", "du", "duan", "dui", "dun", "duo",
+        "e", "ei", "en", "eng", "er",
+        "fa", "fan", "fang", "fei", "fen", "feng", "fo", "fou", "fu",
+        "ga", "gai", "gan", "gang", "gao", "ge", "gei", "gen", "geng", "gong", "gou", "gu", "gua", "guai", "guan", "guang", "gui", "gun", "guo",
+        "ha", "hai", "han", "hang", "hao", "he", "hei", "hen", "heng", "hong", "hou", "hu", "hua", "huai", "huan", "huang", "hui", "hun", "huo",
+        "ji", "jia", "jian", "jiang", "jiao", "jie", "jin", "jing", "jiong", "jiu", "ju", "juan", "jue", "jun",
+        "ka", "kai", "kan", "kang", "kao", "ke", "ken", "keng", "kong", "kou", "ku", "kua", "kuai", "kuan", "kuang", "kui", "kun", "kuo",
+        "la", "lai", "lan", "lang", "lao", "le", "lei", "leng", "li", "lia", "lian", "liang", "liao", "lie", "lin", "ling", "liu", "lo", "long", "lou", "lu", "lv", "luan", "lve", "lun", "luo",
+        "ma", "mai", "man", "mang", "mao", "me", "mei", "men", "meng", "mi", "mian", "miao", "mie", "min", "ming", "miu", "mo", "mou", "mu",
+        "na", "nai", "nan", "nang", "nao", "ne", "nei", "nen", "neng", "ni", "nian", "niang", "niao", "nie", "nin", "ning", "niu", "nong", "nou", "nu", "nv", "nuan", "nve", "nuo",
+        "o", "ou",
+        "pa", "pai", "pan", "pang", "pao", "pei", "pen", "peng", "pi", "pian", "piao", "pie", "pin", "ping", "po", "pou", "pu",
+        "qi", "qia", "qian", "qiang", "qiao", "qie", "qin", "qing", "qiong", "qiu", "qu", "quan", "que", "qun",
+        "ran", "rang", "rao", "re", "ren", "reng", "ri", "rong", "rou", "ru", "ruan", "rui", "run", "ruo",
+        "sa", "sai", "san", "sang", "sao", "se", "sen", "seng", "sha", "shai", "shan", "shang", "shao", "she", "shen", "sheng", "shi", "shou", "shu", "shua", "shuai", "shuan", "shuang", "shui", "shun", "shuo", "si", "song", "sou", "su", "suan", "sui", "sun", "suo",
+        "ta", "tai", "tan", "tang", "tao", "te", "teng", "ti", "tian", "tiao", "tie", "ting", "tong", "tou", "tu", "tuan", "tui", "tun", "tuo",
+        "wa", "wai", "wan", "wang", "wei", "wen", "weng", "wo", "wu",
+        "xi", "xia", "xian", "xiang", "xiao", "xie", "xin", "xing", "xiong", "xiu", "xu", "xuan", "xue", "xun",
+        "ya", "yan", "yang", "yao", "ye", "yi", "yin", "ying", "yo", "yong", "you", "yu", "yuan", "yue", "yun",
+        "za", "zai", "zan", "zang", "zao", "ze", "zei", "zen", "zeng", "zha", "zhai", "zhan", "zhang", "zhao", "zhe", "zhen", "zheng", "zhi", "zhong", "zhou", "zhu", "zhua", "zhuai", "zhuan", "zhuang", "zhui", "zhun", "zhuo", "zi", "zong", "zou", "zu", "zuan", "zui", "zun", "zuo"
+    ]
+
+    static func segment(_ key: String) -> [String] {
+        var index = key.startIndex
+        var result: [String] = []
+
+        while index < key.endIndex {
+            var best: String?
+            var end = key.index(index, offsetBy: min(6, key.distance(from: index, to: key.endIndex)), limitedBy: key.endIndex) ?? key.endIndex
+            while end > index {
+                let piece = String(key[index..<end])
+                if syllables.contains(piece) {
+                    best = piece
+                    break
+                }
+                end = key.index(before: end)
+            }
+
+            guard let best else { return [] }
+            result.append(best)
+            index = key.index(index, offsetBy: best.count)
+        }
+
+        return result
     }
 }
 
@@ -381,34 +466,111 @@ private final class PinyinCandidateProvider {
         let key = Self.normalizedKey(pinyin)
         guard !key.isEmpty else { return [] }
 
-        if let resourceCandidates = bundledCandidates(for: key), !resourceCandidates.isEmpty {
-            return resourceCandidates
+        var candidates: [PinyinCandidate] = []
+
+        candidates += weightedCandidates(for: key, baseWeight: 1_000_000)
+
+        let segments = PinyinSegmenter.segment(key)
+        if segments.count == 2 {
+            candidates += longestPrefixCandidates(for: key, baseWeight: 850_000)
+            candidates += phraseCandidates(from: segments, baseWeight: 750_000)
+        } else if segments.count > 2 {
+            candidates += phraseCandidates(from: segments, baseWeight: 850_000)
+            candidates += longestPrefixCandidates(for: key, baseWeight: 750_000)
+        } else {
+            candidates += longestPrefixCandidates(for: key, baseWeight: 600_000)
+        }
+        candidates += fallbackCandidates(for: key, baseWeight: 100_000)
+
+        return merge(candidates).map(\.text)
+    }
+
+    private func weightedCandidates(for key: String, baseWeight: Int) -> [PinyinCandidate] {
+        guard let lineCandidates = bundledCandidates(for: key) else { return [] }
+        return lineCandidates.map { candidate in
+            PinyinCandidate(text: candidate.text, weight: candidate.weight + baseWeight)
+        }
+    }
+
+    private func longestPrefixCandidates(for key: String, baseWeight: Int) -> [PinyinCandidate] {
+        var lookupKey = key
+        while !lookupKey.isEmpty {
+            lookupKey.removeLast()
+            guard !lookupKey.isEmpty else { break }
+            let candidates = weightedCandidates(for: lookupKey, baseWeight: baseWeight)
+            if !candidates.isEmpty {
+                return candidates
+            }
+        }
+        return []
+    }
+
+    private func phraseCandidates(from segments: [String], baseWeight: Int) -> [PinyinCandidate] {
+        let groups = segments.map { segment in
+            weightedCandidates(for: segment, baseWeight: 0).prefix(8).map { $0 }
+        }
+        guard groups.allSatisfy({ !$0.isEmpty }) else { return [] }
+
+        var results: [PinyinCandidate] = []
+
+        func build(index: Int, text: String, weight: Int) {
+            if results.count >= 80 { return }
+            if index == groups.count {
+                results.append(PinyinCandidate(text: text, weight: baseWeight + weight / max(1, groups.count)))
+                return
+            }
+
+            for candidate in groups[index] {
+                build(index: index + 1, text: text + candidate.text, weight: weight + candidate.weight)
+            }
         }
 
-        if let fallback = Self.fallbackDictionary[key] {
-            return fallback
+        build(index: 0, text: "", weight: 0)
+        return results
+    }
+
+    private func fallbackCandidates(for key: String, baseWeight: Int) -> [PinyinCandidate] {
+        var candidates: [PinyinCandidate] = []
+
+        if let exact = Self.fallbackDictionary[key] {
+            candidates += exact.enumerated().map { index, text in
+                PinyinCandidate(text: text, weight: baseWeight + 10_000 - index)
+            }
         }
 
-        return Self.fallbackDictionary
+        let prefixCandidates = Self.fallbackDictionary
             .filter { $0.key.hasPrefix(key) }
             .sorted { $0.key.count == $1.key.count ? $0.key < $1.key : $0.key.count < $1.key.count }
             .flatMap(\.value)
-    }
 
-    private func bundledCandidates(for key: String) -> [String]? {
-        guard let lexiconURL, let indexURL, recordCount > 0 else { return nil }
-        var lookupKey = key
-        var matchedRecord: IndexRecord?
-
-        while !lookupKey.isEmpty {
-            if let record = findRecord(for: lookupKey, in: indexURL) {
-                matchedRecord = record
-                break
-            }
-            lookupKey.removeLast()
+        candidates += prefixCandidates.enumerated().map { index, text in
+            PinyinCandidate(text: text, weight: baseWeight - index)
         }
 
-        guard let record = matchedRecord else { return nil }
+        return candidates
+    }
+
+    private func merge(_ candidates: [PinyinCandidate]) -> [PinyinCandidate] {
+        var bestByText: [String: Int] = [:]
+        for candidate in candidates where !candidate.text.isEmpty {
+            bestByText[candidate.text] = max(bestByText[candidate.text] ?? Int.min, candidate.weight)
+        }
+        return bestByText
+            .map { PinyinCandidate(text: $0.key, weight: $0.value) }
+            .sorted {
+                if $0.weight != $1.weight {
+                    return $0.weight > $1.weight
+                }
+                if $0.text.count != $1.text.count {
+                    return $0.text.count < $1.text.count
+                }
+                return $0.text < $1.text
+            }
+    }
+
+    private func bundledCandidates(for key: String) -> [PinyinCandidate]? {
+        guard let lexiconURL, let indexURL, recordCount > 0 else { return nil }
+        guard let record = findRecord(for: key, in: indexURL) else { return nil }
         guard let handle = try? FileHandle(forReadingFrom: lexiconURL) else { return nil }
         defer { try? handle.close() }
 
@@ -420,7 +582,10 @@ private final class PinyinCandidateProvider {
                 .trimmingCharacters(in: .newlines)
                 .split(separator: "\t", omittingEmptySubsequences: true)
                 .dropFirst()
-                .map(String.init)
+                .enumerated()
+                .map { index, field in
+                    Self.parseCandidateField(String(field), fallbackWeight: 120 - index)
+                }
         } catch {
             return nil
         }
@@ -472,6 +637,16 @@ private final class PinyinCandidateProvider {
             guard scalar.value >= 97 && scalar.value <= 122 else { return nil }
             return Character(scalar)
         })
+    }
+
+    private static func parseCandidateField(_ field: String, fallbackWeight: Int) -> PinyinCandidate {
+        guard let separator = field.lastIndex(of: ":") else {
+            return PinyinCandidate(text: field, weight: fallbackWeight)
+        }
+
+        let text = String(field[..<separator])
+        let weightText = String(field[field.index(after: separator)...])
+        return PinyinCandidate(text: text, weight: Int(weightText) ?? fallbackWeight)
     }
 
     private static func uint64LE(_ data: Data, start: Int) -> UInt64 {

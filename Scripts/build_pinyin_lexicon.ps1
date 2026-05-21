@@ -59,7 +59,12 @@ try {
             if ($values.Count -eq 0) { continue }
 
             $offset = $stream.Position
-            $line = $property.Name + "`t" + ($values -join "`t") + "`n"
+            $weightedValues = @()
+            for ($index = 0; $index -lt $values.Count; $index += 1) {
+                $weight = $MaxCandidates - $index
+                $weightedValues += "$($values[$index]):$weight"
+            }
+            $line = $property.Name + "`t" + ($weightedValues -join "`t") + "`n"
             $bytes = $utf8.GetBytes($line)
             $stream.Write($bytes, 0, $bytes.Length)
 
