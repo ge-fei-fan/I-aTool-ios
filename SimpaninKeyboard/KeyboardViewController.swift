@@ -315,6 +315,7 @@ final class KeyboardViewController: UIInputViewController {
             suppressNextSpaceTap = true
             spaceTrackpadPreviousX = locationX
             spaceTrackpadAccumulatedX = 0
+            UIImpactFeedbackGenerator(style: .light).impactOccurred()
         case .changed:
             guard isSpaceTrackpadActive else { return }
             let delta = locationX - spaceTrackpadPreviousX
@@ -622,6 +623,10 @@ final class KeyboardViewController: UIInputViewController {
             resetCompositionState()
             updateCandidates(resetScroll: true)
             return
+        }
+        let shouldReplaceMarkedText = !selectedCompositionSegments.isEmpty || isMultilineInput
+        if shouldReplaceMarkedText {
+            textDocumentProxy.insertText(markedText)
         }
         textDocumentProxy.unmarkText()
         hasInsertedTextInCurrentContext = true
