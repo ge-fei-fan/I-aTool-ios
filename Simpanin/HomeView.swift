@@ -1828,101 +1828,126 @@ private struct SettingsView: View {
     @State private var showingKeyboardGuide = false
 
     var body: some View {
-        ScrollView(showsIndicators: false) {
-            VStack(alignment: .leading, spacing: 28) {
-                settingsSection(title: "通用") {
-                    Button {
-                        showingNezhaSettings = true
-                    } label: {
-                        settingsRow(
-                            icon: "server.rack",
-                            title: "哪吒监控设置",
-                            trailingText: nezhaSettings.isConfigured ? "已配置" : "未配置",
-                            subtitle: nezhaSettings.displayHost
-                        )
-                    }
-                    .buttonStyle(.plain)
-
-                    settingsDivider
-
-                    Button {
-                        showingKeyboardGuide = true
-                    } label: {
-                        settingsRow(
-                            icon: "keyboard",
-                            title: "中文键盘",
-                            trailingText: "离线",
-                            subtitle: "启用系统键盘扩展并测试拼音输入"
-                        )
-                    }
-                    .buttonStyle(.plain)
-
-                    settingsDivider
-
-                    Button {
-                        logStore.reloadChunks(selectCurrentIfNeeded: true)
-                        showingLogs = true
-                    } label: {
-                        settingsRow(
-                            icon: "doc.text.magnifyingglass",
-                            title: "日志",
-                            subtitle: "\(logStore.chunks.count) hourly slices"
-                        )
-                    }
-                    .buttonStyle(.plain)
-
-                    settingsDivider
-
-                    Button {
-                        handleUpdateTap()
-                    } label: {
-                        settingsRow(
-                            icon: updateVM.localIPAURL != nil ? "square.and.arrow.down.fill" : "arrow.triangle.2.circlepath",
-                            title: buttonTitle,
-                            trailingText: AppVersionInfo.current.displayText,
-                            subtitle: updateSubtitle,
-                            showsProgress: updateVM.isChecking || updateVM.isDownloading
-                        )
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(updateVM.isChecking || updateVM.isDownloading)
+        VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 6) {
+                    Text("Settings")
+                        .font(.fitnexTitle(size: 28))
+                        .foregroundColor(FitnexColor.black)
+                    Text("Updates, app logs and device maintenance.")
+                        .font(.fitnexBody(size: 13, weight: .regular))
+                        .foregroundColor(FitnexColor.grayText)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
-
-                if updateVM.isDownloading || updateVM.errorMessage != nil {
-                    VStack(alignment: .leading, spacing: 8) {
-                        if updateVM.isDownloading {
-                            ProgressView(value: updateVM.downloadProgress)
-                                .tint(FitnexColor.orange)
-                            Text("Downloading \(Int(updateVM.downloadProgress * 100))%")
-                                .font(.fitnexBody(size: 11, weight: .regular))
-                                .foregroundColor(FitnexColor.grayText)
-                        }
-
-                        if let error = updateVM.errorMessage {
-                            Text(error)
-                                .font(.fitnexBody(size: 11, weight: .regular))
-                                .foregroundColor(Color(hex: 0xE5484D))
-                        }
+                Spacer()
+                Circle()
+                    .fill(FitnexColor.orangeSoft)
+                    .frame(width: 54, height: 54)
+                    .overlay {
+                        Image(systemName: "gearshape")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundColor(FitnexColor.orange)
                     }
-                    .padding(.horizontal, 18)
-                }
-
-                settingsSection(title: "关于") {
-                    Button {
-                        feedback("Version \(AppVersionInfo.current.displayText)")
-                    } label: {
-                        settingsRow(
-                            icon: "info.circle",
-                            title: "关于 aTool",
-                            trailingText: AppVersionInfo.current.displayText
-                        )
-                    }
-                    .buttonStyle(.plain)
-                }
             }
-            .padding(.horizontal, 14)
-            .padding(.top, 18)
-            .padding(.bottom, 120)
+            .padding(.horizontal, 25)
+            .padding(.top, 48)
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 28) {
+                    settingsSection(title: "通用") {
+                        Button {
+                            showingNezhaSettings = true
+                        } label: {
+                            settingsRow(
+                                icon: "server.rack",
+                                title: "哪吒监控设置",
+                                trailingText: nezhaSettings.isConfigured ? "已配置" : "未配置",
+                                subtitle: nezhaSettings.displayHost
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        settingsDivider
+
+                        Button {
+                            showingKeyboardGuide = true
+                        } label: {
+                            settingsRow(
+                                icon: "keyboard",
+                                title: "中文键盘",
+                                trailingText: "离线",
+                                subtitle: "启用系统键盘扩展并测试拼音输入"
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        settingsDivider
+
+                        Button {
+                            logStore.reloadChunks(selectCurrentIfNeeded: true)
+                            showingLogs = true
+                        } label: {
+                            settingsRow(
+                                icon: "doc.text.magnifyingglass",
+                                title: "日志",
+                                subtitle: "\(logStore.chunks.count) hourly slices"
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        settingsDivider
+
+                        Button {
+                            handleUpdateTap()
+                        } label: {
+                            settingsRow(
+                                icon: updateVM.localIPAURL != nil ? "square.and.arrow.down.fill" : "arrow.triangle.2.circlepath",
+                                title: buttonTitle,
+                                trailingText: AppVersionInfo.current.displayText,
+                                subtitle: updateSubtitle,
+                                showsProgress: updateVM.isChecking || updateVM.isDownloading
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(updateVM.isChecking || updateVM.isDownloading)
+                    }
+
+                    if updateVM.isDownloading || updateVM.errorMessage != nil {
+                        VStack(alignment: .leading, spacing: 8) {
+                            if updateVM.isDownloading {
+                                ProgressView(value: updateVM.downloadProgress)
+                                    .tint(FitnexColor.orange)
+                                Text("Downloading \(Int(updateVM.downloadProgress * 100))%")
+                                    .font(.fitnexBody(size: 11, weight: .regular))
+                                    .foregroundColor(FitnexColor.grayText)
+                            }
+
+                            if let error = updateVM.errorMessage {
+                                Text(error)
+                                    .font(.fitnexBody(size: 11, weight: .regular))
+                                    .foregroundColor(Color(hex: 0xE5484D))
+                            }
+                        }
+                        .padding(.horizontal, 18)
+                    }
+
+                    settingsSection(title: "关于") {
+                        Button {
+                            feedback("Version \(AppVersionInfo.current.displayText)")
+                        } label: {
+                            settingsRow(
+                                icon: "info.circle",
+                                title: "关于 aTool",
+                                trailingText: AppVersionInfo.current.displayText
+                            )
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 14)
+                .padding(.top, 22)
+                .padding(.bottom, 120)
+            }
         }
         .background(Color(hex: 0xF1F1F1))
         .sheet(isPresented: $showingLogs) {
