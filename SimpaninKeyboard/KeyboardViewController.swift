@@ -12,9 +12,9 @@ final class KeyboardViewController: UIInputViewController {
         case on
     }
 
-    private struct PinyinCursorContext {
+    private struct SelectedCompositionSegment {
+        let pinyin: String
         let text: String
-        let rightCount: Int
     }
 
     private let candidateProvider = PinyinCandidateProvider()
@@ -24,7 +24,9 @@ final class KeyboardViewController: UIInputViewController {
     private var allCandidates: [String] = []
     private var visibleCandidateCount = 0
     private var keyButtons: [UIButton] = []
+    private var selectedCompositionSegments: [SelectedCompositionSegment] = []
     private var compositionBuffer = ""
+    private var compositionCursorOffset = 0
     private var keyboardMode: KeyboardMode = .letters
     private var shiftState: ShiftState = .off
     private var isSpaceTrackpadActive = false
@@ -137,7 +139,7 @@ final class KeyboardViewController: UIInputViewController {
         let row4 = [
             KeySpec(.modeSwitch(.numbers), title: "123", widthUnit: 1.35),
             KeySpec(.space, title: "空格", widthUnit: 4.8),
-            KeySpec(.returnKey, title: "搜索", widthUnit: 1.55)
+            KeySpec(.returnKey, title: "确认", widthUnit: 1.55)
         ]
         return [row1, row2, row3, row4]
     }
@@ -150,7 +152,7 @@ final class KeyboardViewController: UIInputViewController {
             [
                 KeySpec(.modeSwitch(.letters), title: "ABC", widthUnit: 1.35),
                 KeySpec(.space, title: "空格", widthUnit: 4.8),
-                KeySpec(.returnKey, title: "搜索", widthUnit: 1.55)
+                KeySpec(.returnKey, title: "确认", widthUnit: 1.55)
             ]
         ]
     }
@@ -163,7 +165,7 @@ final class KeyboardViewController: UIInputViewController {
             [
                 KeySpec(.modeSwitch(.letters), title: "ABC", widthUnit: 1.35),
                 KeySpec(.space, title: "空格", widthUnit: 4.8),
-                KeySpec(.returnKey, title: "搜索", widthUnit: 1.55)
+                KeySpec(.returnKey, title: "确认", widthUnit: 1.55)
             ]
         ]
     }
@@ -203,7 +205,7 @@ final class KeyboardViewController: UIInputViewController {
         case .space:
             return "空格"
         case .returnKey:
-            return "搜索"
+            return "确认"
         case .modeSwitch(let target):
             switch target {
             case .letters:
@@ -232,41 +234,42 @@ final class KeyboardViewController: UIInputViewController {
         case .character(let value):
             if keyboardMode == .letters, value.rangeOfCharacter(from: .letters) != nil {
                 let letter = shiftState == .on ? value.uppercased() : value.lowercased()
-                textDocumentProxy.insertText(letter)
-                syncCompositionFromCursor()
+                insertCompositionText(letter)
                 updateCandidates(resetScroll: true)
             } else {
-                clearCompositionTracking()
+                commitCompositionAsText()
                 textDocumentProxy.insertText(value)
-                syncCompositionFromCursor()
                 updateCandidates(resetScroll: true)
             }
         case .shift:
             shiftState = shiftState == .on ? .off : .on
             renderKeyboard()
         case .backspace:
-            textDocumentProxy.deleteBackward()
-            syncCompositionFromCursor()
+            if hasActiveComposition {
+                deleteCompositionBackward()
+            } else {
+                textDocumentProxy.deleteBackward()
+            }
             updateCandidates(resetScroll: true)
         case .space:
             if suppressNextSpaceTap || isSpaceTrackpadActive {
                 suppressNextSpaceTap = false
                 return
             }
-            syncCompositionFromCursor()
-            if let context = currentPinyinContext(), !context.text.isEmpty, let first = candidates(for: context.text).first {
-                replaceCompositionWith(first)
+            if hasActiveComposition {
+                if let first = candidates(for: activeCandidatePinyin).first {
+                    replaceCompositionWith(first)
+                } else {
+                    commitCompositionAsText()
+                    textDocumentProxy.insertText(" ")
+                }
             } else {
-                clearCompositionTracking()
                 textDocumentProxy.insertText(" ")
             }
         case .returnKey:
-            clearCompositionTracking()
-            allCandidates = []
-            visibleCandidateCount = 0
-            renderVisibleCandidates()
+            commitCompositionAsText()
         case .modeSwitch(let target):
-            clearCompositionTracking()
+            commitCompositionAsText()
             keyboardMode = target
             renderKeyboard()
         }
@@ -290,15 +293,18 @@ final class KeyboardViewController: UIInputViewController {
 
             while abs(spaceTrackpadAccumulatedX) >= Self.spaceTrackpadStepWidth {
                 let offset = spaceTrackpadAccumulatedX > 0 ? 1 : -1
-                textDocumentProxy.adjustTextPosition(byCharacterOffset: offset)
+                if compositionBuffer.isEmpty {
+                    textDocumentProxy.adjustTextPosition(byCharacterOffset: offset)
+                } else {
+                    compositionCursorOffset = max(0, min(compositionBuffer.count, compositionCursorOffset + offset))
+                    refreshMarkedComposition()
+                }
                 spaceTrackpadAccumulatedX -= CGFloat(offset) * Self.spaceTrackpadStepWidth
             }
-            syncCompositionFromCursor()
             updateCandidates()
         case .ended, .cancelled, .failed:
             isSpaceTrackpadActive = false
             spaceTrackpadAccumulatedX = 0
-            syncCompositionFromCursor()
             updateCandidates()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
                 self?.suppressNextSpaceTap = false
@@ -308,45 +314,46 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
-    private func clearCompositionTracking() {
-        guard !compositionBuffer.isEmpty else { return }
-        compositionBuffer = ""
-        updateCandidates(resetScroll: true, syncFromCursor: false)
-    }
-
     private func replaceCompositionWith(_ text: String) {
-        guard let context = currentPinyinContext(), !context.text.isEmpty else {
+        guard hasActiveComposition else {
             textDocumentProxy.insertText(text)
-            compositionBuffer = ""
+            resetCompositionState()
             updateCandidates(resetScroll: true)
             return
         }
 
-        if context.rightCount > 0 {
-            textDocumentProxy.adjustTextPosition(byCharacterOffset: context.rightCount)
+        let pinyin = activeCandidatePinyin
+        if selectedCompositionSegments.isEmpty {
+            removeActivePinyinPrefix()
+        } else {
+            compositionBuffer = ""
+            compositionCursorOffset = 0
         }
-        for _ in 0..<context.text.count {
-            textDocumentProxy.deleteBackward()
+        selectedCompositionSegments.append(SelectedCompositionSegment(pinyin: pinyin, text: text))
+
+        if compositionBuffer.isEmpty {
+            refreshMarkedComposition()
+            textDocumentProxy.unmarkText()
+            resetCompositionState()
+        } else {
+            compositionCursorOffset = compositionBuffer.count
+            refreshMarkedComposition()
         }
-        textDocumentProxy.insertText(text)
-        compositionBuffer = ""
         updateCandidates(resetScroll: true)
     }
 
-    private func updateCandidates(resetScroll: Bool = false, syncFromCursor: Bool = true) {
+    private func updateCandidates(resetScroll: Bool = false) {
         guard keyboardMode == .letters else {
             allCandidates = []
             visibleCandidateCount = 0
             renderVisibleCandidates()
             return
         }
-        if syncFromCursor {
-            syncCompositionFromCursor()
-        }
-        if compositionBuffer.isEmpty {
+        let pinyin = activeCandidatePinyin
+        if pinyin.isEmpty {
             allCandidates = []
         } else {
-            allCandidates = self.candidates(for: compositionBuffer)
+            allCandidates = self.candidates(for: pinyin)
         }
         visibleCandidateCount = min(Self.candidateBatchSize, allCandidates.count)
         renderVisibleCandidates()
@@ -396,7 +403,7 @@ final class KeyboardViewController: UIInputViewController {
 
         for button in keyButtons {
             let title = button.title(for: .normal) ?? ""
-            let isSpecial = ["123", "ABC", "#+=", "⌫", "⇧", "搜索"].contains(title)
+            let isSpecial = ["123", "ABC", "#+=", "⌫", "⇧", "确认"].contains(title)
             button.backgroundColor = isSpecial ? specialKeyBackground : keyBackground
             button.setTitleColor(primaryText, for: .normal)
             button.layer.shadowColor = shadowColor.cgColor
@@ -444,40 +451,97 @@ final class KeyboardViewController: UIInputViewController {
         return candidateProvider.candidates(for: pinyin)
     }
 
-    private func syncCompositionFromCursor() {
-        compositionBuffer = currentPinyinContext()?.text ?? ""
+    private var hasActiveComposition: Bool {
+        !selectedCompositionSegments.isEmpty || !compositionBuffer.isEmpty
     }
 
-    private func currentPinyinContext() -> PinyinCursorContext? {
-        let before = textDocumentProxy.documentContextBeforeInput ?? ""
-        let after = textDocumentProxy.documentContextAfterInput ?? ""
-        let left = asciiLetterSuffix(in: before)
-        let right = asciiLetterPrefix(in: after)
-        let text = left + right
-        guard !text.isEmpty else { return nil }
-        return PinyinCursorContext(text: text.lowercased(), rightCount: right.count)
+    private var selectedCompositionText: String {
+        selectedCompositionSegments.map(\.text).joined()
     }
 
-    private func asciiLetterSuffix(in text: String) -> String {
-        var characters: [Character] = []
-        for scalar in text.unicodeScalars.reversed() {
-            guard Self.isASCIILetter(scalar) else { break }
-            characters.append(Character(scalar))
+    private var markedCompositionText: String {
+        selectedCompositionText + compositionBuffer
+    }
+
+    private var activeCandidatePinyin: String {
+        guard !compositionBuffer.isEmpty else { return "" }
+        if !selectedCompositionSegments.isEmpty {
+            return compositionBuffer
         }
-        return String(characters.reversed())
-    }
-
-    private func asciiLetterPrefix(in text: String) -> String {
-        var characters: [Character] = []
-        for scalar in text.unicodeScalars {
-            guard Self.isASCIILetter(scalar) else { break }
-            characters.append(Character(scalar))
+        if compositionCursorOffset > 0 && compositionCursorOffset < compositionBuffer.count {
+            let end = compositionBuffer.index(compositionBuffer.startIndex, offsetBy: compositionCursorOffset)
+            return String(compositionBuffer[..<end])
         }
-        return String(characters)
+        return compositionBuffer
     }
 
-    private static func isASCIILetter(_ scalar: UnicodeScalar) -> Bool {
-        (scalar.value >= 65 && scalar.value <= 90) || (scalar.value >= 97 && scalar.value <= 122)
+    private func insertCompositionText(_ text: String) {
+        let insertIndex = compositionBuffer.index(compositionBuffer.startIndex, offsetBy: compositionCursorOffset)
+        compositionBuffer.insert(contentsOf: text, at: insertIndex)
+        compositionCursorOffset += text.count
+        refreshMarkedComposition()
+    }
+
+    private func deleteCompositionBackward() {
+        if !selectedCompositionSegments.isEmpty {
+            rollbackLastSelectedSegment()
+            return
+        }
+        guard compositionCursorOffset > 0 else { return }
+        let removeIndex = compositionBuffer.index(compositionBuffer.startIndex, offsetBy: compositionCursorOffset - 1)
+        compositionBuffer.remove(at: removeIndex)
+        compositionCursorOffset -= 1
+        if compositionBuffer.isEmpty {
+            textDocumentProxy.unmarkText()
+            resetCompositionState()
+        } else {
+            refreshMarkedComposition()
+        }
+    }
+
+    private func refreshMarkedComposition() {
+        let markedText = markedCompositionText
+        guard !markedText.isEmpty else {
+            textDocumentProxy.unmarkText()
+            return
+        }
+        let cursorLocation = selectedCompositionText.count + compositionCursorOffset
+        let selectedRange = NSRange(location: cursorLocation, length: 0)
+        textDocumentProxy.setMarkedText(markedText, selectedRange: selectedRange)
+    }
+
+    private func commitCompositionAsText() {
+        let markedText = markedCompositionText
+        guard !markedText.isEmpty else {
+            resetCompositionState()
+            updateCandidates(resetScroll: true)
+            return
+        }
+        textDocumentProxy.setMarkedText(markedText, selectedRange: NSRange(location: markedText.count, length: 0))
+        textDocumentProxy.unmarkText()
+        resetCompositionState()
+        updateCandidates(resetScroll: true)
+    }
+
+    private func removeActivePinyinPrefix() {
+        let prefixLength = activeCandidatePinyin.count
+        guard prefixLength > 0 else { return }
+        let end = compositionBuffer.index(compositionBuffer.startIndex, offsetBy: prefixLength)
+        compositionBuffer.removeSubrange(compositionBuffer.startIndex..<end)
+        compositionCursorOffset = compositionBuffer.count
+    }
+
+    private func rollbackLastSelectedSegment() {
+        guard let segment = selectedCompositionSegments.popLast() else { return }
+        compositionBuffer = segment.pinyin + compositionBuffer
+        compositionCursorOffset = compositionBuffer.count
+        refreshMarkedComposition()
+    }
+
+    private func resetCompositionState() {
+        selectedCompositionSegments = []
+        compositionBuffer = ""
+        compositionCursorOffset = 0
     }
 }
 
