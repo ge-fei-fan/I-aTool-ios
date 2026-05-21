@@ -69,7 +69,7 @@ final class KeyboardViewController: UIInputViewController {
     override func selectionDidChange(_ textInput: UITextInput?) {
         super.selectionDidChange(textInput)
         guard hasActiveComposition, !isApplyingMarkedTextUpdate else { return }
-        guard synchronizeCompositionCursorWithDocumentSelection() else { return }
+        guard synchronizeCompositionCursorWithDocumentSelection(in: textInput) else { return }
         refreshMarkedComposition()
         updateCandidates(resetScroll: true)
     }
@@ -685,30 +685,23 @@ final class KeyboardViewController: UIInputViewController {
         resetCompositionState()
     }
 
-    private func synchronizeCompositionCursorWithDocumentSelection() -> Bool {
-        let markedText = markedCompositionText
-        guard !markedText.isEmpty,
-              let before = textDocumentProxy.documentContextBeforeInput,
-              let after = textDocumentProxy.documentContextAfterInput,
-              let markedCursorOffset = inferredMarkedCursorOffset(markedText: markedText, before: before, after: after) else {
+    private func synchronizeCompositionCursorWithDocumentSelection(in textInput: UITextInput?) -> Bool {
+        guard let textInput,
+              !markedCompositionText.isEmpty,
+              let selectedRange = textInput.selectedTextRange,
+              let markedRange = textInput.markedTextRange else {
+            return false
+        }
+
+        let markedCursorOffset = textInput.offset(from: markedRange.start, to: selectedRange.start)
+        let markedLength = textInput.offset(from: markedRange.start, to: markedRange.end)
+        guard markedCursorOffset >= 0, markedCursorOffset <= markedLength else {
             return false
         }
 
         let rawCompositionOffset = markedCursorOffset - selectedCompositionText.count
         compositionCursorOffset = max(0, min(compositionBuffer.count, rawCompositionOffset))
         return true
-    }
-
-    private func inferredMarkedCursorOffset(markedText: String, before: String, after: String) -> Int? {
-        for offset in 0...markedText.count {
-            let splitIndex = markedText.index(markedText.startIndex, offsetBy: offset)
-            let prefix = String(markedText[..<splitIndex])
-            let suffix = String(markedText[splitIndex...])
-            if before.hasSuffix(prefix), after.hasPrefix(suffix) {
-                return offset
-            }
-        }
-        return nil
     }
 
     private func refreshMarkedComposition() {
