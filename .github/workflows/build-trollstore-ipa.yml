@@ -74,9 +74,8 @@ jobs:
           test -f "$KEYBOARD_PATH/Info.plist"
           /usr/libexec/PlistBuddy -c "Print :NSExtension:NSExtensionPointIdentifier" "$KEYBOARD_PATH/Info.plist"
           /usr/libexec/PlistBuddy -c "Print :NSExtension:NSExtensionPrincipalClass" "$KEYBOARD_PATH/Info.plist"
-          /usr/libexec/PlistBuddy -c "Print :NSExtension:NSExtensionAttributes:RequestsOpenAccess" "$KEYBOARD_PATH/Info.plist"
-          /usr/bin/codesign -d --entitlements :- "$APP_PATH" | grep -q "group.com.local.fitnex"
-          /usr/bin/codesign -d --entitlements :- "$KEYBOARD_PATH" | grep -q "group.com.local.fitnex"
+          REQUESTS_OPEN_ACCESS=$(/usr/libexec/PlistBuddy -c "Print :NSExtension:NSExtensionAttributes:RequestsOpenAccess" "$KEYBOARD_PATH/Info.plist")
+          test "$REQUESTS_OPEN_ACCESS" = "false"
 
       - name: Package IPA
         run: |

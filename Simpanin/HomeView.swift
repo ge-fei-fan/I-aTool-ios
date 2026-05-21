@@ -319,12 +319,6 @@ private final class AppLogStore: ObservableObject {
 
     private let fileManager = FileManager.default
     private let retention: TimeInterval = 3 * 24 * 60 * 60
-    private static let appGroupID = "group.com.local.fitnex"
-
-    private var appGroupDirectoryURL: URL? {
-        fileManager.containerURL(forSecurityApplicationGroupIdentifier: Self.appGroupID)?
-            .appendingPathComponent("logs", isDirectory: true)
-    }
 
     private var documentsDirectoryURL: URL {
         fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -332,46 +326,15 @@ private final class AppLogStore: ObservableObject {
     }
 
     private var writeDirectoryURL: URL {
-        appGroupDirectoryURL ?? documentsDirectoryURL
+        documentsDirectoryURL
     }
 
     var storageDiagnostics: [String: String] {
-        var metadata = [
-            "appGroupAvailable": "\(appGroupDirectoryURL != nil)",
-            "writeLocation": appGroupDirectoryURL == nil ? "documents" : "appGroup"
-        ]
-        if let probe = keyboardStartupProbe {
-            metadata["keyboardStartupProbe"] = probe
-        }
-        return metadata
-    }
-
-    private var keyboardStartupProbe: String? {
-        guard let appGroupDirectoryURL else { return nil }
-        let probeURL = appGroupDirectoryURL.appendingPathComponent("keyboard-startup.json")
-        guard let data = try? Data(contentsOf: probeURL),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
-            return nil
-        }
-        return object
-            .sorted { $0.key < $1.key }
-            .map { "\($0.key)=\($0.value)" }
-            .joined(separator: " ")
+        ["writeLocation": "documents"]
     }
 
     private var readDirectoryURLs: [URL] {
-        var urls: [URL] = []
-        var seen = Set<String>()
-
-        func append(_ url: URL?) {
-            guard let url, !seen.contains(url.path) else { return }
-            seen.insert(url.path)
-            urls.append(url)
-        }
-
-        append(appGroupDirectoryURL)
-        append(documentsDirectoryURL)
-        return urls
+        [documentsDirectoryURL]
     }
 
     private static let chunkFileFormatter: DateFormatter = {
@@ -2354,8 +2317,7 @@ private struct KeyboardGuideSheet: View {
                         keyboardStep("1", "打开系统 设置")
                         keyboardStep("2", "进入 通用 > 键盘 > 键盘")
                         keyboardStep("3", "点击 添加新键盘，选择 FITNEX")
-                        keyboardStep("4", "打开 FITNEX 键盘的 允许完全访问")
-                        keyboardStep("5", "切换到 FITNEX 中文键盘后输入拼音")
+                        keyboardStep("4", "切换到 FITNEX 中文键盘后输入拼音")
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
@@ -2374,7 +2336,7 @@ private struct KeyboardGuideSheet: View {
                             }
                     }
 
-                    Text("键盘基础输入离线运行；如果要在 App 的日志页查看键盘日志，需要在系统设置里开启“允许完全访问”。日志只记录 buffer 长度、候选数量、模式和耗时等调试信息，不记录完整输入内容。拼音候选词库基于 rime-ice（GPL-3.0）转换，来源：https://github.com/iDvel/rime-ice。")
+                    Text("键盘离线运行，不需要允许完全访问。拼音候选词库基于 rime-ice（GPL-3.0）转换，来源：https://github.com/iDvel/rime-ice。")
                         .font(.fitnexBody(size: 11, weight: .regular))
                         .foregroundColor(FitnexColor.grayText)
                 }
