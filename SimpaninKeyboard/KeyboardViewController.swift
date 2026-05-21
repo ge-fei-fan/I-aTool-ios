@@ -31,7 +31,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private let keyboardLog = SharedKeyboardLogStore()
-    private lazy var candidateProvider = PinyinCandidateProvider(log: keyboardLog)
+    private var candidateProvider: PinyinCandidateProvider?
     private let rootStack = UIStackView()
     private let candidateScrollView = UIScrollView()
     private let candidateStack = UIStackView()
@@ -75,6 +75,13 @@ final class KeyboardViewController: UIInputViewController {
         super.viewDidAppear(animated)
         didAppear = true
         keyboardLog.setFileLoggingEnabled(fileLogAllowed)
+        keyboardLog.writeStartupProbe(
+            event: "viewDidAppear",
+            metadata: [
+                "fullAccess": "\(hasFullAccess)",
+                "appGroupAvailable": "\(keyboardLog.sharedContainerAvailable)"
+            ]
+        )
         keyboardLog.record(
             "viewDidAppear",
             metadata: [
@@ -291,7 +298,7 @@ final class KeyboardViewController: UIInputViewController {
                 keyboardLog.record("document backspace", fileLoggingEnabled: fileLogAllowed)
             }
         case .space:
-            if let first = candidateProvider.candidates(for: compositionBuffer).first {
+            if let first = candidates(for: compositionBuffer).first {
                 textDocumentProxy.insertText(first)
                 keyboardLog.record(
                     "space committed candidate",
@@ -326,7 +333,7 @@ final class KeyboardViewController: UIInputViewController {
     private func commitCompositionIfNeeded() {
         guard !compositionBuffer.isEmpty else { return }
         let bufferLength = compositionBuffer.count
-        if let first = candidateProvider.candidates(for: compositionBuffer).first {
+        if let first = candidates(for: compositionBuffer).first {
             textDocumentProxy.insertText(first)
             keyboardLog.record(
                 "composition committed candidate",
@@ -365,7 +372,12 @@ final class KeyboardViewController: UIInputViewController {
         bufferWidthConstraint = bufferLabel.widthAnchor.constraint(equalToConstant: 88)
         bufferWidthConstraint?.isActive = true
 
-        let candidates = candidateProvider.candidates(for: compositionBuffer)
+        let candidates: [String]
+        if compositionBuffer.isEmpty {
+            candidates = []
+        } else {
+            candidates = self.candidates(for: compositionBuffer)
+        }
         let durationMS = Int(Date().timeIntervalSince(startedAt) * 1000)
         keyboardLog.record(
             "candidates updated",
@@ -451,6 +463,14 @@ final class KeyboardViewController: UIInputViewController {
     private var shadowColor: UIColor {
         isDark ? .black : UIColor(white: 0.45, alpha: 1)
     }
+
+    private func candidates(for pinyin: String) -> [String] {
+        guard !pinyin.isEmpty else { return [] }
+        if candidateProvider == nil {
+            candidateProvider = PinyinCandidateProvider(log: keyboardLog, fileLoggingEnabled: fileLogAllowed)
+        }
+        return candidateProvider?.candidates(for: pinyin) ?? []
+    }
 }
 
 private struct KeySpec {
@@ -527,6 +547,36 @@ private final class SharedKeyboardLogStore {
 
     func setFileLoggingEnabled(_ enabled: Bool) {
         fileLoggingEnabled = enabled && sharedContainerAvailable
+    }
+
+    func writeStartupProbe(event: String, metadata: [String: String]) {
+        guard let directoryURL else {
+            writeOSLog(
+                message: "startup probe skipped",
+                level: "warning",
+                metadata: ["reason": "appGroupUnavailable", "event": event],
+                error: nil
+            )
+            return
+        }
+
+        let payload: [String: String] = [
+            "timestamp": ISO8601DateFormatter().string(from: Date()),
+            "event": event
+        ].merging(metadata) { _, new in new }
+
+        do {
+            try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
+            let data = try JSONEncoder().encode(payload)
+            try data.write(to: directoryURL.appendingPathComponent("keyboard-startup.json"), options: [.atomic])
+        } catch {
+            writeOSLog(
+                message: "startup probe failed",
+                level: "error",
+                metadata: ["event": event],
+                error: error.localizedDescription
+            )
+        }
     }
 
     func record(
@@ -627,7 +677,7 @@ private final class PinyinCandidateProvider {
     private let dictionary: [String: [String]]
     private let log: SharedKeyboardLogStore
 
-    init(log: SharedKeyboardLogStore) {
+    init(log: SharedKeyboardLogStore, fileLoggingEnabled: Bool) {
         self.log = log
         let startedAt = Date()
         if let bundled = Self.loadBundledDictionary() {
@@ -638,7 +688,8 @@ private final class PinyinCandidateProvider {
                     "source": "bundle",
                     "entryCount": "\(bundled.count)"
                 ],
-                durationMS: Int(Date().timeIntervalSince(startedAt) * 1000)
+                durationMS: Int(Date().timeIntervalSince(startedAt) * 1000),
+                fileLoggingEnabled: fileLoggingEnabled
             )
         } else {
             dictionary = Self.fallbackDictionary
@@ -649,7 +700,8 @@ private final class PinyinCandidateProvider {
                     "entryCount": "\(Self.fallbackDictionary.count)"
                 ],
                 level: "warning",
-                durationMS: Int(Date().timeIntervalSince(startedAt) * 1000)
+                durationMS: Int(Date().timeIntervalSince(startedAt) * 1000),
+                fileLoggingEnabled: fileLoggingEnabled
             )
         }
     }

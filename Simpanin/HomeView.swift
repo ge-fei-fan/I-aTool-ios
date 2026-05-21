@@ -336,10 +336,27 @@ private final class AppLogStore: ObservableObject {
     }
 
     var storageDiagnostics: [String: String] {
-        [
+        var metadata = [
             "appGroupAvailable": "\(appGroupDirectoryURL != nil)",
             "writeLocation": appGroupDirectoryURL == nil ? "documents" : "appGroup"
         ]
+        if let probe = keyboardStartupProbe {
+            metadata["keyboardStartupProbe"] = probe
+        }
+        return metadata
+    }
+
+    private var keyboardStartupProbe: String? {
+        guard let appGroupDirectoryURL else { return nil }
+        let probeURL = appGroupDirectoryURL.appendingPathComponent("keyboard-startup.json")
+        guard let data = try? Data(contentsOf: probeURL),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: String] else {
+            return nil
+        }
+        return object
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+            .joined(separator: " ")
     }
 
     private var readDirectoryURLs: [URL] {
