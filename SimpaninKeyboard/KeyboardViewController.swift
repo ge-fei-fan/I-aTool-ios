@@ -33,6 +33,7 @@ final class KeyboardViewController: UIInputViewController {
     private var suppressNextSpaceTap = false
     private var spaceTrackpadPreviousX: CGFloat = 0
     private var spaceTrackpadAccumulatedX: CGFloat = 0
+    private var hasInsertedTextInCurrentContext = false
 
     private static let candidateBatchSize = 30
     private static let spaceTrackpadStepWidth: CGFloat = 10
@@ -54,6 +55,9 @@ final class KeyboardViewController: UIInputViewController {
 
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
+        if !hasActiveComposition && documentContextIsExplicitlyEmpty {
+            hasInsertedTextInCurrentContext = false
+        }
         updateReturnKeyAppearance()
     }
 
@@ -245,6 +249,7 @@ final class KeyboardViewController: UIInputViewController {
             } else {
                 commitCompositionAsText()
                 textDocumentProxy.insertText(value)
+                hasInsertedTextInCurrentContext = true
                 updateCandidates(resetScroll: true)
             }
         case .shift:
@@ -255,6 +260,9 @@ final class KeyboardViewController: UIInputViewController {
                 deleteCompositionBackward()
             } else {
                 textDocumentProxy.deleteBackward()
+                if documentContextIsExplicitlyEmpty {
+                    hasInsertedTextInCurrentContext = false
+                }
             }
             updateCandidates(resetScroll: true)
         case .space:
@@ -268,9 +276,11 @@ final class KeyboardViewController: UIInputViewController {
                 } else {
                     commitCompositionAsText()
                     textDocumentProxy.insertText(" ")
+                    hasInsertedTextInCurrentContext = true
                 }
             } else {
                 textDocumentProxy.insertText(" ")
+                hasInsertedTextInCurrentContext = true
             }
         case .returnKey:
             handleReturnKey()
@@ -288,6 +298,7 @@ final class KeyboardViewController: UIInputViewController {
         } else if isSearchInput || isMultilineInput {
             finalizeMarkedComposition()
             textDocumentProxy.insertText("\n")
+            hasInsertedTextInCurrentContext = true
         } else {
             finalizeMarkedComposition()
         }
@@ -336,6 +347,7 @@ final class KeyboardViewController: UIInputViewController {
     private func replaceCompositionWith(_ text: String) {
         guard hasActiveComposition else {
             textDocumentProxy.insertText(text)
+            hasInsertedTextInCurrentContext = true
             resetCompositionState()
             updateCandidates(resetScroll: true)
             return
@@ -353,6 +365,7 @@ final class KeyboardViewController: UIInputViewController {
         if compositionBuffer.isEmpty {
             refreshMarkedComposition()
             textDocumentProxy.unmarkText()
+            hasInsertedTextInCurrentContext = true
             resetCompositionState()
         } else {
             compositionCursorOffset = compositionBuffer.count
@@ -533,7 +546,15 @@ final class KeyboardViewController: UIInputViewController {
         }
         let before = textDocumentProxy.documentContextBeforeInput ?? ""
         let after = textDocumentProxy.documentContextAfterInput ?? ""
-        return !before.isEmpty || !after.isEmpty
+        return !before.isEmpty || !after.isEmpty || hasInsertedTextInCurrentContext
+    }
+
+    private var documentContextIsExplicitlyEmpty: Bool {
+        guard let before = textDocumentProxy.documentContextBeforeInput,
+              let after = textDocumentProxy.documentContextAfterInput else {
+            return false
+        }
+        return before.isEmpty && after.isEmpty
     }
 
     private var selectedCompositionText: String {
@@ -602,8 +623,8 @@ final class KeyboardViewController: UIInputViewController {
             updateCandidates(resetScroll: true)
             return
         }
-        textDocumentProxy.setMarkedText(markedText, selectedRange: NSRange(location: markedText.count, length: 0))
         textDocumentProxy.unmarkText()
+        hasInsertedTextInCurrentContext = true
         resetCompositionState()
         updateCandidates(resetScroll: true)
         DispatchQueue.main.async { [weak self] in
