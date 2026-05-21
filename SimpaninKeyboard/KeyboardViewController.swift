@@ -19,6 +19,7 @@ final class KeyboardViewController: UIInputViewController {
 
     private let candidateProvider = PinyinCandidateProvider()
     private let rootStack = UIStackView()
+    private let trackpadBlurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
     private let candidateScrollView = UIScrollView()
     private let candidateStack = UIStackView()
     private var allCandidates: [String] = []
@@ -29,14 +30,16 @@ final class KeyboardViewController: UIInputViewController {
     private var compositionCursorOffset = 0
     private var keyboardMode: KeyboardMode = .letters
     private var shiftState: ShiftState = .off
-    private var isSpaceTrackpadActive = false
-    private var suppressNextSpaceTap = false
-    private var spaceTrackpadPreviousX: CGFloat = 0
-    private var spaceTrackpadAccumulatedX: CGFloat = 0
+    private var isTrackpadActive = false
+    private var suppressNextKeyTap = false
+    private var trackpadPreviousX: CGFloat = 0
+    private var trackpadAccumulatedX: CGFloat = 0
     private var hasInsertedTextInCurrentContext = false
+    private let trackpadActivationFeedback = UIImpactFeedbackGenerator(style: .light)
+    private let trackpadMovementFeedback = UISelectionFeedbackGenerator()
 
     private static let candidateBatchSize = 30
-    private static let spaceTrackpadStepWidth: CGFloat = 10
+    private static let trackpadStepWidth: CGFloat = 10
 
     private var isDark: Bool {
         traitCollection.userInterfaceStyle == .dark
@@ -69,13 +72,25 @@ final class KeyboardViewController: UIInputViewController {
         rootStack.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(rootStack)
 
+        trackpadBlurView.translatesAutoresizingMaskIntoConstraints = false
+        trackpadBlurView.alpha = 0
+        trackpadBlurView.isUserInteractionEnabled = false
+        view.addSubview(trackpadBlurView)
+
         NSLayoutConstraint.activate([
             rootStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 4),
             rootStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -4),
             rootStack.topAnchor.constraint(equalTo: view.topAnchor, constant: 6),
             rootStack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -6),
+            trackpadBlurView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            trackpadBlurView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            trackpadBlurView.topAnchor.constraint(equalTo: view.topAnchor),
+            trackpadBlurView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             view.heightAnchor.constraint(greaterThanOrEqualToConstant: 258)
         ])
+
+        trackpadActivationFeedback.prepare()
+        trackpadMovementFeedback.prepare()
 
         candidateScrollView.showsHorizontalScrollIndicator = false
         candidateScrollView.alwaysBounceHorizontal = true
@@ -147,7 +162,8 @@ final class KeyboardViewController: UIInputViewController {
         let row3 = [KeySpec(.shift, widthUnit: 1.35)] + "zxcvbnm".map { KeySpec(.character(String($0))) } + [KeySpec(.backspace, widthUnit: 1.35)]
         let row4 = [
             KeySpec(.modeSwitch(.numbers), title: "123", widthUnit: 1.35),
-            KeySpec(.space, title: "空格", widthUnit: 4.8),
+            KeySpec(.nextKeyboard, title: "🌐", widthUnit: 1),
+            KeySpec(.space, title: "空格", widthUnit: 4.15),
             KeySpec(.returnKey, widthUnit: 1.55)
         ]
         return [row1, row2, row3, row4]
@@ -160,7 +176,8 @@ final class KeyboardViewController: UIInputViewController {
             [KeySpec(.modeSwitch(.symbols), title: "#+=", widthUnit: 1.35)] + [".", ",", "?", "!", "'"].map { KeySpec(.character($0)) } + [KeySpec(.backspace, widthUnit: 1.35)],
             [
                 KeySpec(.modeSwitch(.letters), title: "ABC", widthUnit: 1.35),
-                KeySpec(.space, title: "空格", widthUnit: 4.8),
+                KeySpec(.nextKeyboard, title: "🌐", widthUnit: 1),
+                KeySpec(.space, title: "空格", widthUnit: 4.15),
                 KeySpec(.returnKey, widthUnit: 1.55)
             ]
         ]
@@ -173,7 +190,8 @@ final class KeyboardViewController: UIInputViewController {
             [KeySpec(.modeSwitch(.numbers), title: "123", widthUnit: 1.35)] + [".", ",", "?", "!", "'"].map { KeySpec(.character($0)) } + [KeySpec(.backspace, widthUnit: 1.35)],
             [
                 KeySpec(.modeSwitch(.letters), title: "ABC", widthUnit: 1.35),
-                KeySpec(.space, title: "空格", widthUnit: 4.8),
+                KeySpec(.nextKeyboard, title: "🌐", widthUnit: 1),
+                KeySpec(.space, title: "空格", widthUnit: 4.15),
                 KeySpec(.returnKey, widthUnit: 1.55)
             ]
         ]
@@ -188,11 +206,13 @@ final class KeyboardViewController: UIInputViewController {
         button.layer.shadowOffset = CGSize(width: 0, height: 1)
         button.titleLabel?.font = font(for: spec.kind)
         button.setTitle(title(for: spec), for: .normal)
-        button.addAction(UIAction { [weak self] _ in
-            self?.handle(spec.kind)
-        }, for: .touchUpInside)
-        if case .space = spec.kind {
-            let recognizer = UILongPressGestureRecognizer(target: self, action: #selector(handleSpaceLongPress(_:)))
+        if case .nextKeyboard = spec.kind {
+            button.addTarget(self, action: #selector(handleInputModeList(from:with:)), for: .allTouchEvents)
+        } else {
+            button.addAction(UIAction { [weak self] _ in
+                self?.handle(spec.kind)
+            }, for: .touchUpInside)
+            let recognizer = UILongPressGestureRecognizer(target: self, action: #selector(handleKeyLongPress(_:)))
             recognizer.minimumPressDuration = 0.35
             recognizer.cancelsTouchesInView = true
             button.addGestureRecognizer(recognizer)
@@ -216,6 +236,8 @@ final class KeyboardViewController: UIInputViewController {
             return "空格"
         case .returnKey:
             return returnKeyTitle
+        case .nextKeyboard:
+            return "🌐"
         case .modeSwitch(let target):
             switch target {
             case .letters:
@@ -240,6 +262,11 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func handle(_ kind: KeyKind) {
+        if suppressNextKeyTap || isTrackpadActive {
+            suppressNextKeyTap = false
+            return
+        }
+
         switch kind {
         case .character(let value):
             if keyboardMode == .letters, value.rangeOfCharacter(from: .letters) != nil {
@@ -266,10 +293,6 @@ final class KeyboardViewController: UIInputViewController {
             }
             updateCandidates(resetScroll: true)
         case .space:
-            if suppressNextSpaceTap || isSpaceTrackpadActive {
-                suppressNextSpaceTap = false
-                return
-            }
             if hasActiveComposition {
                 if let first = candidates(for: activeCandidatePinyin).first {
                     replaceCompositionWith(first)
@@ -284,6 +307,9 @@ final class KeyboardViewController: UIInputViewController {
             }
         case .returnKey:
             handleReturnKey()
+        case .nextKeyboard:
+            commitCompositionAsText()
+            advanceToNextInputMode()
         case .modeSwitch(let target):
             commitCompositionAsText()
             keyboardMode = target
@@ -305,43 +331,55 @@ final class KeyboardViewController: UIInputViewController {
         updateReturnKeyAppearance()
     }
 
-    @objc private func handleSpaceLongPress(_ recognizer: UILongPressGestureRecognizer) {
-        guard let button = recognizer.view else { return }
-        let locationX = recognizer.location(in: button).x
+    @objc private func handleKeyLongPress(_ recognizer: UILongPressGestureRecognizer) {
+        guard recognizer.view != nil else { return }
+        let locationX = recognizer.location(in: view).x
 
         switch recognizer.state {
         case .began:
-            isSpaceTrackpadActive = true
-            suppressNextSpaceTap = true
-            spaceTrackpadPreviousX = locationX
-            spaceTrackpadAccumulatedX = 0
-            UIImpactFeedbackGenerator(style: .light).impactOccurred()
+            isTrackpadActive = true
+            suppressNextKeyTap = true
+            trackpadPreviousX = locationX
+            trackpadAccumulatedX = 0
+            trackpadActivationFeedback.impactOccurred()
+            trackpadMovementFeedback.prepare()
+            setTrackpadBlurVisible(true)
         case .changed:
-            guard isSpaceTrackpadActive else { return }
-            let delta = locationX - spaceTrackpadPreviousX
-            spaceTrackpadPreviousX = locationX
-            spaceTrackpadAccumulatedX += delta
+            guard isTrackpadActive else { return }
+            let delta = locationX - trackpadPreviousX
+            trackpadPreviousX = locationX
+            trackpadAccumulatedX += delta
 
-            while abs(spaceTrackpadAccumulatedX) >= Self.spaceTrackpadStepWidth {
-                let offset = spaceTrackpadAccumulatedX > 0 ? 1 : -1
+            while abs(trackpadAccumulatedX) >= Self.trackpadStepWidth {
+                let offset = trackpadAccumulatedX > 0 ? 1 : -1
                 if compositionBuffer.isEmpty {
                     textDocumentProxy.adjustTextPosition(byCharacterOffset: offset)
                 } else {
                     compositionCursorOffset = max(0, min(compositionBuffer.count, compositionCursorOffset + offset))
                     refreshMarkedComposition()
                 }
-                spaceTrackpadAccumulatedX -= CGFloat(offset) * Self.spaceTrackpadStepWidth
+                trackpadAccumulatedX -= CGFloat(offset) * Self.trackpadStepWidth
+                trackpadMovementFeedback.selectionChanged()
+                trackpadMovementFeedback.prepare()
             }
             updateCandidates()
         case .ended, .cancelled, .failed:
-            isSpaceTrackpadActive = false
-            spaceTrackpadAccumulatedX = 0
+            isTrackpadActive = false
+            trackpadAccumulatedX = 0
+            setTrackpadBlurVisible(false)
+            trackpadActivationFeedback.prepare()
             updateCandidates()
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { [weak self] in
-                self?.suppressNextSpaceTap = false
+                self?.suppressNextKeyTap = false
             }
         default:
             break
+        }
+    }
+
+    private func setTrackpadBlurVisible(_ visible: Bool) {
+        UIView.animate(withDuration: 0.12, delay: 0, options: [.beginFromCurrentState, .allowUserInteraction]) {
+            self.trackpadBlurView.alpha = visible ? 1 : 0
         }
     }
 
@@ -445,7 +483,7 @@ final class KeyboardViewController: UIInputViewController {
                 button.alpha = 1
             }
             let title = button.title(for: .normal) ?? ""
-            let isSpecial = ["123", "ABC", "#+=", "⌫", "⇧", "搜索", "确认", "换行"].contains(title)
+            let isSpecial = ["123", "ABC", "#+=", "⌫", "⇧", "🌐", "搜索", "确认", "换行"].contains(title)
             button.backgroundColor = isSpecial ? specialKeyBackground : keyBackground
             button.setTitleColor(primaryText, for: .normal)
             button.layer.shadowColor = shadowColor.cgColor
@@ -697,6 +735,7 @@ private enum KeyKind {
     case backspace
     case space
     case returnKey
+    case nextKeyboard
     case modeSwitch(KeyboardViewController.KeyboardMode)
 
     var isPrimary: Bool {
