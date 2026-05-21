@@ -155,7 +155,7 @@ private struct AppVersionInfo {
     }
 }
 
-private struct HTTPLogChunk: Identifiable, Hashable {
+private struct LogChunk: Identifiable, Hashable {
     let id: String
     let date: Date
     let url: URL
@@ -167,9 +167,13 @@ private struct HTTPLogChunk: Identifiable, Hashable {
     }
 }
 
-private struct HTTPLogEntry: Identifiable, Codable {
+private struct AppLogEntry: Identifiable, Codable {
     let id: String
     let timestamp: Date
+    let source: String
+    let category: String
+    let level: String
+    let message: String
     let method: String
     let url: String
     let requestHeaders: [String: String]
@@ -179,8 +183,10 @@ private struct HTTPLogEntry: Identifiable, Codable {
     let responseBody: String
     let error: String?
     let durationMS: Int
+    let metadata: [String: String]
 
     var statusText: String {
+        if category != "http" { return level.capitalized }
         if let statusCode { return "HTTP \(statusCode)" }
         if error != nil { return "Failed" }
         return "Completed"
@@ -192,7 +198,7 @@ private struct LoggedHTTPClient {
         let start = Date()
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
-            await HTTPLogStore.shared.record(
+            await AppLogStore.shared.record(
                 request: request,
                 response: response,
                 responseData: data,
@@ -202,7 +208,7 @@ private struct LoggedHTTPClient {
             )
             return (data, response)
         } catch {
-            await HTTPLogStore.shared.record(
+            await AppLogStore.shared.record(
                 request: request,
                 response: nil,
                 responseData: nil,
@@ -216,19 +222,21 @@ private struct LoggedHTTPClient {
 }
 
 @MainActor
-private final class HTTPLogStore: ObservableObject {
-    static let shared = HTTPLogStore()
+private final class AppLogStore: ObservableObject {
+    static let shared = AppLogStore()
 
-    @Published private(set) var chunks: [HTTPLogChunk] = []
+    @Published private(set) var chunks: [LogChunk] = []
     @Published var selectedChunkID: String?
-    @Published private(set) var entries: [HTTPLogEntry] = []
+    @Published private(set) var entries: [AppLogEntry] = []
 
     private let fileManager = FileManager.default
     private let retention: TimeInterval = 3 * 24 * 60 * 60
+    private static let appGroupID = "group.com.local.fitnex"
 
     private var directoryURL: URL {
-        let base = fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        return base.appendingPathComponent("http-logs", isDirectory: true)
+        let base = fileManager.containerURL(forSecurityApplicationGroupIdentifier: Self.appGroupID)
+            ?? fileManager.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        return base.appendingPathComponent("logs", isDirectory: true)
     }
 
     private static let chunkFileFormatter: DateFormatter = {
@@ -248,9 +256,13 @@ private final class HTTPLogStore: ObservableObject {
         cleanupOldLogs()
 
         let now = Date()
-        let entry = HTTPLogEntry(
+        let entry = AppLogEntry(
             id: UUID().uuidString,
             timestamp: now,
+            source: "app",
+            category: "http",
+            level: error == nil ? "info" : "error",
+            message: request.url?.absoluteString ?? "",
             method: request.httpMethod ?? "GET",
             url: request.url?.absoluteString ?? "",
             requestHeaders: request.allHTTPHeaderFields ?? [:],
@@ -259,12 +271,48 @@ private final class HTTPLogStore: ObservableObject {
             responseHeaders: responseHeaders(response),
             responseBody: bodyText(responseData, limit: responseBodyLimit),
             error: error?.localizedDescription,
-            durationMS: Int(Date().timeIntervalSince(startedAt) * 1000)
+            durationMS: Int(Date().timeIntervalSince(startedAt) * 1000),
+            metadata: [:]
         )
 
+        write(entry)
+    }
+
+    func record(
+        source: String = "app",
+        category: String = "system",
+        level: String = "info",
+        message: String,
+        metadata: [String: String] = [:],
+        error: String? = nil
+    ) {
+        cleanupOldLogs()
+        let entry = AppLogEntry(
+            id: UUID().uuidString,
+            timestamp: Date(),
+            source: source,
+            category: category,
+            level: error == nil ? level : "error",
+            message: message,
+            method: "",
+            url: "",
+            requestHeaders: [:],
+            requestBody: "",
+            statusCode: nil,
+            responseHeaders: [:],
+            responseBody: "",
+            error: error,
+            durationMS: 0,
+            metadata: metadata
+        )
+
+        write(entry)
+    }
+
+    private func write(_ entry: AppLogEntry) {
         do {
             try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true, attributes: nil)
-            let fileURL = chunkURL(for: now)
+            let fileURL = chunkURL(for: entry.timestamp)
             let data = try JSONEncoder().encode(entry)
             if !fileManager.fileExists(atPath: fileURL.path) {
                 fileManager.createFile(atPath: fileURL.path, contents: nil)
@@ -291,7 +339,7 @@ private final class HTTPLogStore: ObservableObject {
             guard url.pathExtension == "jsonl" else { return nil }
             let name = url.deletingPathExtension().lastPathComponent
             guard let date = Self.chunkFileFormatter.date(from: name) else { return nil }
-            return HTTPLogChunk(id: name, date: date, url: url)
+            return LogChunk(id: name, date: date, url: url)
         }
         .sorted { $0.date > $1.date }
 
@@ -302,7 +350,7 @@ private final class HTTPLogStore: ObservableObject {
         loadSelectedEntries()
     }
 
-    func selectChunk(_ chunk: HTTPLogChunk) {
+    func selectChunk(_ chunk: LogChunk) {
         selectedChunkID = chunk.id
         loadSelectedEntries()
     }
@@ -318,7 +366,7 @@ private final class HTTPLogStore: ObservableObject {
         entries = content
             .split(separator: "\n")
             .compactMap { line in
-                try? JSONDecoder().decode(HTTPLogEntry.self, from: Data(line.utf8))
+                try? JSONDecoder().decode(AppLogEntry.self, from: Data(line.utf8))
             }
             .sorted { $0.timestamp > $1.timestamp }
     }
@@ -1664,7 +1712,7 @@ private struct ActivityRingCard: View {
 private struct SettingsView: View {
     let feedback: (String) -> Void
     @StateObject private var updateVM = UpdateViewModel()
-    @ObservedObject private var logStore = HTTPLogStore.shared
+    @ObservedObject private var logStore = AppLogStore.shared
     @ObservedObject private var nezhaSettings = NezhaSettingsStore.shared
     @State private var showingLogs = false
     @State private var showingNezhaSettings = false
@@ -1677,7 +1725,7 @@ private struct SettingsView: View {
                     Text("Settings")
                         .font(.fitnexTitle(size: 28))
                         .foregroundColor(FitnexColor.black)
-                    Text("Updates, request logs and device maintenance.")
+                    Text("Updates, app logs and device maintenance.")
                         .font(.fitnexBody(size: 13, weight: .regular))
                         .foregroundColor(FitnexColor.grayText)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -1777,7 +1825,7 @@ private struct SettingsView: View {
         }
         .background(FitnexColor.background)
         .sheet(isPresented: $showingLogs) {
-            HTTPLogSheet(store: logStore)
+            AppLogSheet(store: logStore)
                 .presentationDetents([.medium, .large])
         }
         .sheet(isPresented: $showingNezhaSettings) {
@@ -1873,8 +1921,8 @@ private struct SettingsView: View {
     }
 }
 
-private struct HTTPLogSheet: View {
-    @ObservedObject var store: HTTPLogStore
+private struct AppLogSheet: View {
+    @ObservedObject var store: AppLogStore
     @State private var expandedEntryID: String?
 
     var body: some View {
@@ -1885,7 +1933,7 @@ private struct HTTPLogSheet: View {
                 .padding(.top, 10)
 
             HStack {
-                Text("HTTP Logs")
+                Text("Logs")
                     .font(.fitnexTitle(size: 18))
                     .foregroundColor(FitnexColor.black)
                 Spacer()
@@ -1934,7 +1982,7 @@ private struct HTTPLogSheet: View {
                 ScrollView(showsIndicators: false) {
                     LazyVStack(spacing: 10) {
                         ForEach(store.entries) { entry in
-                            HTTPLogEntryRow(
+                            AppLogEntryRow(
                                 entry: entry,
                                 isExpanded: expandedEntryID == entry.id,
                                 toggle: {
@@ -1954,8 +2002,8 @@ private struct HTTPLogSheet: View {
     }
 }
 
-private struct HTTPLogEntryRow: View {
-    let entry: HTTPLogEntry
+private struct AppLogEntryRow: View {
+    let entry: AppLogEntry
     let isExpanded: Bool
     let toggle: () -> Void
 
@@ -1963,7 +2011,7 @@ private struct HTTPLogEntryRow: View {
         Button(action: toggle) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
-                    Text(entry.method)
+                    Text(entry.badgeText)
                         .font(.fitnexBody(size: 10, weight: .bold))
                         .foregroundColor(.white)
                         .padding(.horizontal, 8)
@@ -1976,19 +2024,26 @@ private struct HTTPLogEntryRow: View {
                     Text(Self.timeFormatter.string(from: entry.timestamp))
                         .font(.fitnexBody(size: 10, weight: .regular))
                         .foregroundColor(FitnexColor.lightText)
-                    Text("\(entry.durationMS)ms")
-                        .font(.fitnexBody(size: 10, weight: .regular))
-                        .foregroundColor(FitnexColor.lightText)
+                    if entry.durationMS > 0 {
+                        Text("\(entry.durationMS)ms")
+                            .font(.fitnexBody(size: 10, weight: .regular))
+                            .foregroundColor(FitnexColor.lightText)
+                    }
                 }
 
-                Text(entry.url)
+                Text(entry.displayText)
                     .font(.fitnexBody(size: 11, weight: .regular))
                     .foregroundColor(FitnexColor.black)
                     .lineLimit(isExpanded ? nil : 2)
 
                 if isExpanded {
-                    logBlock(title: "\u{8BF7}\u{6C42}\u{4F53}", text: entry.requestBody)
-                    logBlock(title: "\u{54CD}\u{5E94}\u{4F53}", text: entry.responseBody)
+                    if entry.category == "http" {
+                        logBlock(title: "\u{8BF7}\u{6C42}\u{4F53}", text: entry.requestBody)
+                        logBlock(title: "\u{54CD}\u{5E94}\u{4F53}", text: entry.responseBody)
+                    }
+                    if !entry.metadata.isEmpty {
+                        logBlock(title: "Metadata", text: entry.metadataText)
+                    }
                     if let error = entry.error {
                         logBlock(title: "\u{9519}\u{8BEF}", text: error)
                     }
@@ -2022,6 +2077,23 @@ private struct HTTPLogEntryRow: View {
         formatter.dateFormat = "HH:mm:ss"
         return formatter
     }()
+}
+
+private extension AppLogEntry {
+    var badgeText: String {
+        category == "http" ? method : source.uppercased()
+    }
+
+    var displayText: String {
+        category == "http" ? url : message
+    }
+
+    var metadataText: String {
+        metadata
+            .sorted { $0.key < $1.key }
+            .map { "\($0.key): \($0.value)" }
+            .joined(separator: "\n")
+    }
 }
 
 private struct NezhaSettingsSheet: View {
@@ -5193,7 +5265,7 @@ private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelega
         didRecordCompletion = true
         let data = Data(summary.utf8)
         Task { @MainActor in
-            HTTPLogStore.shared.record(
+            AppLogStore.shared.record(
                 request: request,
                 response: response,
                 responseData: data,
