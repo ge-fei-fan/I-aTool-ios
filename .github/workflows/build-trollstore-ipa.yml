@@ -36,6 +36,35 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             clean build
 
+      - name: Inject entitlements
+        run: |
+          set -euo pipefail
+          APP_PATH="build/Build/Products/Release-iphoneos/Simpanin.app"
+          KEYBOARD_PATH="$APP_PATH/PlugIns/SimpaninKeyboard.appex"
+          test -d "$APP_PATH"
+          test -d "$KEYBOARD_PATH"
+
+          /usr/bin/codesign \
+            --force \
+            --sign - \
+            --timestamp=none \
+            --generate-entitlement-der \
+            --entitlements SimpaninKeyboard/SimpaninKeyboard.entitlements \
+            "$KEYBOARD_PATH"
+
+          /usr/bin/codesign \
+            --force \
+            --sign - \
+            --timestamp=none \
+            --generate-entitlement-der \
+            --entitlements Simpanin/Simpanin.entitlements \
+            "$APP_PATH"
+
+          echo "App entitlements:"
+          /usr/bin/codesign -d --entitlements :- "$APP_PATH"
+          echo "Keyboard entitlements:"
+          /usr/bin/codesign -d --entitlements :- "$KEYBOARD_PATH"
+
       - name: Package IPA
         run: |
           set -euo pipefail

@@ -48,7 +48,8 @@ struct HomeView: View {
             await AppLogStore.shared.record(
                 category: "system",
                 level: "info",
-                message: "home initial load"
+                message: "home initial load",
+                metadata: AppLogStore.shared.storageDiagnostics
             )
             async let homeTask: Void = homeMetrics.refresh()
             async let diskTask: Void = diskStatus.loadIfNeeded()
@@ -332,6 +333,13 @@ private final class AppLogStore: ObservableObject {
 
     private var writeDirectoryURL: URL {
         appGroupDirectoryURL ?? documentsDirectoryURL
+    }
+
+    var storageDiagnostics: [String: String] {
+        [
+            "appGroupAvailable": "\(appGroupDirectoryURL != nil)",
+            "writeLocation": appGroupDirectoryURL == nil ? "documents" : "appGroup"
+        ]
     }
 
     private var readDirectoryURLs: [URL] {

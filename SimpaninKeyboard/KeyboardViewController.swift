@@ -41,31 +41,56 @@ final class KeyboardViewController: UIInputViewController {
     private var compositionBuffer = ""
     private var keyboardMode: KeyboardMode = .letters
     private var shiftState: ShiftState = .off
+    private var didAppear = false
 
     private var isDark: Bool {
         traitCollection.userInterfaceStyle == .dark
     }
 
+    private var fileLogAllowed: Bool {
+        didAppear && hasFullAccess && keyboardLog.sharedContainerAvailable
+    }
+
     override func viewDidLoad() {
         super.viewDidLoad()
-        keyboardLog.setFileLoggingEnabled(hasFullAccess)
+        setupKeyboard()
+        renderKeyboard()
         keyboardLog.record(
             "viewDidLoad",
             metadata: ["fullAccess": "\(hasFullAccess)"],
-            fileLoggingEnabled: hasFullAccess
+            fileLoggingEnabled: false
         )
-        setupKeyboard()
-        renderKeyboard()
     }
 
     override func viewWillAppear(_ animated: Bool) {
         super.viewWillAppear(animated)
-        keyboardLog.setFileLoggingEnabled(hasFullAccess)
         keyboardLog.record(
             "viewWillAppear",
             metadata: ["fullAccess": "\(hasFullAccess)"],
-            fileLoggingEnabled: hasFullAccess
+            fileLoggingEnabled: false
         )
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        didAppear = true
+        keyboardLog.setFileLoggingEnabled(fileLogAllowed)
+        keyboardLog.record(
+            "viewDidAppear",
+            metadata: [
+                "fullAccess": "\(hasFullAccess)",
+                "appGroupAvailable": "\(keyboardLog.sharedContainerAvailable)"
+            ],
+            fileLoggingEnabled: fileLogAllowed
+        )
+        if hasFullAccess && !keyboardLog.sharedContainerAvailable {
+            keyboardLog.record(
+                "appGroupUnavailable",
+                metadata: ["fullAccess": "true"],
+                level: "warning",
+                fileLoggingEnabled: false
+            )
+        }
     }
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
@@ -153,7 +178,7 @@ final class KeyboardViewController: UIInputViewController {
                 "keyCount": "\(keyButtons.count)",
                 "fullAccess": "\(hasFullAccess)"
             ],
-            fileLoggingEnabled: hasFullAccess
+            fileLoggingEnabled: fileLogAllowed
         )
     }
 
@@ -230,7 +255,7 @@ final class KeyboardViewController: UIInputViewController {
                         "bufferLength": "\(compositionBuffer.count)",
                         "mode": keyboardMode.logValue
                     ],
-                    fileLoggingEnabled: hasFullAccess
+                    fileLoggingEnabled: fileLogAllowed
                 )
             } else {
                 commitCompositionIfNeeded()
@@ -241,7 +266,7 @@ final class KeyboardViewController: UIInputViewController {
                         "mode": keyboardMode.logValue,
                         "characterKind": value.rangeOfCharacter(from: .decimalDigits) != nil ? "digit" : "symbol"
                     ],
-                    fileLoggingEnabled: hasFullAccess
+                    fileLoggingEnabled: fileLogAllowed
                 )
             }
         case .shift:
@@ -250,7 +275,7 @@ final class KeyboardViewController: UIInputViewController {
             keyboardLog.record(
                 "shift toggled",
                 metadata: ["shift": shiftState.logValue],
-                fileLoggingEnabled: hasFullAccess
+                fileLoggingEnabled: fileLogAllowed
             )
         case .backspace:
             if !compositionBuffer.isEmpty {
@@ -259,11 +284,11 @@ final class KeyboardViewController: UIInputViewController {
                 keyboardLog.record(
                     "buffer backspace",
                     metadata: ["bufferLength": "\(compositionBuffer.count)"],
-                    fileLoggingEnabled: hasFullAccess
+                    fileLoggingEnabled: fileLogAllowed
                 )
             } else {
                 textDocumentProxy.deleteBackward()
-                keyboardLog.record("document backspace", fileLoggingEnabled: hasFullAccess)
+                keyboardLog.record("document backspace", fileLoggingEnabled: fileLogAllowed)
             }
         case .space:
             if let first = candidateProvider.candidates(for: compositionBuffer).first {
@@ -271,18 +296,18 @@ final class KeyboardViewController: UIInputViewController {
                 keyboardLog.record(
                     "space committed candidate",
                     metadata: ["bufferLength": "\(compositionBuffer.count)"],
-                    fileLoggingEnabled: hasFullAccess
+                    fileLoggingEnabled: fileLogAllowed
                 )
                 compositionBuffer = ""
                 updateCandidates()
             } else {
                 textDocumentProxy.insertText(" ")
-                keyboardLog.record("space inserted", fileLoggingEnabled: hasFullAccess)
+                keyboardLog.record("space inserted", fileLoggingEnabled: fileLogAllowed)
             }
         case .returnKey:
             commitCompositionIfNeeded()
             textDocumentProxy.insertText("\n")
-            keyboardLog.record("return inserted", fileLoggingEnabled: hasFullAccess)
+            keyboardLog.record("return inserted", fileLoggingEnabled: fileLogAllowed)
         case .modeSwitch:
             commitCompositionIfNeeded()
             keyboardMode = keyboardMode == .letters ? .numbers : .letters
@@ -293,7 +318,7 @@ final class KeyboardViewController: UIInputViewController {
                     "from": previousMode.logValue,
                     "to": keyboardMode.logValue
                 ],
-                fileLoggingEnabled: hasFullAccess
+                fileLoggingEnabled: fileLogAllowed
             )
         }
     }
@@ -306,7 +331,7 @@ final class KeyboardViewController: UIInputViewController {
             keyboardLog.record(
                 "composition committed candidate",
                 metadata: ["bufferLength": "\(bufferLength)"],
-                fileLoggingEnabled: hasFullAccess
+                fileLoggingEnabled: fileLogAllowed
             )
         } else {
             textDocumentProxy.insertText(compositionBuffer)
@@ -314,7 +339,7 @@ final class KeyboardViewController: UIInputViewController {
                 "composition committed fallback",
                 metadata: ["bufferLength": "\(bufferLength)"],
                 level: "warning",
-                fileLoggingEnabled: hasFullAccess
+                fileLoggingEnabled: fileLogAllowed
             )
         }
         compositionBuffer = ""
@@ -349,7 +374,7 @@ final class KeyboardViewController: UIInputViewController {
                 "candidateCount": "\(candidates.count)",
                 "durationMS": "\(durationMS)"
             ],
-            fileLoggingEnabled: hasFullAccess
+            fileLoggingEnabled: fileLogAllowed
         )
         if candidates.isEmpty {
             let hint = UILabel()
@@ -375,7 +400,7 @@ final class KeyboardViewController: UIInputViewController {
                         "candidateIndex": "\(index)",
                         "bufferLength": "\(self?.compositionBuffer.count ?? 0)"
                     ],
-                    fileLoggingEnabled: self?.hasFullAccess ?? false
+                    fileLoggingEnabled: self?.fileLogAllowed ?? false
                 )
                 self?.compositionBuffer = ""
                 self?.updateCandidates()
@@ -496,8 +521,12 @@ private final class SharedKeyboardLogStore {
         return formatter
     }()
 
+    var sharedContainerAvailable: Bool {
+        directoryURL != nil
+    }
+
     func setFileLoggingEnabled(_ enabled: Bool) {
-        fileLoggingEnabled = enabled
+        fileLoggingEnabled = enabled && sharedContainerAvailable
     }
 
     func record(
@@ -512,7 +541,11 @@ private final class SharedKeyboardLogStore {
         writeOSLog(message: message, level: resolvedLevel, metadata: metadata, error: error)
 
         let shouldWriteFile = explicitFileLoggingEnabled ?? fileLoggingEnabled
-        guard shouldWriteFile, let directoryURL else { return }
+        guard shouldWriteFile else { return }
+        guard let directoryURL else {
+            logger.error("keyboard app group container unavailable")
+            return
+        }
 
         cleanupOldLogs(in: directoryURL)
         let timestamp = Date()
