@@ -94,7 +94,6 @@ final class KeyboardViewController: UIInputViewController {
         trackpadActivationFeedback.prepare()
         trackpadMovementFeedback.prepare()
 
-        compositionBar.isHidden = true
         compositionBar.translatesAutoresizingMaskIntoConstraints = false
         compositionBar.onOffsetSelected = { [weak self] offset in
             self?.moveCompositionCursor(toCompositionTextOffset: offset)
@@ -382,17 +381,11 @@ final class KeyboardViewController: UIInputViewController {
 
             while abs(trackpadAccumulatedX) >= Self.trackpadStepWidth {
                 let offset = trackpadAccumulatedX > 0 ? 1 : -1
-                if compositionBuffer.isEmpty {
-                    textDocumentProxy.adjustTextPosition(byCharacterOffset: offset)
-                } else {
-                    compositionCursorOffset = max(0, min(compositionBuffer.count, compositionCursorOffset + offset))
-                    refreshCompositionDisplay()
-                }
+                textDocumentProxy.adjustTextPosition(byCharacterOffset: offset)
                 trackpadAccumulatedX -= CGFloat(offset) * Self.trackpadStepWidth
                 triggerTrackpadMovementFeedback()
                 trackpadMovementFeedback.prepare()
             }
-            updateCandidates()
         case .ended, .cancelled, .failed:
             isTrackpadActive = false
             trackpadAccumulatedX = 0
@@ -543,7 +536,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func updateCompositionBarAppearance() {
-        compositionBar.configure(backgroundColor: compositionBackground, textColor: primaryText, cursorColor: compositionCursorColor)
+        compositionBar.configure(textColor: primaryText, cursorColor: compositionCursorColor)
     }
 
     private var keyboardBackground: UIColor {
@@ -568,10 +561,6 @@ final class KeyboardViewController: UIInputViewController {
 
     private var candidateShadow: UIColor {
         isDark ? .black : UIColor(white: 0.35, alpha: 1)
-    }
-
-    private var compositionBackground: UIColor {
-        isDark ? UIColor(red: 0.25, green: 0.25, blue: 0.27, alpha: 1) : UIColor(red: 0.93, green: 0.94, blue: 0.96, alpha: 1)
     }
 
     private var compositionCursorColor: UIColor {
@@ -709,7 +698,6 @@ final class KeyboardViewController: UIInputViewController {
 
     private func refreshCompositionDisplay() {
         let text = compositionText
-        compositionBar.isHidden = text.isEmpty
         compositionBar.update(text: text, cursorOffset: selectedCompositionText.count + compositionCursorOffset)
     }
 
@@ -790,7 +778,6 @@ private final class CompositionBarView: UIView {
     private var cursorOffset = 0
     private let font = UIFont.systemFont(ofSize: 15, weight: .regular)
     private let textInsets = UIEdgeInsets(top: 3, left: 10, bottom: 3, right: 10)
-    private var barBackgroundColor = UIColor(white: 0.94, alpha: 1)
     private var barTextColor = UIColor.black
     private var barCursorColor = UIColor.systemBlue
 
@@ -805,8 +792,7 @@ private final class CompositionBarView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(backgroundColor: UIColor, textColor: UIColor, cursorColor: UIColor) {
-        barBackgroundColor = backgroundColor
+    func configure(textColor: UIColor, cursorColor: UIColor) {
         barTextColor = textColor
         barCursorColor = cursorColor
         setNeedsDisplay()
@@ -820,11 +806,6 @@ private final class CompositionBarView: UIView {
 
     override func draw(_ rect: CGRect) {
         guard !text.isEmpty else { return }
-
-        let backgroundRect = bounds.insetBy(dx: 1, dy: 1)
-        let backgroundPath = UIBezierPath(roundedRect: backgroundRect, cornerRadius: 6)
-        barBackgroundColor.setFill()
-        backgroundPath.fill()
 
         let textRect = bounds.inset(by: textInsets)
         let attributes: [NSAttributedString.Key: Any] = [
@@ -847,6 +828,7 @@ private final class CompositionBarView: UIView {
     }
 
     @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
+        guard !text.isEmpty else { return }
         let point = recognizer.location(in: self)
         let textRect = bounds.inset(by: textInsets)
         let x = max(0, min(point.x - textRect.minX, textRect.width))
