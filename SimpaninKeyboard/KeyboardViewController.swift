@@ -36,6 +36,7 @@ final class KeyboardViewController: UIInputViewController {
     private var trackpadPreviousX: CGFloat = 0
     private var trackpadAccumulatedX: CGFloat = 0
     private var hasInsertedTextInCurrentContext = false
+    private var isApplyingMarkedTextUpdate = false
     private let trackpadActivationFeedback = UIImpactFeedbackGenerator(style: .medium)
     private let trackpadMovementFeedback = UISelectionFeedbackGenerator()
 
@@ -63,6 +64,14 @@ final class KeyboardViewController: UIInputViewController {
             hasInsertedTextInCurrentContext = false
         }
         updateReturnKeyAppearance()
+    }
+
+    override func selectionDidChange(_ textInput: UITextInput?) {
+        super.selectionDidChange(textInput)
+        guard hasActiveComposition, !isApplyingMarkedTextUpdate else { return }
+        guard synchronizeCompositionCursorWithDocumentSelection() else { return }
+        refreshMarkedComposition()
+        updateCandidates(resetScroll: true)
     }
 
     private func setupKeyboard() {
@@ -665,11 +674,41 @@ final class KeyboardViewController: UIInputViewController {
         compositionBuffer.remove(at: removeIndex)
         compositionCursorOffset -= 1
         if compositionBuffer.isEmpty {
-            textDocumentProxy.unmarkText()
-            resetCompositionState()
+            clearMarkedCompositionAfterDeletion()
         } else {
             refreshMarkedComposition()
         }
+    }
+
+    private func clearMarkedCompositionAfterDeletion() {
+        applyMarkedText("", selectedRange: NSRange(location: 0, length: 0))
+        resetCompositionState()
+    }
+
+    private func synchronizeCompositionCursorWithDocumentSelection() -> Bool {
+        let markedText = markedCompositionText
+        guard !markedText.isEmpty,
+              let before = textDocumentProxy.documentContextBeforeInput,
+              let after = textDocumentProxy.documentContextAfterInput,
+              let markedCursorOffset = inferredMarkedCursorOffset(markedText: markedText, before: before, after: after) else {
+            return false
+        }
+
+        let rawCompositionOffset = markedCursorOffset - selectedCompositionText.count
+        compositionCursorOffset = max(0, min(compositionBuffer.count, rawCompositionOffset))
+        return true
+    }
+
+    private func inferredMarkedCursorOffset(markedText: String, before: String, after: String) -> Int? {
+        for offset in 0...markedText.count {
+            let splitIndex = markedText.index(markedText.startIndex, offsetBy: offset)
+            let prefix = String(markedText[..<splitIndex])
+            let suffix = String(markedText[splitIndex...])
+            if before.hasSuffix(prefix), after.hasPrefix(suffix) {
+                return offset
+            }
+        }
+        return nil
     }
 
     private func refreshMarkedComposition() {
@@ -680,7 +719,15 @@ final class KeyboardViewController: UIInputViewController {
         }
         let cursorLocation = selectedCompositionText.count + compositionCursorOffset
         let selectedRange = NSRange(location: cursorLocation, length: 0)
-        textDocumentProxy.setMarkedText(markedText, selectedRange: selectedRange)
+        applyMarkedText(markedText, selectedRange: selectedRange)
+    }
+
+    private func applyMarkedText(_ text: String, selectedRange: NSRange) {
+        isApplyingMarkedTextUpdate = true
+        textDocumentProxy.setMarkedText(text, selectedRange: selectedRange)
+        DispatchQueue.main.async { [weak self] in
+            self?.isApplyingMarkedTextUpdate = false
+        }
     }
 
     private func commitCompositionAsText() {
