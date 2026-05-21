@@ -31,7 +31,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private let keyboardLog = SharedKeyboardLogStore()
-    private var candidateProvider: PinyinCandidateProvider?
+    private let candidateProvider = PinyinCandidateProvider()
     private let rootStack = UIStackView()
     private let candidateScrollView = UIScrollView()
     private let candidateStack = UIStackView()
@@ -251,6 +251,16 @@ final class KeyboardViewController: UIInputViewController {
 
     private func handle(_ kind: KeyKind) {
         let previousMode = keyboardMode
+        keyboardLog.record(
+            "key tap begin",
+            metadata: [
+                "keyKind": kind.logValue,
+                "mode": keyboardMode.logValue,
+                "bufferLength": "\(compositionBuffer.count)"
+            ],
+            fileLoggingEnabled: false
+        )
+
         switch kind {
         case .character(let value):
             if keyboardMode == .letters, value.rangeOfCharacter(from: .letters) != nil {
@@ -328,6 +338,16 @@ final class KeyboardViewController: UIInputViewController {
                 fileLoggingEnabled: fileLogAllowed
             )
         }
+
+        keyboardLog.record(
+            "key tap end",
+            metadata: [
+                "keyKind": kind.logValue,
+                "mode": keyboardMode.logValue,
+                "bufferLength": "\(compositionBuffer.count)"
+            ],
+            fileLoggingEnabled: fileLogAllowed
+        )
     }
 
     private func commitCompositionIfNeeded() {
@@ -466,10 +486,7 @@ final class KeyboardViewController: UIInputViewController {
 
     private func candidates(for pinyin: String) -> [String] {
         guard !pinyin.isEmpty else { return [] }
-        if candidateProvider == nil {
-            candidateProvider = PinyinCandidateProvider(log: keyboardLog, fileLoggingEnabled: fileLogAllowed)
-        }
-        return candidateProvider?.candidates(for: pinyin) ?? []
+        return candidateProvider.candidates(for: pinyin)
     }
 }
 
@@ -506,6 +523,23 @@ private enum KeyKind {
             return true
         }
         return false
+    }
+
+    var logValue: String {
+        switch self {
+        case .character:
+            return "character"
+        case .shift:
+            return "shift"
+        case .backspace:
+            return "backspace"
+        case .space:
+            return "space"
+        case .returnKey:
+            return "return"
+        case .modeSwitch:
+            return "modeSwitch"
+        }
     }
 }
 
@@ -673,45 +707,13 @@ private final class SharedKeyboardLogStore {
     }
 }
 
-private final class PinyinCandidateProvider {
-    private let dictionary: [String: [String]]
-    private let log: SharedKeyboardLogStore
-
-    init(log: SharedKeyboardLogStore, fileLoggingEnabled: Bool) {
-        self.log = log
-        let startedAt = Date()
-        if let bundled = Self.loadBundledDictionary() {
-            dictionary = bundled
-            log.record(
-                "lexicon loaded",
-                metadata: [
-                    "source": "bundle",
-                    "entryCount": "\(bundled.count)"
-                ],
-                durationMS: Int(Date().timeIntervalSince(startedAt) * 1000),
-                fileLoggingEnabled: fileLoggingEnabled
-            )
-        } else {
-            dictionary = Self.fallbackDictionary
-            log.record(
-                "lexicon fallback loaded",
-                metadata: [
-                    "source": "fallback",
-                    "entryCount": "\(Self.fallbackDictionary.count)"
-                ],
-                level: "warning",
-                durationMS: Int(Date().timeIntervalSince(startedAt) * 1000),
-                fileLoggingEnabled: fileLoggingEnabled
-            )
-        }
-    }
-
+private struct PinyinCandidateProvider {
     func candidates(for pinyin: String) -> [String] {
         let key = pinyin.lowercased()
         guard !key.isEmpty else { return [] }
 
-        if let exact = dictionary[key] {
-            return Array(exact.prefix(24))
+        if let exact = Self.dictionary[key] {
+            return Array(exact.prefix(8))
         }
 
         var results: [String] = []
@@ -724,7 +726,7 @@ private final class PinyinCandidateProvider {
             }
         }
 
-        let prefixMatches = dictionary
+        let prefixMatches = Self.dictionary
             .filter { $0.key.hasPrefix(key) }
             .sorted {
                 if $0.key.count != $1.key.count {
@@ -735,37 +737,79 @@ private final class PinyinCandidateProvider {
 
         for match in prefixMatches {
             append(match.value)
-            if results.count >= 24 { break }
+            if results.count >= 8 { break }
         }
 
-        return Array(results.prefix(24))
+        return Array(results.prefix(8))
     }
 
-    private static func loadBundledDictionary() -> [String: [String]]? {
-        guard let url = Bundle.main.url(forResource: "PinyinLexicon", withExtension: "json"),
-              let data = try? Data(contentsOf: url),
-              let decoded = try? JSONDecoder().decode([String: [String]].self, from: data) else {
-            return nil
-        }
-        return decoded
-    }
-
-    private static let fallbackDictionary: [String: [String]] = [
+    private static let dictionary: [String: [String]] = [
         "a": ["啊", "阿"],
         "ai": ["爱", "唉", "矮"],
         "an": ["安", "按", "安全"],
+        "ang": ["昂"],
         "ba": ["把", "吧", "爸"],
+        "bai": ["百", "白", "摆"],
+        "ban": ["办", "半", "班"],
+        "bao": ["包", "报", "宝"],
         "bei": ["北", "被", "杯", "北京"],
         "bu": ["不", "部", "步", "不错"],
+        "cha": ["查", "差", "茶"],
+        "chang": ["长", "常", "场"],
+        "chi": ["吃", "持", "迟"],
+        "da": ["大", "打", "达"],
         "de": ["的", "得", "德"],
+        "di": ["地", "第", "低"],
+        "dian": ["点", "电", "店"],
+        "dui": ["对", "队"],
+        "fa": ["发", "法"],
+        "ge": ["个", "哥", "各"],
+        "guo": ["国", "过", "果"],
         "hao": ["好", "号", "浩"],
         "he": ["和", "喝", "河"],
+        "hen": ["很"],
+        "hui": ["会", "回"],
+        "jia": ["家", "加", "假"],
+        "jian": ["见", "间", "件"],
+        "jin": ["进", "今", "近"],
+        "jiu": ["就", "九", "久"],
+        "kan": ["看"],
+        "ke": ["可", "课", "客"],
+        "lai": ["来"],
+        "le": ["了", "乐"],
+        "li": ["里", "理", "力"],
         "ma": ["吗", "妈", "马"],
+        "mei": ["没", "美", "每"],
+        "men": ["们", "门"],
+        "ming": ["明", "名"],
         "ni": ["你", "呢", "尼", "你好", "你们"],
         "nihao": ["你好"],
+        "qing": ["请", "清"],
+        "qu": ["去", "取"],
+        "ren": ["人", "认"],
+        "shang": ["上", "商"],
+        "shen": ["什", "深", "身"],
+        "shenme": ["什么"],
         "shi": ["是", "时", "事", "时间"],
+        "shijian": ["时间"],
+        "ta": ["他", "她", "它"],
+        "tian": ["天", "田"],
+        "wan": ["完", "晚", "玩"],
+        "wei": ["为", "位", "微"],
         "wo": ["我", "我们"],
+        "women": ["我们"],
+        "xiang": ["想", "向", "像"],
+        "xiao": ["小", "笑"],
         "xiexie": ["谢谢"],
+        "yao": ["要"],
+        "ye": ["也", "夜"],
+        "yi": ["一", "以", "已"],
+        "you": ["有", "又", "由"],
+        "zai": ["在", "再"],
+        "zao": ["早"],
+        "zen": ["怎"],
+        "zenme": ["怎么"],
+        "zhe": ["这", "着"],
         "zhong": ["中", "种", "中国"],
         "zhongguo": ["中国"]
     ]

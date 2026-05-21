@@ -12,7 +12,6 @@
 		111111111111111111111103 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 111111111111111111111003 /* Assets.xcassets */; };
 		222222222222222222222101 /* KeyboardViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222001 /* KeyboardViewController.swift */; };
 		222222222222222222222102 /* SimpaninKeyboard.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 222222222222222222222003 /* SimpaninKeyboard.appex */; settings = {ATTRIBUTES = (CodeSignOnCopy, RemoveHeadersOnCopy, ); }; };
-		222222222222222222222103 /* PinyinLexicon.json in Resources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222004 /* PinyinLexicon.json */; };
 		222222222222222222222104 /* rime-ice-LICENSE.txt in Resources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222005 /* rime-ice-LICENSE.txt */; };
 /* End PBXBuildFile section */
 
@@ -49,7 +48,6 @@
 		222222222222222222222001 /* KeyboardViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardViewController.swift; sourceTree = "<group>"; };
 		222222222222222222222002 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		222222222222222222222003 /* SimpaninKeyboard.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SimpaninKeyboard.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		222222222222222222222004 /* PinyinLexicon.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = PinyinLexicon.json; sourceTree = "<group>"; };
 		222222222222222222222005 /* rime-ice-LICENSE.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "ThirdPartyLicenses/rime-ice-LICENSE.txt"; sourceTree = "<group>"; };
 		222222222222222222222006 /* SimpaninKeyboard.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SimpaninKeyboard.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -107,7 +105,6 @@
 				222222222222222222222001 /* KeyboardViewController.swift */,
 				222222222222222222222002 /* Info.plist */,
 				222222222222222222222006 /* SimpaninKeyboard.entitlements */,
-				222222222222222222222004 /* PinyinLexicon.json */,
 				222222222222222222222005 /* rime-ice-LICENSE.txt */,
 			);
 			path = SimpaninKeyboard;
@@ -202,7 +199,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				222222222222222222222103 /* PinyinLexicon.json in Resources */,
 				222222222222222222222104 /* rime-ice-LICENSE.txt in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
