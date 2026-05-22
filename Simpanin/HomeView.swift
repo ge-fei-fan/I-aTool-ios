@@ -2709,7 +2709,7 @@ private struct KeyboardGuideSheet: View {
                         }
                     }
 
-                    Text("键盘离线运行，不需要允许完全访问。拼音候选词库基于 rime-ice（GPL-3.0）转换，来源：https://github.com/iDvel/rime-ice。")
+                    Text("键盘离线运行，不需要允许完全访问。拼音候选词库基于 rime-frost（GPL-3.0）转换，来源：https://github.com/gaboolic/rime-frost。")
                         .font(.fitnexBody(size: 11, weight: .regular))
                         .foregroundColor(FitnexColor.grayText)
                 }

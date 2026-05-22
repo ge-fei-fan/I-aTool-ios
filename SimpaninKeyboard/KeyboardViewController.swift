@@ -13,12 +13,18 @@ final class KeyboardViewController: UIInputViewController {
         case on
     }
 
+    private enum CandidateMode {
+        case composition
+        case association
+    }
+
     private struct SelectedCompositionSegment {
         let pinyin: String
         let text: String
     }
 
     private let candidateProvider = PinyinCandidateProvider()
+    private let associationProvider = PinyinAssociationProvider()
     private let keyboardBackdropView = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
     private let rootStack = UIStackView()
     private let trackpadBlurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
@@ -31,6 +37,8 @@ final class KeyboardViewController: UIInputViewController {
     private var allCandidates: [String] = []
     private var visibleCandidateCount = 0
     private var highlightedCandidateIndex = 0
+    private var candidateMode: CandidateMode = .composition
+    private var associationContext: String?
     private var keyButtons: [UIButton] = []
     private var selectedCompositionSegments: [SelectedCompositionSegment] = []
     private var compositionBuffer = ""
@@ -352,11 +360,13 @@ final class KeyboardViewController: UIInputViewController {
         switch kind {
         case .character(let value):
             if keyboardMode == .letters, value.rangeOfCharacter(from: .letters) != nil {
+                associationContext = nil
                 let letter = shiftState == .on ? value.uppercased() : value.lowercased()
                 insertCompositionText(letter)
                 updateCandidates(resetScroll: true)
             } else {
                 commitCompositionAsText()
+                associationContext = nil
                 textDocumentProxy.insertText(value)
                 hasInsertedTextInCurrentContext = true
                 updateCandidates(resetScroll: true)
@@ -369,6 +379,7 @@ final class KeyboardViewController: UIInputViewController {
                 deleteCompositionBackward()
             } else {
                 textDocumentProxy.deleteBackward()
+                associationContext = nil
                 if documentContextIsExplicitlyEmpty {
                     hasInsertedTextInCurrentContext = false
                 }
@@ -385,6 +396,7 @@ final class KeyboardViewController: UIInputViewController {
                 }
             } else {
                 textDocumentProxy.insertText(" ")
+                associationContext = nil
                 hasInsertedTextInCurrentContext = true
             }
         case .returnKey:
@@ -393,6 +405,7 @@ final class KeyboardViewController: UIInputViewController {
             break
         case .modeSwitch(let target):
             commitCompositionAsText()
+            associationContext = nil
             keyboardMode = target
             renderKeyboard()
         }
@@ -473,6 +486,29 @@ final class KeyboardViewController: UIInputViewController {
         trackpadMovementFeedback.selectionChanged()
     }
 
+    private func handleCandidateSelection(_ candidate: String, index: Int) {
+        highlightedCandidateIndex = index
+        switch candidateMode {
+        case .composition:
+            replaceCompositionWith(candidate)
+        case .association:
+            insertAssociationCandidate(candidate)
+        }
+    }
+
+    private func insertAssociationCandidate(_ text: String) {
+        textDocumentProxy.insertText(text)
+        hasInsertedTextInCurrentContext = true
+        associationContext = limitedAssociationContext((associationContext ?? "") + text)
+        updateCandidates(resetScroll: true)
+    }
+
+    private func limitedAssociationContext(_ text: String) -> String {
+        let maxContextLength = 16
+        guard text.count > maxContextLength else { return text }
+        return String(text.suffix(maxContextLength))
+    }
+
     private func replaceCompositionWith(_ text: String) {
         guard hasActiveComposition else {
             textDocumentProxy.insertText(text)
@@ -484,6 +520,7 @@ final class KeyboardViewController: UIInputViewController {
         }
 
         let pinyin = activeCandidatePinyin
+        candidateProvider.recordSelection(text, for: pinyin)
         if selectedCompositionSegments.isEmpty {
             removeActivePinyinPrefix()
         } else {
@@ -495,6 +532,7 @@ final class KeyboardViewController: UIInputViewController {
         if compositionBuffer.isEmpty {
             textDocumentProxy.insertText(selectedCompositionText)
             hasInsertedTextInCurrentContext = true
+            associationContext = limitedAssociationContext(selectedCompositionText)
             resetCompositionState()
             refreshCompositionDisplay()
         } else {
@@ -508,14 +546,22 @@ final class KeyboardViewController: UIInputViewController {
         guard keyboardMode == .letters else {
             allCandidates = []
             visibleCandidateCount = 0
+            candidateMode = .composition
             renderVisibleCandidates()
             updateReturnKeyAppearance()
             return
         }
         let pinyin = activeCandidatePinyin
         if pinyin.isEmpty {
-            allCandidates = []
+            if !hasActiveComposition, let associationContext {
+                candidateMode = .association
+                allCandidates = associationProvider.associations(for: associationContext)
+            } else {
+                candidateMode = .composition
+                allCandidates = []
+            }
         } else {
+            candidateMode = .composition
             allCandidates = self.candidates(for: pinyin)
         }
         visibleCandidateCount = min(Self.candidateBatchSize, allCandidates.count)
@@ -556,8 +602,7 @@ final class KeyboardViewController: UIInputViewController {
             button.layer.shadowRadius = 1
             button.layer.shadowOffset = CGSize(width: 0, height: 1)
             button.addAction(UIAction { [weak self] _ in
-                self?.highlightedCandidateIndex = index
-                self?.replaceCompositionWith(candidate)
+                self?.handleCandidateSelection(candidate, index: index)
             }, for: .touchUpInside)
             candidateStack.addArrangedSubview(button)
             button.widthAnchor.constraint(greaterThanOrEqualToConstant: 48).isActive = true
@@ -849,6 +894,7 @@ final class KeyboardViewController: UIInputViewController {
     private func finalizeComposition() {
         let text = compositionText
         guard !text.isEmpty else {
+            associationContext = nil
             resetCompositionState()
             refreshCompositionDisplay()
             updateCandidates(resetScroll: true)
@@ -856,6 +902,7 @@ final class KeyboardViewController: UIInputViewController {
         }
         textDocumentProxy.insertText(text)
         hasInsertedTextInCurrentContext = true
+        associationContext = nil
         resetCompositionState()
         refreshCompositionDisplay()
         updateCandidates(resetScroll: true)
@@ -1088,6 +1135,176 @@ private struct PinyinSegmenter {
     }
 }
 
+private final class PinyinAssociationProvider {
+    private struct IndexRecord {
+        let key: String
+        let offset: UInt64
+        let length: Int
+    }
+
+    private static let recordSize = 44
+    private static let keySize = 32
+
+    private let associationsURL = Bundle.main.url(forResource: "PinyinAssociations", withExtension: "tsv")
+    private let indexURL = Bundle.main.url(forResource: "PinyinAssociations", withExtension: "idx")
+    private let recordCount: Int
+
+    init() {
+        if let indexURL,
+           let size = try? FileManager.default.attributesOfItem(atPath: indexURL.path)[.size] as? NSNumber {
+            recordCount = size.intValue / Self.recordSize
+        } else {
+            recordCount = 0
+        }
+    }
+
+    func associations(for context: String) -> [String] {
+        let keys = lookupKeys(for: context)
+        guard !keys.isEmpty else { return [] }
+
+        var candidates: [PinyinCandidate] = []
+        for (index, key) in keys.enumerated() {
+            let baseWeight = 1_000_000 - index * 100_000
+            candidates += weightedAssociations(for: key, baseWeight: baseWeight)
+        }
+        return merge(candidates).map(\.text)
+    }
+
+    private func lookupKeys(for context: String) -> [String] {
+        let text = String(context.compactMap { character -> Character? in
+            guard character.unicodeScalars.count == 1,
+                  let scalar = character.unicodeScalars.first,
+                  scalar.value >= 0x4e00,
+                  scalar.value <= 0x9fff else {
+                return nil
+            }
+            return character
+        })
+        guard text.count >= 2 else { return [] }
+
+        let maxLength = min(4, text.count)
+        return stride(from: maxLength, through: 2, by: -1).map { length in
+            let start = text.index(text.endIndex, offsetBy: -length)
+            return String(text[start...])
+        }
+    }
+
+    private func weightedAssociations(for key: String, baseWeight: Int) -> [PinyinCandidate] {
+        guard let lineCandidates = bundledAssociations(for: key) else { return [] }
+        return lineCandidates.map { candidate in
+            PinyinCandidate(text: candidate.text, weight: candidate.weight + baseWeight)
+        }
+    }
+
+    private func bundledAssociations(for key: String) -> [PinyinCandidate]? {
+        guard let associationsURL, let indexURL, recordCount > 0 else { return nil }
+        guard let record = findRecord(for: key, in: indexURL) else { return nil }
+        guard let handle = try? FileHandle(forReadingFrom: associationsURL) else { return nil }
+        defer { try? handle.close() }
+
+        do {
+            try handle.seek(toOffset: record.offset)
+            let data = try handle.read(upToCount: record.length) ?? Data()
+            guard let line = String(data: data, encoding: .utf8) else { return nil }
+            return line
+                .trimmingCharacters(in: .newlines)
+                .split(separator: "\t", omittingEmptySubsequences: true)
+                .dropFirst()
+                .enumerated()
+                .map { index, field in
+                    Self.parseCandidateField(String(field), fallbackWeight: 80 - index)
+                }
+        } catch {
+            return nil
+        }
+    }
+
+    private func findRecord(for key: String, in indexURL: URL) -> IndexRecord? {
+        guard let handle = try? FileHandle(forReadingFrom: indexURL) else { return nil }
+        defer { try? handle.close() }
+
+        var low = 0
+        var high = recordCount - 1
+
+        while low <= high {
+            let mid = (low + high) / 2
+            guard let record = readRecord(at: mid, from: handle) else { return nil }
+            let comparison = record.key.compare(key)
+
+            if comparison == .orderedSame {
+                return record
+            } else if comparison == .orderedAscending {
+                low = mid + 1
+            } else {
+                high = mid - 1
+            }
+        }
+
+        return nil
+    }
+
+    private func readRecord(at index: Int, from handle: FileHandle) -> IndexRecord? {
+        do {
+            try handle.seek(toOffset: UInt64(index * Self.recordSize))
+            let data = try handle.read(upToCount: Self.recordSize) ?? Data()
+            guard data.count == Self.recordSize else { return nil }
+
+            let keyData = data.prefix(Self.keySize).prefix { $0 != 0 }
+            guard let key = String(data: Data(keyData), encoding: .utf8) else { return nil }
+
+            let offset = Self.uint64LE(data, start: Self.keySize)
+            let length = Int(Self.uint32LE(data, start: Self.keySize + 8))
+            return IndexRecord(key: key, offset: offset, length: length)
+        } catch {
+            return nil
+        }
+    }
+
+    private func merge(_ candidates: [PinyinCandidate]) -> [PinyinCandidate] {
+        var bestByText: [String: Int] = [:]
+        for candidate in candidates where !candidate.text.isEmpty {
+            bestByText[candidate.text] = max(bestByText[candidate.text] ?? Int.min, candidate.weight)
+        }
+        return bestByText
+            .map { PinyinCandidate(text: $0.key, weight: $0.value) }
+            .sorted {
+                if $0.weight != $1.weight {
+                    return $0.weight > $1.weight
+                }
+                if $0.text.count != $1.text.count {
+                    return $0.text.count < $1.text.count
+                }
+                return $0.text < $1.text
+            }
+    }
+
+    private static func parseCandidateField(_ field: String, fallbackWeight: Int) -> PinyinCandidate {
+        guard let separator = field.lastIndex(of: ":") else {
+            return PinyinCandidate(text: field, weight: fallbackWeight)
+        }
+
+        let text = String(field[..<separator])
+        let weightText = String(field[field.index(after: separator)...])
+        return PinyinCandidate(text: text, weight: Int(weightText) ?? fallbackWeight)
+    }
+
+    private static func uint64LE(_ data: Data, start: Int) -> UInt64 {
+        var result: UInt64 = 0
+        for index in 0..<8 {
+            result |= UInt64(data[start + index]) << UInt64(index * 8)
+        }
+        return result
+    }
+
+    private static func uint32LE(_ data: Data, start: Int) -> UInt32 {
+        var result: UInt32 = 0
+        for index in 0..<4 {
+            result |= UInt32(data[start + index]) << UInt32(index * 8)
+        }
+        return result
+    }
+}
+
 private final class PinyinCandidateProvider {
     private struct IndexRecord {
         let key: String
@@ -1095,11 +1312,16 @@ private final class PinyinCandidateProvider {
         let length: Int
     }
 
+    private static let memoryDefaultsKey = "pinyinCandidateSelectionMemory.v1"
+    private static let maxMemoryEntries = 1_000
+    private static let maxMemoryCount = 100
+    private static let memoryWeightStep = 2_000_000
     private static let recordSize = 28
     private static let keySize = 16
 
     private let lexiconURL = Bundle.main.url(forResource: "PinyinLexicon", withExtension: "tsv")
     private let indexURL = Bundle.main.url(forResource: "PinyinLexicon", withExtension: "idx")
+    private let defaults = UserDefaults.standard
     private let recordCount: Int
 
     init() {
@@ -1131,7 +1353,31 @@ private final class PinyinCandidateProvider {
         }
         candidates += fallbackCandidates(for: key, baseWeight: 100_000)
 
-        return merge(candidates).map(\.text)
+        return applyUserMemory(to: merge(candidates), key: key).map(\.text)
+    }
+
+    func recordSelection(_ text: String, for pinyin: String) {
+        let key = Self.normalizedKey(pinyin)
+        guard !key.isEmpty, !text.isEmpty else { return }
+
+        let memoryKey = Self.memoryKey(pinyin: key, text: text)
+        var memory = selectionMemory
+        let nextCount = min(Self.maxMemoryCount, (memory[memoryKey] ?? 0) + 1)
+        memory[memoryKey] = nextCount
+
+        if memory.count > Self.maxMemoryEntries {
+            let sortedKeys = memory.sorted {
+                if $0.value != $1.value {
+                    return $0.value > $1.value
+                }
+                return $0.key < $1.key
+            }.prefix(Self.maxMemoryEntries).map(\.key)
+            memory = Dictionary(uniqueKeysWithValues: sortedKeys.compactMap { key in
+                memory[key].map { (key, $0) }
+            })
+        }
+
+        defaults.set(memory, forKey: Self.memoryDefaultsKey)
     }
 
     private func weightedCandidates(for key: String, baseWeight: Int) -> [PinyinCandidate] {
@@ -1217,6 +1463,41 @@ private final class PinyinCandidateProvider {
             }
     }
 
+    private func applyUserMemory(to candidates: [PinyinCandidate], key: String) -> [PinyinCandidate] {
+        let memory = selectionMemory
+        return candidates
+            .map { candidate in
+                let count = memory[Self.memoryKey(pinyin: key, text: candidate.text)] ?? 0
+                return PinyinCandidate(text: candidate.text, weight: candidate.weight + count * Self.memoryWeightStep)
+            }
+            .sorted {
+                if $0.weight != $1.weight {
+                    return $0.weight > $1.weight
+                }
+                if $0.text.count != $1.text.count {
+                    return $0.text.count < $1.text.count
+                }
+                return $0.text < $1.text
+            }
+    }
+
+    private var selectionMemory: [String: Int] {
+        guard let rawMemory = defaults.dictionary(forKey: Self.memoryDefaultsKey) else { return [:] }
+        return rawMemory.compactMapValues { value in
+            if let count = value as? Int {
+                return count
+            }
+            if let count = value as? NSNumber {
+                return count.intValue
+            }
+            return nil
+        }
+    }
+
+    private static func memoryKey(pinyin: String, text: String) -> String {
+        pinyin + "\t" + text
+    }
+
     private func bundledCandidates(for key: String) -> [PinyinCandidate]? {
         guard let lexiconURL, let indexURL, recordCount > 0 else { return nil }
         guard let record = findRecord(for: key, in: indexURL) else { return nil }
@@ -1282,9 +1563,12 @@ private final class PinyinCandidateProvider {
     }
 
     private static func normalizedKey(_ value: String) -> String {
-        String(value.lowercased().unicodeScalars.compactMap { scalar in
-            guard scalar.value >= 97 && scalar.value <= 122 else { return nil }
-            return Character(scalar)
+        String(value.lowercased().filter { character in
+            guard character.unicodeScalars.count == 1,
+                  let scalar = character.unicodeScalars.first else {
+                return false
+            }
+            return scalar.value >= 97 && scalar.value <= 122
         })
     }
 
