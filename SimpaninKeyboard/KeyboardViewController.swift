@@ -842,15 +842,17 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
-    private func makeCandidateButton(candidate: KeyboardCandidate, index: Int) -> UIButton {
+    private func makeCandidateButton(candidate: KeyboardCandidate, index: Int, expanded: Bool = false) -> UIButton {
         let isHighlighted = index == highlightedCandidateIndex
         let button = UIButton(type: .system)
         button.setTitle(candidate.text, for: .normal)
         button.titleLabel?.font = .systemFont(ofSize: 17, weight: isHighlighted ? .semibold : .regular)
-        button.titleLabel?.lineBreakMode = .byTruncatingTail
+        button.titleLabel?.numberOfLines = expanded ? 0 : 1
+        button.titleLabel?.lineBreakMode = expanded ? .byCharWrapping : .byTruncatingTail
+        button.titleLabel?.textAlignment = .center
         button.setTitleColor(isHighlighted ? highlightedCandidateText : primaryText, for: .normal)
         button.backgroundColor = isHighlighted ? highlightedCandidateBackground : .clear
-        button.contentEdgeInsets = UIEdgeInsets(top: 2, left: 12, bottom: 2, right: 12)
+        button.contentEdgeInsets = expanded ? UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12) : UIEdgeInsets(top: 2, left: 12, bottom: 2, right: 12)
         button.layer.cornerRadius = 7
         button.layer.borderWidth = 0.5
         button.layer.borderColor = (isHighlighted ? UIColor.clear : candidateBorder).cgColor
@@ -862,6 +864,30 @@ final class KeyboardViewController: UIInputViewController {
             self?.handleCandidateSelection(candidate, index: index)
         }, for: .touchUpInside)
         return button
+    }
+
+    private func candidatePageButtonSize(for text: String, maxWidth: CGFloat) -> CGSize {
+        let horizontalInset: CGFloat = 24
+        let verticalInset: CGFloat = 12
+        let minimumWidth: CGFloat = 56
+        let minimumHeight: CGFloat = 34
+        let font = UIFont.systemFont(ofSize: 17, weight: .semibold)
+        let unconstrainedSize = (text as NSString).boundingRect(
+            with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font],
+            context: nil
+        ).size
+        let preferredWidth = ceil(unconstrainedSize.width) + horizontalInset
+        let width = min(max(minimumWidth, preferredWidth), maxWidth)
+        let textWidth = max(1, width - horizontalInset)
+        let wrappedSize = (text as NSString).boundingRect(
+            with: CGSize(width: textWidth, height: CGFloat.greatestFiniteMagnitude),
+            options: [.usesLineFragmentOrigin, .usesFontLeading],
+            attributes: [.font: font],
+            context: nil
+        ).size
+        return CGSize(width: width, height: max(minimumHeight, ceil(wrappedSize.height) + verticalInset))
     }
 
     private func updateCandidateExpandButtonVisibility() {
@@ -957,34 +983,29 @@ final class KeyboardViewController: UIInputViewController {
         let spacing: CGFloat = 6
         let minButtonWidth: CGFloat = 56
         let contentWidth = max(candidatePageView.bounds.width - 12, minButtonWidth)
-        let columnCount = max(2, Int((contentWidth + spacing) / (minButtonWidth + spacing)))
-
         var rowStack: UIStackView?
+        var rowWidth: CGFloat = 0
+
         for (index, candidate) in allCandidates.enumerated() {
-            if index % columnCount == 0 {
+            let size = candidatePageButtonSize(for: candidate.text, maxWidth: contentWidth)
+            let needsNewRow = rowStack == nil || rowWidth + spacing + size.width > contentWidth
+
+            if needsNewRow {
                 let newRow = UIStackView()
                 newRow.axis = .horizontal
                 newRow.spacing = spacing
-                newRow.alignment = .fill
-                newRow.distribution = .fillEqually
+                newRow.alignment = .top
+                newRow.distribution = .fill
                 candidatePageStack.addArrangedSubview(newRow)
                 rowStack = newRow
+                rowWidth = 0
             }
 
-            let button = makeCandidateButton(candidate: candidate, index: index)
+            let button = makeCandidateButton(candidate: candidate, index: index, expanded: true)
             rowStack?.addArrangedSubview(button)
-            button.heightAnchor.constraint(equalToConstant: 34).isActive = true
-        }
-
-        if let rowStack = rowStack {
-            let remainder = rowStack.arrangedSubviews.count % columnCount
-            if remainder > 0 {
-                for _ in 0..<(columnCount - remainder) {
-                    let spacer = UIView()
-                    rowStack.addArrangedSubview(spacer)
-                    spacer.heightAnchor.constraint(equalToConstant: 34).isActive = true
-                }
-            }
+            button.widthAnchor.constraint(equalToConstant: size.width).isActive = true
+            button.heightAnchor.constraint(equalToConstant: size.height).isActive = true
+            rowWidth += (rowWidth == 0 ? 0 : spacing) + size.width
         }
     }
 
@@ -1281,11 +1302,12 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func pinyinDisplay() -> (text: String, cursorOffset: Int, rawOffsets: [Int]) {
-        let prefix = segmentedPinyin(selectedCompositionPinyin)
+        let prefix = selectedCompositionText
         let current = segmentedPinyin(compositionBuffer)
-        let text = [prefix, current].filter { !$0.isEmpty }.joined(separator: prefix.isEmpty || current.isEmpty ? "" : "'")
+        let text = prefix + current
+        let rawOffsets = compositionDisplayRawOffsets(currentDisplayText: current)
         let rawCursor = selectedCompositionPinyin.count + compositionCursorOffset
-        return (text, displayOffset(forRawOffset: rawCursor, in: text), rawOffsets(forDisplayText: text))
+        return (text, displayOffset(forRawOffset: rawCursor, rawOffsets: rawOffsets, displayTextCount: text.count), rawOffsets)
     }
 
     private func segmentedPinyin(_ pinyin: String) -> String {
@@ -1308,9 +1330,44 @@ final class KeyboardViewController: UIInputViewController {
         return offsets
     }
 
-    private func displayOffset(forRawOffset rawOffset: Int, in displayText: String) -> Int {
-        let offsets = rawOffsets(forDisplayText: displayText)
-        return offsets.lastIndex(of: rawOffset) ?? min(rawOffset, displayText.count)
+    private func compositionDisplayRawOffsets(currentDisplayText: String) -> [Int] {
+        var offsets: [Int] = [0]
+        var rawOffset = 0
+
+        for segment in selectedCompositionSegments {
+            let characters = Array(segment.text)
+            guard !characters.isEmpty else {
+                rawOffset += segment.pinyin.count
+                continue
+            }
+            for index in characters.indices {
+                if index == characters.index(before: characters.endIndex) {
+                    offsets.append(rawOffset + segment.pinyin.count)
+                } else {
+                    offsets.append(rawOffset)
+                }
+            }
+            rawOffset += segment.pinyin.count
+        }
+
+        for character in currentDisplayText {
+            if character != "'" {
+                rawOffset += 1
+            }
+            offsets.append(rawOffset)
+        }
+
+        return offsets
+    }
+
+    private func displayOffset(forRawOffset rawOffset: Int, rawOffsets: [Int], displayTextCount: Int) -> Int {
+        if let exactOffset = rawOffsets.lastIndex(of: rawOffset) {
+            return exactOffset
+        }
+        if let nextOffset = rawOffsets.firstIndex(where: { $0 > rawOffset }) {
+            return nextOffset
+        }
+        return min(rawOffset, displayTextCount)
     }
 
     private func commitCompositionAsText() {
