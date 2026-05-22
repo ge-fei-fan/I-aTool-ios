@@ -83,6 +83,9 @@ final class KeyboardViewController: UIInputViewController {
     private let trackpadMovementFeedback = UISelectionFeedbackGenerator()
 
     private static let candidateBatchSize = 30
+    private static let candidatePanelAnimationDuration: TimeInterval = 0.22
+    private static let candidateToggleButtonWidth: CGFloat = 34
+    private static let candidateToggleButtonHeight: CGFloat = 30
     private static let utilityFillText = "kk223344"
     private static let trackpadStepWidth: CGFloat = 10
     private static let keyPreviewHorizontalInset: CGFloat = 4
@@ -182,17 +185,13 @@ final class KeyboardViewController: UIInputViewController {
         candidateBarStack.addArrangedSubview(candidateScrollView)
 
         candidateExpandButton.translatesAutoresizingMaskIntoConstraints = false
-        candidateExpandButton.setImage(UIImage(systemName: "chevron.down"), for: .normal)
-        candidateExpandButton.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
-        candidateExpandButton.contentEdgeInsets = UIEdgeInsets(top: 2, left: 8, bottom: 2, right: 8)
-        candidateExpandButton.layer.cornerRadius = 7
-        candidateExpandButton.layer.borderWidth = 0.5
+        configureCandidateToggleButton(candidateExpandButton, systemName: "chevron.down")
         candidateExpandButton.isHidden = true
         candidateExpandButton.addAction(UIAction { [weak self] _ in
             self?.setCandidatePageVisible(true)
         }, for: .touchUpInside)
         candidateBarStack.addArrangedSubview(candidateExpandButton)
-        candidateExpandButton.widthAnchor.constraint(equalToConstant: 34).isActive = true
+        candidateExpandButton.widthAnchor.constraint(equalToConstant: Self.candidateToggleButtonWidth).isActive = true
 
         candidateStack.axis = .horizontal
         candidateStack.spacing = 6
@@ -255,15 +254,12 @@ final class KeyboardViewController: UIInputViewController {
     private func setupCandidatePage() {
         candidatePageView.translatesAutoresizingMaskIntoConstraints = false
         candidatePageView.isHidden = true
-        candidatePageView.layer.cornerRadius = 10
+        candidatePageView.layer.cornerRadius = 0
         candidatePageView.layer.masksToBounds = true
         view.addSubview(candidatePageView)
 
         candidatePageCollapseButton.translatesAutoresizingMaskIntoConstraints = false
-        candidatePageCollapseButton.setImage(UIImage(systemName: "chevron.up"), for: .normal)
-        candidatePageCollapseButton.contentEdgeInsets = UIEdgeInsets(top: 2, left: 10, bottom: 2, right: 10)
-        candidatePageCollapseButton.layer.cornerRadius = 7
-        candidatePageCollapseButton.layer.borderWidth = 0.5
+        configureCandidateToggleButton(candidatePageCollapseButton, systemName: "chevron.up")
         candidatePageCollapseButton.addAction(UIAction { [weak self] _ in
             self?.setCandidatePageVisible(false)
         }, for: .touchUpInside)
@@ -281,15 +277,15 @@ final class KeyboardViewController: UIInputViewController {
         candidatePageScrollView.addSubview(candidatePageStack)
 
         NSLayoutConstraint.activate([
-            candidatePageView.leadingAnchor.constraint(equalTo: rootStack.leadingAnchor),
-            candidatePageView.trailingAnchor.constraint(equalTo: rootStack.trailingAnchor),
+            candidatePageView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            candidatePageView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             candidatePageView.topAnchor.constraint(equalTo: candidateBarStack.topAnchor),
-            candidatePageView.bottomAnchor.constraint(equalTo: rootStack.bottomAnchor),
+            candidatePageView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
             candidatePageCollapseButton.topAnchor.constraint(equalTo: candidatePageView.topAnchor, constant: 4),
-            candidatePageCollapseButton.trailingAnchor.constraint(equalTo: candidatePageView.trailingAnchor, constant: -4),
-            candidatePageCollapseButton.heightAnchor.constraint(equalToConstant: 26),
-            candidatePageCollapseButton.widthAnchor.constraint(equalToConstant: 42),
+            candidatePageCollapseButton.trailingAnchor.constraint(equalTo: candidatePageView.trailingAnchor, constant: -8),
+            candidatePageCollapseButton.heightAnchor.constraint(equalToConstant: Self.candidateToggleButtonHeight),
+            candidatePageCollapseButton.widthAnchor.constraint(equalToConstant: Self.candidateToggleButtonWidth),
 
             candidatePageScrollView.leadingAnchor.constraint(equalTo: candidatePageView.leadingAnchor, constant: 6),
             candidatePageScrollView.trailingAnchor.constraint(equalTo: candidatePageView.trailingAnchor, constant: -6),
@@ -304,9 +300,19 @@ final class KeyboardViewController: UIInputViewController {
         ])
     }
 
+    private func configureCandidateToggleButton(_ button: UIButton, systemName: String) {
+        let configuration = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
+        button.setImage(UIImage(systemName: systemName, withConfiguration: configuration), for: .normal)
+        button.contentEdgeInsets = UIEdgeInsets(top: 2, left: 8, bottom: 2, right: 8)
+        button.layer.cornerRadius = 7
+        button.layer.borderWidth = 0.5
+        button.contentHorizontalAlignment = .center
+        button.contentVerticalAlignment = .center
+    }
+
     private func renderKeyboard() {
         hideKeyPreview(animated: false)
-        setCandidatePageVisible(false)
+        setCandidatePageVisible(false, animated: false)
         keyButtons.removeAll()
         keyboardRowsStack.arrangedSubviews.forEach { view in
             keyboardRowsStack.removeArrangedSubview(view)
@@ -866,22 +872,76 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
-    private func setCandidatePageVisible(_ visible: Bool) {
+    private func setCandidatePageVisible(_ visible: Bool, animated: Bool = true) {
         let shouldShow = visible && keyboardMode == .letters && inputLanguage == .chinese && !allCandidates.isEmpty
         guard isCandidatePageVisible != shouldShow || candidatePageView.isHidden == shouldShow else { return }
 
         isCandidatePageVisible = shouldShow
-        candidatePageView.isHidden = !shouldShow
+        view.layoutIfNeeded()
+
         if shouldShow {
             hideKeyPreview(animated: false)
             candidatePageScrollView.setContentOffset(.zero, animated: false)
             renderCandidatePage()
+            candidatePageView.backgroundColor = candidatePageBackground
+            candidatePageView.isHidden = false
+            candidatePageView.alpha = 1
             view.bringSubviewToFront(candidatePageView)
             view.bringSubviewToFront(trackpadBlurView)
             view.bringSubviewToFront(keyPreviewView)
+
+            let candidatePageOffset = candidatePageDismissOffset
+            let keyboardOffset = keyboardRowsDismissOffset
+            let animations = {
+                self.candidatePageView.transform = .identity
+                self.keyboardRowsStack.transform = CGAffineTransform(translationX: 0, y: keyboardOffset)
+            }
+
+            if animated {
+                candidatePageView.transform = CGAffineTransform(translationX: 0, y: candidatePageOffset)
+                keyboardRowsStack.transform = .identity
+                UIView.animate(
+                    withDuration: Self.candidatePanelAnimationDuration,
+                    delay: 0,
+                    options: [.curveEaseInOut, .beginFromCurrentState],
+                    animations: animations
+                )
+            } else {
+                animations()
+            }
         } else {
-            clearCandidatePage()
+            let animations = {
+                self.candidatePageView.transform = CGAffineTransform(translationX: 0, y: self.candidatePageDismissOffset)
+                self.keyboardRowsStack.transform = .identity
+            }
+            let complete: (Bool) -> Void = { _ in
+                guard !self.isCandidatePageVisible else { return }
+                self.candidatePageView.isHidden = true
+                self.candidatePageView.transform = .identity
+                self.clearCandidatePage()
+            }
+
+            if animated && !candidatePageView.isHidden {
+                UIView.animate(
+                    withDuration: Self.candidatePanelAnimationDuration,
+                    delay: 0,
+                    options: [.curveEaseInOut, .beginFromCurrentState],
+                    animations: animations,
+                    completion: complete
+                )
+            } else {
+                animations()
+                complete(true)
+            }
         }
+    }
+
+    private var candidatePageDismissOffset: CGFloat {
+        max(candidatePageView.bounds.height, view.bounds.height - candidatePageView.frame.minY, 1) + 12
+    }
+
+    private var keyboardRowsDismissOffset: CGFloat {
+        max(keyboardRowsStack.bounds.height, view.bounds.height - keyboardRowsStack.frame.minY, 1) + 12
     }
 
     private func renderCandidatePageIfNeeded() {
@@ -989,7 +1049,7 @@ final class KeyboardViewController: UIInputViewController {
         candidateScrollView.backgroundColor = .clear
         candidateStack.backgroundColor = .clear
         candidateBarStack.backgroundColor = .clear
-        candidatePageView.backgroundColor = keyboardBackground
+        candidatePageView.backgroundColor = candidatePageBackground
         candidatePageScrollView.backgroundColor = .clear
         candidatePageStack.backgroundColor = .clear
     }
@@ -1009,6 +1069,10 @@ final class KeyboardViewController: UIInputViewController {
 
     private var keyboardBackground: UIColor {
         isDark ? UIColor(red: 0.13, green: 0.14, blue: 0.14, alpha: 0.72) : UIColor(red: 0.73, green: 0.75, blue: 0.78, alpha: 0.72)
+    }
+
+    private var candidatePageBackground: UIColor {
+        isDark ? UIColor(red: 0.13, green: 0.14, blue: 0.14, alpha: 1) : UIColor(red: 0.73, green: 0.75, blue: 0.78, alpha: 1)
     }
 
     private var usesTransparentSearchBackdrop: Bool {
