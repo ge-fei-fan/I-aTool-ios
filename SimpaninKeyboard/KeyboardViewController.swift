@@ -100,14 +100,14 @@ final class KeyboardViewController: UIInputViewController {
             self?.moveCompositionCursor(toCompositionTextOffset: offset)
         }
         rootStack.addArrangedSubview(compositionBar)
-        compositionBar.heightAnchor.constraint(equalToConstant: 26).isActive = true
+        compositionBar.heightAnchor.constraint(equalToConstant: 24).isActive = true
 
         candidateScrollView.showsHorizontalScrollIndicator = false
         candidateScrollView.alwaysBounceHorizontal = true
         candidateScrollView.clipsToBounds = false
         candidateScrollView.delegate = self
         rootStack.addArrangedSubview(candidateScrollView)
-        candidateScrollView.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        candidateScrollView.heightAnchor.constraint(equalToConstant: 34).isActive = true
 
         candidateStack.axis = .horizontal
         candidateStack.spacing = 6
@@ -351,6 +351,10 @@ final class KeyboardViewController: UIInputViewController {
         guard isReturnKeyEnabled else { return }
         if hasPendingCandidates {
             finalizeComposition()
+        } else if isSendInput {
+            finalizeComposition()
+            textDocumentProxy.insertText("\n")
+            hasInsertedTextInCurrentContext = true
         } else if isSearchInput || isMultilineInput {
             finalizeComposition()
             textDocumentProxy.insertText("\n")
@@ -494,7 +498,7 @@ final class KeyboardViewController: UIInputViewController {
             button.titleLabel?.font = .systemFont(ofSize: 17, weight: isHighlighted ? .semibold : .regular)
             button.setTitleColor(isHighlighted ? highlightedCandidateText : primaryText, for: .normal)
             button.backgroundColor = isHighlighted ? highlightedCandidateBackground : .clear
-            button.contentEdgeInsets = UIEdgeInsets(top: 4, left: 12, bottom: 4, right: 12)
+            button.contentEdgeInsets = UIEdgeInsets(top: 3, left: 12, bottom: 3, right: 12)
             button.layer.cornerRadius = 7
             button.layer.borderWidth = 0.5
             button.layer.borderColor = (isHighlighted ? UIColor.clear : candidateBorder).cgColor
@@ -512,16 +516,21 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func renderUtilityCandidateButton() {
+        let leadingSpacer = UIView()
+        candidateStack.addArrangedSubview(leadingSpacer)
+        leadingSpacer.widthAnchor.constraint(equalToConstant: 8).isActive = true
+
         let button = UIButton(type: .system)
         button.setTitle("⌘", for: .normal)
         button.titleLabel?.font = .systemFont(ofSize: 20, weight: .semibold)
         button.setTitleColor(secondaryText, for: .normal)
         button.backgroundColor = candidateBackground
-        button.contentEdgeInsets = UIEdgeInsets(top: 4, left: 14, bottom: 4, right: 14)
+        button.contentEdgeInsets = UIEdgeInsets(top: 3, left: 14, bottom: 3, right: 14)
         button.layer.cornerRadius = 7
         button.layer.borderWidth = 0.5
         button.layer.borderColor = candidateBorder.cgColor
         candidateStack.addArrangedSubview(button)
+        button.heightAnchor.constraint(equalToConstant: 28).isActive = true
         button.widthAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
     }
 
@@ -543,7 +552,7 @@ final class KeyboardViewController: UIInputViewController {
                 button.alpha = 1
             }
             let title = button.title(for: .normal) ?? ""
-            let isSpecial = ["123", "ABC", "#+=", "⌫", "⇧", "搜索", "确认", "换行"].contains(title)
+            let isSpecial = ["123", "ABC", "#+=", "⌫", "⇧", "搜索", "确认", "发送", "换行"].contains(title)
             button.backgroundColor = isSpecial ? specialKeyBackground : keyBackground
             button.setTitleColor(primaryText, for: .normal)
             button.layer.shadowColor = shadowColor.cgColor
@@ -625,6 +634,9 @@ final class KeyboardViewController: UIInputViewController {
         if hasPendingCandidates {
             return "确认"
         }
+        if isSendInput {
+            return "发送"
+        }
         if isSearchInput {
             return "搜索"
         }
@@ -641,6 +653,9 @@ final class KeyboardViewController: UIInputViewController {
         if isSearchInput {
             return hasDocumentText
         }
+        if isSendInput {
+            return hasDocumentText
+        }
         return true
     }
 
@@ -650,6 +665,10 @@ final class KeyboardViewController: UIInputViewController {
 
     private var isSearchInput: Bool {
         textDocumentProxy.returnKeyType == .search || textDocumentProxy.keyboardType == .webSearch
+    }
+
+    private var isSendInput: Bool {
+        textDocumentProxy.returnKeyType == .send
     }
 
     private var isMultilineInput: Bool {
@@ -848,7 +867,7 @@ private final class CompositionBarView: UIView {
     private var cursorOffset = 0
     private var rawOffsets: [Int] = [0]
     private let font = UIFont.systemFont(ofSize: 15, weight: .regular)
-    private let textInsets = UIEdgeInsets(top: 3, left: 10, bottom: 3, right: 10)
+    private let textInsets = UIEdgeInsets(top: 1, left: 10, bottom: 1, right: 10)
     private var barTextColor = UIColor.black
     private var barCursorColor = UIColor.systemBlue
 
