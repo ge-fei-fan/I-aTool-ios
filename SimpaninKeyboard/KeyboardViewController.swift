@@ -19,7 +19,6 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private let candidateProvider = PinyinCandidateProvider()
-    private let keyboardBackdropView = UIVisualEffectView(effect: UIBlurEffect(style: .systemUltraThinMaterialDark))
     private let rootStack = UIStackView()
     private let trackpadBlurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
     private let compositionBar = CompositionBarView()
@@ -27,6 +26,7 @@ final class KeyboardViewController: UIInputViewController {
     private let candidateStack = UIStackView()
     private var allCandidates: [String] = []
     private var visibleCandidateCount = 0
+    private var highlightedCandidateIndex = 0
     private var keyButtons: [UIButton] = []
     private var selectedCompositionSegments: [SelectedCompositionSegment] = []
     private var compositionBuffer = ""
@@ -70,13 +70,8 @@ final class KeyboardViewController: UIInputViewController {
     private func setupKeyboard() {
         view.backgroundColor = keyboardBackground
 
-        keyboardBackdropView.translatesAutoresizingMaskIntoConstraints = false
-        keyboardBackdropView.alpha = 0.78
-        keyboardBackdropView.isUserInteractionEnabled = false
-        view.addSubview(keyboardBackdropView)
-
         rootStack.axis = .vertical
-        rootStack.spacing = 6
+        rootStack.spacing = 7
         rootStack.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(rootStack)
 
@@ -86,19 +81,15 @@ final class KeyboardViewController: UIInputViewController {
         view.addSubview(trackpadBlurView)
 
         NSLayoutConstraint.activate([
-            keyboardBackdropView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            keyboardBackdropView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            keyboardBackdropView.topAnchor.constraint(equalTo: view.topAnchor),
-            keyboardBackdropView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            rootStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 8),
-            rootStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -8),
-            rootStack.topAnchor.constraint(equalTo: view.topAnchor, constant: 8),
-            rootStack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -8),
+            rootStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 4),
+            rootStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -4),
+            rootStack.topAnchor.constraint(equalTo: view.topAnchor, constant: 6),
+            rootStack.bottomAnchor.constraint(equalTo: view.bottomAnchor, constant: -6),
             trackpadBlurView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             trackpadBlurView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             trackpadBlurView.topAnchor.constraint(equalTo: view.topAnchor),
             trackpadBlurView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            view.heightAnchor.constraint(greaterThanOrEqualToConstant: 286)
+            view.heightAnchor.constraint(greaterThanOrEqualToConstant: 258)
         ])
 
         trackpadActivationFeedback.prepare()
@@ -109,21 +100,21 @@ final class KeyboardViewController: UIInputViewController {
             self?.moveCompositionCursor(toCompositionTextOffset: offset)
         }
         rootStack.addArrangedSubview(compositionBar)
-        compositionBar.heightAnchor.constraint(equalToConstant: 28).isActive = true
+        compositionBar.heightAnchor.constraint(equalToConstant: 26).isActive = true
 
         candidateScrollView.showsHorizontalScrollIndicator = false
         candidateScrollView.alwaysBounceHorizontal = true
         candidateScrollView.clipsToBounds = false
         candidateScrollView.delegate = self
         rootStack.addArrangedSubview(candidateScrollView)
-        candidateScrollView.heightAnchor.constraint(equalToConstant: 44).isActive = true
+        candidateScrollView.heightAnchor.constraint(equalToConstant: 36).isActive = true
 
         candidateStack.axis = .horizontal
-        candidateStack.spacing = 14
+        candidateStack.spacing = 6
         candidateStack.alignment = .fill
         candidateStack.distribution = .fill
         candidateStack.isLayoutMarginsRelativeArrangement = true
-        candidateStack.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 2, leading: 0, bottom: 4, trailing: 0)
+        candidateStack.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0)
         candidateStack.translatesAutoresizingMaskIntoConstraints = false
         candidateScrollView.addSubview(candidateStack)
 
@@ -168,7 +159,7 @@ final class KeyboardViewController: UIInputViewController {
                     let spacer = KeyboardKeySpacer()
                     spacer.widthUnit = key.widthUnit
                     rowStack.addArrangedSubview(spacer)
-                    spacer.heightAnchor.constraint(equalToConstant: 48).isActive = true
+                    spacer.heightAnchor.constraint(equalToConstant: 44).isActive = true
                     rowSpacers.append(spacer)
                     continue
                 }
@@ -176,7 +167,7 @@ final class KeyboardViewController: UIInputViewController {
                 let button = makeButton(for: key)
                 button.widthUnit = key.widthUnit
                 rowStack.addArrangedSubview(button)
-                button.heightAnchor.constraint(equalToConstant: 48).isActive = true
+                button.heightAnchor.constraint(equalToConstant: 44).isActive = true
                 if usesUniformLetterKeys, key.kind.isPrimary {
                     button.widthAnchor.constraint(equalTo: rowStack.widthAnchor, multiplier: 0.1, constant: -5.4).isActive = true
                 }
@@ -208,11 +199,9 @@ final class KeyboardViewController: UIInputViewController {
         let row2 = [KeySpec(.spacer, widthUnit: 0.5)] + "asdfghjkl".map { KeySpec(.character(String($0))) } + [KeySpec(.spacer, widthUnit: 0.5)]
         let row3 = [KeySpec(.shift, widthUnit: 1.5)] + "zxcvbnm".map { KeySpec(.character(String($0))) } + [KeySpec(.backspace, widthUnit: 1.5)]
         let row4 = [
-            KeySpec(.modeSwitch(.numbers), title: "123", widthUnit: 1.55),
-            KeySpec(.character("，"), title: "。\n，", widthUnit: 0.72),
-            KeySpec(.space, title: "▮▃▆▃▮", widthUnit: 3.1),
-            KeySpec(.languageSwitch, title: "中\n英", widthUnit: 0.82),
-            KeySpec(.returnKey, widthUnit: 1.7)
+            KeySpec(.modeSwitch(.numbers), title: "123", widthUnit: 1.35),
+            KeySpec(.space, title: "空格", widthUnit: 4.8),
+            KeySpec(.returnKey, widthUnit: 1.55)
         ]
         return [row1, row2, row3, row4]
     }
@@ -246,13 +235,10 @@ final class KeyboardViewController: UIInputViewController {
     private func makeButton(for spec: KeySpec) -> KeyboardKeyButton {
         let button = KeyboardKeyButton(type: .system)
         button.kind = spec.kind
-        button.layer.cornerRadius = 10
-        button.layer.shadowOpacity = 0.45
+        button.layer.cornerRadius = 6
+        button.layer.shadowOpacity = 0.22
         button.layer.shadowRadius = 0
-        button.layer.shadowOffset = CGSize(width: 0, height: 2)
-        button.layer.masksToBounds = false
-        button.titleLabel?.numberOfLines = 2
-        button.titleLabel?.textAlignment = .center
+        button.layer.shadowOffset = CGSize(width: 0, height: 1)
         button.titleLabel?.font = font(for: spec.kind)
         button.setTitle(title(for: spec), for: .normal)
         button.addAction(UIAction { [weak self] _ in
@@ -281,8 +267,6 @@ final class KeyboardViewController: UIInputViewController {
             return "空格"
         case .returnKey:
             return returnKeyTitle
-        case .languageSwitch:
-            return "中\n英"
         case .spacer:
             return ""
         case .modeSwitch(let target):
@@ -300,15 +284,11 @@ final class KeyboardViewController: UIInputViewController {
     private func font(for kind: KeyKind) -> UIFont {
         switch kind {
         case .character:
-            return .systemFont(ofSize: 24, weight: .regular)
+            return .systemFont(ofSize: 22, weight: .regular)
         case .shift, .backspace:
             return .systemFont(ofSize: 26, weight: .regular)
-        case .space:
-            return .systemFont(ofSize: 20, weight: .semibold)
-        case .languageSwitch:
-            return .systemFont(ofSize: 17, weight: .semibold)
         default:
-            return .systemFont(ofSize: 20, weight: .regular)
+            return .systemFont(ofSize: 16, weight: .regular)
         }
     }
 
@@ -358,8 +338,6 @@ final class KeyboardViewController: UIInputViewController {
             }
         case .returnKey:
             handleReturnKey()
-        case .languageSwitch:
-            commitCompositionAsText()
         case .spacer:
             break
         case .modeSwitch(let target):
@@ -486,6 +464,9 @@ final class KeyboardViewController: UIInputViewController {
             allCandidates = self.candidates(for: pinyin)
         }
         visibleCandidateCount = min(Self.candidateBatchSize, allCandidates.count)
+        if resetScroll || highlightedCandidateIndex >= visibleCandidateCount {
+            highlightedCandidateIndex = 0
+        }
         renderVisibleCandidates()
         if resetScroll {
             candidateScrollView.setContentOffset(.zero, animated: false)
@@ -499,35 +480,49 @@ final class KeyboardViewController: UIInputViewController {
             view.removeFromSuperview()
         }
 
-        guard !allCandidates.isEmpty else { return }
+        guard !allCandidates.isEmpty else {
+            if !hasActiveComposition {
+                renderUtilityCandidateButton()
+            }
+            return
+        }
 
         for (index, candidate) in allCandidates.prefix(visibleCandidateCount).enumerated() {
+            let isHighlighted = index == highlightedCandidateIndex
             let button = UIButton(type: .system)
             button.setTitle(candidate, for: .normal)
-            button.titleLabel?.font = .systemFont(ofSize: 22, weight: index == 0 ? .semibold : .regular)
-            button.setTitleColor(index == 0 ? .white : primaryText, for: .normal)
-            button.backgroundColor = index == 0 ? candidateHighlightBackground : .clear
-            button.contentEdgeInsets = UIEdgeInsets(top: 6, left: index == 0 ? 12 : 4, bottom: 6, right: index == 0 ? 12 : 4)
+            button.titleLabel?.font = .systemFont(ofSize: 17, weight: isHighlighted ? .semibold : .regular)
+            button.setTitleColor(isHighlighted ? highlightedCandidateText : primaryText, for: .normal)
+            button.backgroundColor = isHighlighted ? highlightedCandidateBackground : .clear
+            button.contentEdgeInsets = UIEdgeInsets(top: 4, left: 12, bottom: 4, right: 12)
             button.layer.cornerRadius = 7
-            button.layer.borderWidth = 0
-            button.layer.shadowColor = UIColor.clear.cgColor
-            button.layer.shadowOpacity = 0
-            button.layer.shadowRadius = 0
-            button.layer.shadowOffset = .zero
+            button.layer.borderWidth = 0.5
+            button.layer.borderColor = (isHighlighted ? UIColor.clear : candidateBorder).cgColor
+            button.layer.shadowColor = isHighlighted ? candidateShadow.cgColor : UIColor.clear.cgColor
+            button.layer.shadowOpacity = isHighlighted ? (isDark ? 0.35 : 0.18) : 0
+            button.layer.shadowRadius = 1
+            button.layer.shadowOffset = CGSize(width: 0, height: 1)
             button.addAction(UIAction { [weak self] _ in
+                self?.highlightedCandidateIndex = index
                 self?.replaceCompositionWith(candidate)
             }, for: .touchUpInside)
             candidateStack.addArrangedSubview(button)
-            button.widthAnchor.constraint(greaterThanOrEqualToConstant: index == 0 ? 72 : 42).isActive = true
+            button.widthAnchor.constraint(greaterThanOrEqualToConstant: 48).isActive = true
         }
+    }
 
-        let expandButton = UIButton(type: .system)
-        expandButton.setTitle("⌄", for: .normal)
-        expandButton.titleLabel?.font = .systemFont(ofSize: 26, weight: .semibold)
-        expandButton.setTitleColor(primaryText, for: .normal)
-        expandButton.backgroundColor = .clear
-        candidateStack.addArrangedSubview(expandButton)
-        expandButton.widthAnchor.constraint(equalToConstant: 42).isActive = true
+    private func renderUtilityCandidateButton() {
+        let button = UIButton(type: .system)
+        button.setTitle("⌘", for: .normal)
+        button.titleLabel?.font = .systemFont(ofSize: 20, weight: .semibold)
+        button.setTitleColor(secondaryText, for: .normal)
+        button.backgroundColor = candidateBackground
+        button.contentEdgeInsets = UIEdgeInsets(top: 4, left: 14, bottom: 4, right: 14)
+        button.layer.cornerRadius = 7
+        button.layer.borderWidth = 0.5
+        button.layer.borderColor = candidateBorder.cgColor
+        candidateStack.addArrangedSubview(button)
+        button.widthAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
     }
 
     private func appendMoreCandidatesIfNeeded() {
@@ -538,7 +533,6 @@ final class KeyboardViewController: UIInputViewController {
 
     private func applyTheme() {
         view.backgroundColor = keyboardBackground
-        keyboardBackdropView.effect = UIBlurEffect(style: .systemUltraThinMaterialDark)
 
         for button in keyButtons {
             if let keyButton = button as? KeyboardKeyButton, case .returnKey = keyButton.kind {
@@ -549,7 +543,7 @@ final class KeyboardViewController: UIInputViewController {
                 button.alpha = 1
             }
             let title = button.title(for: .normal) ?? ""
-            let isSpecial = ["123", "ABC", "#+=", "⌫", "⇧", "搜索", "确定", "换行", "。\n，", "中\n英"].contains(title)
+            let isSpecial = ["123", "ABC", "#+=", "⌫", "⇧", "搜索", "确认", "换行"].contains(title)
             button.backgroundColor = isSpecial ? specialKeyBackground : keyBackground
             button.setTitleColor(primaryText, for: .normal)
             button.layer.shadowColor = shadowColor.cgColor
@@ -571,23 +565,27 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private var keyboardBackground: UIColor {
-        UIColor(red: 0.08, green: 0.11, blue: 0.10, alpha: 0.82)
+        isDark ? UIColor(red: 0.18, green: 0.18, blue: 0.19, alpha: 1) : UIColor(red: 0.82, green: 0.84, blue: 0.87, alpha: 1)
     }
 
     private var keyBackground: UIColor {
-        UIColor(red: 0.45, green: 0.45, blue: 0.46, alpha: 0.88)
+        isDark ? UIColor(red: 0.39, green: 0.39, blue: 0.41, alpha: 1) : .white
     }
 
     private var specialKeyBackground: UIColor {
-        UIColor(red: 0.18, green: 0.20, blue: 0.20, alpha: 0.88)
+        isDark ? UIColor(red: 0.28, green: 0.28, blue: 0.30, alpha: 1) : UIColor(red: 0.67, green: 0.70, blue: 0.74, alpha: 1)
     }
 
     private var candidateBackground: UIColor {
-        .clear
+        isDark ? UIColor(red: 0.31, green: 0.31, blue: 0.33, alpha: 1) : UIColor(red: 0.98, green: 0.98, blue: 0.99, alpha: 1)
     }
 
-    private var candidateHighlightBackground: UIColor {
-        UIColor(red: 0.16, green: 0.45, blue: 0.92, alpha: 1)
+    private var highlightedCandidateBackground: UIColor {
+        .white
+    }
+
+    private var highlightedCandidateText: UIColor {
+        .black
     }
 
     private var candidateBorder: UIColor {
@@ -603,7 +601,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private var primaryText: UIColor {
-        .white
+        isDark ? .white : .black
     }
 
     private var secondaryText: UIColor {
@@ -611,7 +609,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private var shadowColor: UIColor {
-        UIColor(white: 0, alpha: 0.85)
+        isDark ? .black : UIColor(white: 0.45, alpha: 1)
     }
 
     private func candidates(for pinyin: String) -> [String] {
@@ -625,7 +623,7 @@ final class KeyboardViewController: UIInputViewController {
 
     private var returnKeyTitle: String {
         if hasPendingCandidates {
-            return "确定"
+            return "确认"
         }
         if isSearchInput {
             return "搜索"
@@ -633,7 +631,7 @@ final class KeyboardViewController: UIInputViewController {
         if isMultilineInput {
             return "换行"
         }
-        return "确定"
+        return "确认"
     }
 
     private var isReturnKeyEnabled: Bool {
@@ -677,6 +675,10 @@ final class KeyboardViewController: UIInputViewController {
 
     private var selectedCompositionText: String {
         selectedCompositionSegments.map(\.text).joined()
+    }
+
+    private var selectedCompositionPinyin: String {
+        selectedCompositionSegments.map(\.pinyin).joined()
     }
 
     private var compositionText: String {
@@ -725,15 +727,48 @@ final class KeyboardViewController: UIInputViewController {
 
     private func moveCompositionCursor(toCompositionTextOffset textOffset: Int) {
         guard hasActiveComposition else { return }
-        let rawCompositionOffset = textOffset - selectedCompositionText.count
+        let rawCompositionOffset = textOffset - selectedCompositionPinyin.count
         compositionCursorOffset = max(0, min(compositionBuffer.count, rawCompositionOffset))
         refreshCompositionDisplay()
         updateCandidates(resetScroll: true)
     }
 
     private func refreshCompositionDisplay() {
-        let text = compositionText
-        compositionBar.update(text: text, cursorOffset: selectedCompositionText.count + compositionCursorOffset)
+        let display = pinyinDisplay()
+        compositionBar.update(text: display.text, cursorOffset: display.cursorOffset, rawOffsets: display.rawOffsets)
+    }
+
+    private func pinyinDisplay() -> (text: String, cursorOffset: Int, rawOffsets: [Int]) {
+        let prefix = segmentedPinyin(selectedCompositionPinyin)
+        let current = segmentedPinyin(compositionBuffer)
+        let text = [prefix, current].filter { !$0.isEmpty }.joined(separator: prefix.isEmpty || current.isEmpty ? "" : "'")
+        let rawCursor = selectedCompositionPinyin.count + compositionCursorOffset
+        return (text, displayOffset(forRawOffset: rawCursor, in: text), rawOffsets(forDisplayText: text))
+    }
+
+    private func segmentedPinyin(_ pinyin: String) -> String {
+        guard !pinyin.isEmpty else { return "" }
+        let segments = PinyinSegmenter.segment(pinyin)
+        guard segments.count > 1, segments.joined() == pinyin else { return pinyin }
+        return segments.joined(separator: "'")
+    }
+
+    private func rawOffsets(forDisplayText text: String) -> [Int] {
+        var offsets: [Int] = []
+        var rawOffset = 0
+        offsets.append(rawOffset)
+        for character in text {
+            if character != "'" {
+                rawOffset += 1
+            }
+            offsets.append(rawOffset)
+        }
+        return offsets
+    }
+
+    private func displayOffset(forRawOffset rawOffset: Int, in displayText: String) -> Int {
+        let offsets = rawOffsets(forDisplayText: displayText)
+        return offsets.lastIndex(of: rawOffset) ?? min(rawOffset, displayText.count)
     }
 
     private func commitCompositionAsText() {
@@ -794,7 +829,7 @@ private final class KeyboardKeyButton: UIButton {
     var widthUnit: CGFloat = 1
 
     override var intrinsicContentSize: CGSize {
-        CGSize(width: 32 * widthUnit, height: 48)
+        CGSize(width: 32 * widthUnit, height: 44)
     }
 }
 
@@ -802,7 +837,7 @@ private final class KeyboardKeySpacer: UIView {
     var widthUnit: CGFloat = 1
 
     override var intrinsicContentSize: CGSize {
-        CGSize(width: 32 * widthUnit, height: 48)
+        CGSize(width: 32 * widthUnit, height: 44)
     }
 }
 
@@ -811,6 +846,7 @@ private final class CompositionBarView: UIView {
 
     private var text = ""
     private var cursorOffset = 0
+    private var rawOffsets: [Int] = [0]
     private let font = UIFont.systemFont(ofSize: 15, weight: .regular)
     private let textInsets = UIEdgeInsets(top: 3, left: 10, bottom: 3, right: 10)
     private var barTextColor = UIColor.black
@@ -833,9 +869,10 @@ private final class CompositionBarView: UIView {
         setNeedsDisplay()
     }
 
-    func update(text: String, cursorOffset: Int) {
+    func update(text: String, cursorOffset: Int, rawOffsets: [Int]? = nil) {
         self.text = text
         self.cursorOffset = max(0, min(text.count, cursorOffset))
+        self.rawOffsets = rawOffsets ?? Array(0...text.count)
         setNeedsDisplay()
     }
 
@@ -867,7 +904,9 @@ private final class CompositionBarView: UIView {
         let point = recognizer.location(in: self)
         let textRect = bounds.inset(by: textInsets)
         let x = max(0, min(point.x - textRect.minX, textRect.width))
-        onOffsetSelected?(nearestOffset(for: x))
+        let displayOffset = nearestOffset(for: x)
+        let safeOffset = max(0, min(displayOffset, rawOffsets.count - 1))
+        onOffsetSelected?(rawOffsets[safeOffset])
     }
 
     private func nearestOffset(for x: CGFloat) -> Int {
@@ -910,7 +949,6 @@ private enum KeyKind {
     case backspace
     case space
     case returnKey
-    case languageSwitch
     case spacer
     case modeSwitch(KeyboardViewController.KeyboardMode)
 
