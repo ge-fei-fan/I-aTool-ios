@@ -25,6 +25,7 @@ final class KeyboardViewController: UIInputViewController {
     private let compositionBar = CompositionBarView()
     private let candidateScrollView = UIScrollView()
     private let candidateStack = UIStackView()
+    private let keyboardRowsStack = UIStackView()
     private let utilityOverlayView = UIView()
     private let utilityOverlayButton = UIButton(type: .system)
     private var allCandidates: [String] = []
@@ -137,6 +138,12 @@ final class KeyboardViewController: UIInputViewController {
             candidateStack.heightAnchor.constraint(equalTo: candidateScrollView.frameLayoutGuide.heightAnchor)
         ])
 
+        keyboardRowsStack.axis = .vertical
+        keyboardRowsStack.spacing = 9
+        keyboardRowsStack.alignment = .fill
+        keyboardRowsStack.distribution = .fill
+        rootStack.addArrangedSubview(keyboardRowsStack)
+
         utilityOverlayView.translatesAutoresizingMaskIntoConstraints = false
         utilityOverlayView.isUserInteractionEnabled = true
         utilityOverlayView.isHidden = true
@@ -167,8 +174,8 @@ final class KeyboardViewController: UIInputViewController {
 
     private func renderKeyboard() {
         keyButtons.removeAll()
-        rootStack.arrangedSubviews.dropFirst(2).forEach { view in
-            rootStack.removeArrangedSubview(view)
+        keyboardRowsStack.arrangedSubviews.forEach { view in
+            keyboardRowsStack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
 
@@ -225,7 +232,7 @@ final class KeyboardViewController: UIInputViewController {
                 sideKeys[0].widthAnchor.constraint(equalTo: sideKeys[1].widthAnchor).isActive = true
             }
 
-            rootStack.addArrangedSubview(rowStack)
+            keyboardRowsStack.addArrangedSubview(rowStack)
         }
 
         updateCandidates()
