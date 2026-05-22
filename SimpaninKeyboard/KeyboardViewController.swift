@@ -48,8 +48,14 @@ final class KeyboardViewController: UIInputViewController {
     private let trackpadBlurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
     private let keyPreviewView = KeyPreviewView()
     private let compositionBar = CompositionBarView()
+    private let candidateBarStack = UIStackView()
     private let candidateScrollView = UIScrollView()
     private let candidateStack = UIStackView()
+    private let candidateExpandButton = UIButton(type: .system)
+    private let candidatePageView = UIView()
+    private let candidatePageScrollView = UIScrollView()
+    private let candidatePageStack = UIStackView()
+    private let candidatePageCollapseButton = UIButton(type: .system)
     private let keyboardRowsStack = UIStackView()
     private let utilityOverlayView = UIView()
     private let utilityOverlayButton = UIButton(type: .system)
@@ -66,6 +72,8 @@ final class KeyboardViewController: UIInputViewController {
     private var inputLanguage: InputLanguage = .chinese
     private var shiftState: ShiftState = .off
     private weak var previewedKeyButton: KeyboardKeyButton?
+    private var isCandidatePageVisible = false
+    private var candidatePageRenderedWidth: CGFloat = 0
     private var isTrackpadActive = false
     private var suppressNextKeyTap = false
     private var trackpadPreviousX: CGFloat = 0
@@ -75,6 +83,7 @@ final class KeyboardViewController: UIInputViewController {
     private let trackpadMovementFeedback = UISelectionFeedbackGenerator()
 
     private static let candidateBatchSize = 30
+    private static let utilityFillText = "kk223344"
     private static let trackpadStepWidth: CGFloat = 10
     private static let keyPreviewHorizontalInset: CGFloat = 4
     private static let previewableLetterScalars = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
@@ -101,6 +110,15 @@ final class KeyboardViewController: UIInputViewController {
         }
         updateKeyboardBackdropAppearance()
         updateReturnKeyAppearance()
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        guard isCandidatePageVisible else { return }
+        let width = candidatePageView.bounds.width
+        if abs(width - candidatePageRenderedWidth) > 1 {
+            renderCandidatePage()
+        }
     }
 
     private func setupKeyboard() {
@@ -150,12 +168,31 @@ final class KeyboardViewController: UIInputViewController {
         rootStack.addArrangedSubview(compositionBar)
         compositionBar.heightAnchor.constraint(equalToConstant: 18).isActive = true
 
+        candidateBarStack.axis = .horizontal
+        candidateBarStack.spacing = 6
+        candidateBarStack.alignment = .fill
+        candidateBarStack.distribution = .fill
+        rootStack.addArrangedSubview(candidateBarStack)
+        candidateBarStack.heightAnchor.constraint(equalToConstant: 30).isActive = true
+
         candidateScrollView.showsHorizontalScrollIndicator = false
         candidateScrollView.alwaysBounceHorizontal = true
         candidateScrollView.clipsToBounds = false
         candidateScrollView.delegate = self
-        rootStack.addArrangedSubview(candidateScrollView)
-        candidateScrollView.heightAnchor.constraint(equalToConstant: 30).isActive = true
+        candidateBarStack.addArrangedSubview(candidateScrollView)
+
+        candidateExpandButton.translatesAutoresizingMaskIntoConstraints = false
+        candidateExpandButton.setImage(UIImage(systemName: "chevron.down"), for: .normal)
+        candidateExpandButton.titleLabel?.font = .systemFont(ofSize: 16, weight: .semibold)
+        candidateExpandButton.contentEdgeInsets = UIEdgeInsets(top: 2, left: 8, bottom: 2, right: 8)
+        candidateExpandButton.layer.cornerRadius = 7
+        candidateExpandButton.layer.borderWidth = 0.5
+        candidateExpandButton.isHidden = true
+        candidateExpandButton.addAction(UIAction { [weak self] _ in
+            self?.setCandidatePageVisible(true)
+        }, for: .touchUpInside)
+        candidateBarStack.addArrangedSubview(candidateExpandButton)
+        candidateExpandButton.widthAnchor.constraint(equalToConstant: 34).isActive = true
 
         candidateStack.axis = .horizontal
         candidateStack.spacing = 6
@@ -193,24 +230,83 @@ final class KeyboardViewController: UIInputViewController {
         utilityOverlayButton.contentEdgeInsets = UIEdgeInsets(top: 2, left: 14, bottom: 2, right: 14)
         utilityOverlayButton.layer.cornerRadius = 7
         utilityOverlayButton.layer.borderWidth = 0.5
+        utilityOverlayButton.addAction(UIAction { [weak self] _ in
+            self?.handleUtilityFillButtonTap()
+        }, for: .touchUpInside)
         utilityOverlayView.addSubview(utilityOverlayButton)
+
+        setupCandidatePage()
 
         NSLayoutConstraint.activate([
             utilityOverlayView.leadingAnchor.constraint(equalTo: rootStack.leadingAnchor),
             utilityOverlayView.trailingAnchor.constraint(equalTo: rootStack.trailingAnchor),
             utilityOverlayView.topAnchor.constraint(equalTo: compositionBar.topAnchor),
-            utilityOverlayView.bottomAnchor.constraint(equalTo: candidateScrollView.bottomAnchor),
+            utilityOverlayView.bottomAnchor.constraint(equalTo: candidateBarStack.bottomAnchor),
             utilityOverlayButton.leadingAnchor.constraint(equalTo: utilityOverlayView.leadingAnchor, constant: 8),
             utilityOverlayButton.centerYAnchor.constraint(equalTo: utilityOverlayView.centerYAnchor),
-            utilityOverlayButton.heightAnchor.constraint(equalToConstant: 24),
+            utilityOverlayButton.heightAnchor.constraint(equalToConstant: 28),
             utilityOverlayButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 44)
         ])
+        view.bringSubviewToFront(candidatePageView)
         view.bringSubviewToFront(trackpadBlurView)
         view.bringSubviewToFront(keyPreviewView)
     }
 
+    private func setupCandidatePage() {
+        candidatePageView.translatesAutoresizingMaskIntoConstraints = false
+        candidatePageView.isHidden = true
+        candidatePageView.layer.cornerRadius = 10
+        candidatePageView.layer.masksToBounds = true
+        view.addSubview(candidatePageView)
+
+        candidatePageCollapseButton.translatesAutoresizingMaskIntoConstraints = false
+        candidatePageCollapseButton.setImage(UIImage(systemName: "chevron.up"), for: .normal)
+        candidatePageCollapseButton.contentEdgeInsets = UIEdgeInsets(top: 2, left: 10, bottom: 2, right: 10)
+        candidatePageCollapseButton.layer.cornerRadius = 7
+        candidatePageCollapseButton.layer.borderWidth = 0.5
+        candidatePageCollapseButton.addAction(UIAction { [weak self] _ in
+            self?.setCandidatePageVisible(false)
+        }, for: .touchUpInside)
+        candidatePageView.addSubview(candidatePageCollapseButton)
+
+        candidatePageScrollView.translatesAutoresizingMaskIntoConstraints = false
+        candidatePageScrollView.showsVerticalScrollIndicator = true
+        candidatePageView.addSubview(candidatePageScrollView)
+
+        candidatePageStack.axis = .vertical
+        candidatePageStack.spacing = 6
+        candidatePageStack.alignment = .fill
+        candidatePageStack.distribution = .fill
+        candidatePageStack.translatesAutoresizingMaskIntoConstraints = false
+        candidatePageScrollView.addSubview(candidatePageStack)
+
+        NSLayoutConstraint.activate([
+            candidatePageView.leadingAnchor.constraint(equalTo: rootStack.leadingAnchor),
+            candidatePageView.trailingAnchor.constraint(equalTo: rootStack.trailingAnchor),
+            candidatePageView.topAnchor.constraint(equalTo: candidateBarStack.topAnchor),
+            candidatePageView.bottomAnchor.constraint(equalTo: rootStack.bottomAnchor),
+
+            candidatePageCollapseButton.topAnchor.constraint(equalTo: candidatePageView.topAnchor, constant: 4),
+            candidatePageCollapseButton.trailingAnchor.constraint(equalTo: candidatePageView.trailingAnchor, constant: -4),
+            candidatePageCollapseButton.heightAnchor.constraint(equalToConstant: 26),
+            candidatePageCollapseButton.widthAnchor.constraint(equalToConstant: 42),
+
+            candidatePageScrollView.leadingAnchor.constraint(equalTo: candidatePageView.leadingAnchor, constant: 6),
+            candidatePageScrollView.trailingAnchor.constraint(equalTo: candidatePageView.trailingAnchor, constant: -6),
+            candidatePageScrollView.topAnchor.constraint(equalTo: candidatePageCollapseButton.bottomAnchor, constant: 4),
+            candidatePageScrollView.bottomAnchor.constraint(equalTo: candidatePageView.bottomAnchor, constant: -6),
+
+            candidatePageStack.leadingAnchor.constraint(equalTo: candidatePageScrollView.contentLayoutGuide.leadingAnchor),
+            candidatePageStack.trailingAnchor.constraint(equalTo: candidatePageScrollView.contentLayoutGuide.trailingAnchor),
+            candidatePageStack.topAnchor.constraint(equalTo: candidatePageScrollView.contentLayoutGuide.topAnchor),
+            candidatePageStack.bottomAnchor.constraint(equalTo: candidatePageScrollView.contentLayoutGuide.bottomAnchor),
+            candidatePageStack.widthAnchor.constraint(equalTo: candidatePageScrollView.frameLayoutGuide.widthAnchor)
+        ])
+    }
+
     private func renderKeyboard() {
         hideKeyPreview(animated: false)
+        setCandidatePageVisible(false)
         keyButtons.removeAll()
         keyboardRowsStack.arrangedSubviews.forEach { view in
             keyboardRowsStack.removeArrangedSubview(view)
@@ -620,6 +716,9 @@ final class KeyboardViewController: UIInputViewController {
         case .association:
             insertAssociationCandidate(candidate.text)
         }
+        if isCandidatePageVisible {
+            setCandidatePageVisible(false)
+        }
     }
 
     private func insertAssociationCandidate(_ text: String) {
@@ -683,6 +782,7 @@ final class KeyboardViewController: UIInputViewController {
             allCandidates = []
             visibleCandidateCount = 0
             candidateMode = .composition
+            setCandidatePageVisible(false)
             renderVisibleCandidates()
             updateReturnKeyAppearance()
             return
@@ -706,7 +806,11 @@ final class KeyboardViewController: UIInputViewController {
         if resetScroll || highlightedCandidateIndex >= visibleCandidateCount {
             highlightedCandidateIndex = 0
         }
+        if allCandidates.isEmpty {
+            setCandidatePageVisible(false)
+        }
         renderVisibleCandidates()
+        renderCandidatePageIfNeeded()
         if resetScroll {
             candidateScrollView.setContentOffset(.zero, animated: false)
         }
@@ -719,32 +823,117 @@ final class KeyboardViewController: UIInputViewController {
             view.removeFromSuperview()
         }
         utilityOverlayView.isHidden = hasActiveComposition || !allCandidates.isEmpty
+        updateCandidateExpandButtonVisibility()
 
         guard !allCandidates.isEmpty else {
             return
         }
 
         for (index, candidate) in allCandidates.prefix(visibleCandidateCount).enumerated() {
-            let isHighlighted = index == highlightedCandidateIndex
-            let button = UIButton(type: .system)
-            button.setTitle(candidate.text, for: .normal)
-            button.titleLabel?.font = .systemFont(ofSize: 17, weight: isHighlighted ? .semibold : .regular)
-            button.setTitleColor(isHighlighted ? highlightedCandidateText : primaryText, for: .normal)
-            button.backgroundColor = isHighlighted ? highlightedCandidateBackground : .clear
-            button.contentEdgeInsets = UIEdgeInsets(top: 2, left: 12, bottom: 2, right: 12)
-            button.layer.cornerRadius = 7
-            button.layer.borderWidth = 0.5
-            button.layer.borderColor = (isHighlighted ? UIColor.clear : candidateBorder).cgColor
-            button.layer.shadowColor = isHighlighted ? candidateShadow.cgColor : UIColor.clear.cgColor
-            button.layer.shadowOpacity = isHighlighted ? (isDark ? 0.35 : 0.18) : 0
-            button.layer.shadowRadius = 1
-            button.layer.shadowOffset = CGSize(width: 0, height: 1)
-            button.addAction(UIAction { [weak self] _ in
-                self?.handleCandidateSelection(candidate, index: index)
-            }, for: .touchUpInside)
+            let button = makeCandidateButton(candidate: candidate, index: index)
             candidateStack.addArrangedSubview(button)
             button.widthAnchor.constraint(greaterThanOrEqualToConstant: 48).isActive = true
         }
+    }
+
+    private func makeCandidateButton(candidate: KeyboardCandidate, index: Int) -> UIButton {
+        let isHighlighted = index == highlightedCandidateIndex
+        let button = UIButton(type: .system)
+        button.setTitle(candidate.text, for: .normal)
+        button.titleLabel?.font = .systemFont(ofSize: 17, weight: isHighlighted ? .semibold : .regular)
+        button.titleLabel?.lineBreakMode = .byTruncatingTail
+        button.setTitleColor(isHighlighted ? highlightedCandidateText : primaryText, for: .normal)
+        button.backgroundColor = isHighlighted ? highlightedCandidateBackground : .clear
+        button.contentEdgeInsets = UIEdgeInsets(top: 2, left: 12, bottom: 2, right: 12)
+        button.layer.cornerRadius = 7
+        button.layer.borderWidth = 0.5
+        button.layer.borderColor = (isHighlighted ? UIColor.clear : candidateBorder).cgColor
+        button.layer.shadowColor = isHighlighted ? candidateShadow.cgColor : UIColor.clear.cgColor
+        button.layer.shadowOpacity = isHighlighted ? (isDark ? 0.35 : 0.18) : 0
+        button.layer.shadowRadius = 1
+        button.layer.shadowOffset = CGSize(width: 0, height: 1)
+        button.addAction(UIAction { [weak self] _ in
+            self?.handleCandidateSelection(candidate, index: index)
+        }, for: .touchUpInside)
+        return button
+    }
+
+    private func updateCandidateExpandButtonVisibility() {
+        let canExpand = keyboardMode == .letters && inputLanguage == .chinese && !allCandidates.isEmpty
+        candidateExpandButton.isHidden = !canExpand
+        if !canExpand {
+            setCandidatePageVisible(false)
+        }
+    }
+
+    private func setCandidatePageVisible(_ visible: Bool) {
+        let shouldShow = visible && keyboardMode == .letters && inputLanguage == .chinese && !allCandidates.isEmpty
+        guard isCandidatePageVisible != shouldShow || candidatePageView.isHidden == shouldShow else { return }
+
+        isCandidatePageVisible = shouldShow
+        candidatePageView.isHidden = !shouldShow
+        if shouldShow {
+            hideKeyPreview(animated: false)
+            candidatePageScrollView.setContentOffset(.zero, animated: false)
+            renderCandidatePage()
+            view.bringSubviewToFront(candidatePageView)
+            view.bringSubviewToFront(trackpadBlurView)
+            view.bringSubviewToFront(keyPreviewView)
+        } else {
+            clearCandidatePage()
+        }
+    }
+
+    private func renderCandidatePageIfNeeded() {
+        guard isCandidatePageVisible else { return }
+        renderCandidatePage()
+    }
+
+    private func renderCandidatePage() {
+        clearCandidatePage()
+        candidatePageRenderedWidth = candidatePageView.bounds.width
+        guard !allCandidates.isEmpty else { return }
+
+        let spacing: CGFloat = 6
+        let minButtonWidth: CGFloat = 56
+        let contentWidth = max(candidatePageView.bounds.width - 12, minButtonWidth)
+        let columnCount = max(2, Int((contentWidth + spacing) / (minButtonWidth + spacing)))
+
+        var rowStack: UIStackView?
+        for (index, candidate) in allCandidates.enumerated() {
+            if index % columnCount == 0 {
+                let newRow = UIStackView()
+                newRow.axis = .horizontal
+                newRow.spacing = spacing
+                newRow.alignment = .fill
+                newRow.distribution = .fillEqually
+                candidatePageStack.addArrangedSubview(newRow)
+                rowStack = newRow
+            }
+
+            let button = makeCandidateButton(candidate: candidate, index: index)
+            rowStack?.addArrangedSubview(button)
+            button.heightAnchor.constraint(equalToConstant: 34).isActive = true
+        }
+
+        if let rowStack = rowStack {
+            let remainder = rowStack.arrangedSubviews.count % columnCount
+            if remainder > 0 {
+                for _ in 0..<(columnCount - remainder) {
+                    let spacer = UIView()
+                    rowStack.addArrangedSubview(spacer)
+                    spacer.heightAnchor.constraint(equalToConstant: 34).isActive = true
+                }
+            }
+        }
+    }
+
+    private func clearCandidatePage() {
+        candidatePageStack.arrangedSubviews.forEach { view in
+            candidatePageStack.removeArrangedSubview(view)
+            view.removeFromSuperview()
+        }
+        candidatePageRenderedWidth = 0
     }
 
     private func appendMoreCandidatesIfNeeded() {
@@ -773,7 +962,14 @@ final class KeyboardViewController: UIInputViewController {
         utilityOverlayButton.setTitleColor(secondaryText, for: .normal)
         utilityOverlayButton.backgroundColor = candidateBackground
         utilityOverlayButton.layer.borderColor = candidateBorder.cgColor
+        candidateExpandButton.tintColor = secondaryText
+        candidateExpandButton.backgroundColor = candidateBackground
+        candidateExpandButton.layer.borderColor = candidateBorder.cgColor
+        candidatePageCollapseButton.tintColor = secondaryText
+        candidatePageCollapseButton.backgroundColor = candidateBackground
+        candidatePageCollapseButton.layer.borderColor = candidateBorder.cgColor
         updateCompositionBarAppearance()
+        renderCandidatePageIfNeeded()
         if let previewedKeyButton = previewedKeyButton {
             showKeyPreview(for: previewedKeyButton)
         }
@@ -792,6 +988,10 @@ final class KeyboardViewController: UIInputViewController {
         compositionBar.backgroundColor = .clear
         candidateScrollView.backgroundColor = .clear
         candidateStack.backgroundColor = .clear
+        candidateBarStack.backgroundColor = .clear
+        candidatePageView.backgroundColor = keyboardBackground
+        candidatePageScrollView.backgroundColor = .clear
+        candidatePageStack.backgroundColor = .clear
     }
 
     private func updateReturnKeyAppearance() {
@@ -1051,6 +1251,16 @@ final class KeyboardViewController: UIInputViewController {
 
     private func commitCompositionAsText() {
         finalizeComposition()
+    }
+
+    private func handleUtilityFillButtonTap() {
+        hideKeyPreview(animated: false)
+        setCandidatePageVisible(false)
+        finalizeComposition()
+        associationContext = nil
+        textDocumentProxy.insertText(Self.utilityFillText)
+        hasInsertedTextInCurrentContext = true
+        updateCandidates(resetScroll: true)
     }
 
     private func finalizeComposition() {
