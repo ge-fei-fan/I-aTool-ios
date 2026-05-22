@@ -68,11 +68,12 @@ final class KeyboardViewController: UIInputViewController {
         if !hasActiveComposition && documentContextIsExplicitlyEmpty {
             hasInsertedTextInCurrentContext = false
         }
+        updateKeyboardBackdropAppearance()
         updateReturnKeyAppearance()
     }
 
     private func setupKeyboard() {
-        view.backgroundColor = keyboardBackground
+        updateKeyboardBackdropAppearance()
 
         keyboardBackdropView.translatesAutoresizingMaskIntoConstraints = false
         keyboardBackdropView.isUserInteractionEnabled = false
@@ -139,7 +140,7 @@ final class KeyboardViewController: UIInputViewController {
         ])
 
         keyboardRowsStack.axis = .vertical
-        keyboardRowsStack.spacing = 9
+        keyboardRowsStack.spacing = 10
         keyboardRowsStack.alignment = .fill
         keyboardRowsStack.distribution = .fill
         rootStack.addArrangedSubview(keyboardRowsStack)
@@ -204,7 +205,7 @@ final class KeyboardViewController: UIInputViewController {
                     let spacer = KeyboardKeySpacer()
                     spacer.widthUnit = key.widthUnit
                     rowStack.addArrangedSubview(spacer)
-                    spacer.heightAnchor.constraint(equalToConstant: 40).isActive = true
+                    spacer.heightAnchor.constraint(equalToConstant: 41).isActive = true
                     rowSpacers.append(spacer)
                     continue
                 }
@@ -212,7 +213,7 @@ final class KeyboardViewController: UIInputViewController {
                 let button = makeButton(for: key)
                 button.widthUnit = key.widthUnit
                 rowStack.addArrangedSubview(button)
-                button.heightAnchor.constraint(equalToConstant: 40).isActive = true
+                button.heightAnchor.constraint(equalToConstant: 41).isActive = true
                 if usesUniformLetterKeys, key.kind.isPrimary {
                     button.widthAnchor.constraint(equalTo: rowStack.widthAnchor, multiplier: 0.1, constant: -5.4).isActive = true
                 }
@@ -284,6 +285,11 @@ final class KeyboardViewController: UIInputViewController {
         button.layer.shadowOpacity = 0.22
         button.layer.shadowRadius = 0
         button.layer.shadowOffset = CGSize(width: 0, height: 1)
+        button.contentHorizontalAlignment = .center
+        button.contentVerticalAlignment = .center
+        button.contentEdgeInsets = .zero
+        button.titleEdgeInsets = .zero
+        button.titleLabel?.textAlignment = .center
         button.titleLabel?.font = font(for: spec.kind)
         button.setTitle(title(for: spec), for: .normal)
         button.addAction(UIAction { [weak self] _ in
@@ -565,8 +571,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func applyTheme() {
-        view.backgroundColor = keyboardBackground
-        keyboardBackdropView.effect = UIBlurEffect(style: .systemThinMaterial)
+        updateKeyboardBackdropAppearance()
 
         for button in keyButtons {
             if let keyButton = button as? KeyboardKeyButton, case .returnKey = keyButton.kind {
@@ -588,6 +593,21 @@ final class KeyboardViewController: UIInputViewController {
         updateCompositionBarAppearance()
     }
 
+    private func updateKeyboardBackdropAppearance() {
+        if usesTransparentSearchBackdrop {
+            view.backgroundColor = .clear
+            keyboardBackdropView.effect = nil
+            keyboardBackdropView.backgroundColor = .clear
+        } else {
+            view.backgroundColor = keyboardBackground
+            keyboardBackdropView.effect = UIBlurEffect(style: .systemThinMaterial)
+            keyboardBackdropView.backgroundColor = .clear
+        }
+        compositionBar.backgroundColor = .clear
+        candidateScrollView.backgroundColor = .clear
+        candidateStack.backgroundColor = .clear
+    }
+
     private func updateReturnKeyAppearance() {
         for button in keyButtons.compactMap({ $0 as? KeyboardKeyButton }) {
             guard case .returnKey = button.kind else { continue }
@@ -603,6 +623,10 @@ final class KeyboardViewController: UIInputViewController {
 
     private var keyboardBackground: UIColor {
         isDark ? UIColor(red: 0.13, green: 0.14, blue: 0.14, alpha: 0.72) : UIColor(red: 0.73, green: 0.75, blue: 0.78, alpha: 0.72)
+    }
+
+    private var usesTransparentSearchBackdrop: Bool {
+        isSearchInput
     }
 
     private var keyBackground: UIColor {
@@ -876,7 +900,7 @@ private final class KeyboardKeyButton: UIButton {
     var widthUnit: CGFloat = 1
 
     override var intrinsicContentSize: CGSize {
-        CGSize(width: 32 * widthUnit, height: 40)
+        CGSize(width: 32 * widthUnit, height: 41)
     }
 }
 
@@ -884,7 +908,7 @@ private final class KeyboardKeySpacer: UIView {
     var widthUnit: CGFloat = 1
 
     override var intrinsicContentSize: CGSize {
-        CGSize(width: 32 * widthUnit, height: 40)
+        CGSize(width: 32 * widthUnit, height: 41)
     }
 }
 
