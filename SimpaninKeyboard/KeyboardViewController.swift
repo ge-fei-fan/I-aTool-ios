@@ -23,6 +23,11 @@ final class KeyboardViewController: UIInputViewController {
         let text: String
     }
 
+    private struct KeyboardCandidate {
+        let text: String
+        let consumeLength: Int
+    }
+
     private let candidateProvider = PinyinCandidateProvider()
     private let associationProvider = PinyinAssociationProvider()
     private let keyboardBackdropView = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
@@ -34,7 +39,7 @@ final class KeyboardViewController: UIInputViewController {
     private let keyboardRowsStack = UIStackView()
     private let utilityOverlayView = UIView()
     private let utilityOverlayButton = UIButton(type: .system)
-    private var allCandidates: [String] = []
+    private var allCandidates: [KeyboardCandidate] = []
     private var visibleCandidateCount = 0
     private var highlightedCandidateIndex = 0
     private var candidateMode: CandidateMode = .composition
@@ -486,13 +491,13 @@ final class KeyboardViewController: UIInputViewController {
         trackpadMovementFeedback.selectionChanged()
     }
 
-    private func handleCandidateSelection(_ candidate: String, index: Int) {
+    private func handleCandidateSelection(_ candidate: KeyboardCandidate, index: Int) {
         highlightedCandidateIndex = index
         switch candidateMode {
         case .composition:
             replaceCompositionWith(candidate)
         case .association:
-            insertAssociationCandidate(candidate)
+            insertAssociationCandidate(candidate.text)
         }
     }
 
@@ -509,9 +514,9 @@ final class KeyboardViewController: UIInputViewController {
         return String(text.suffix(maxContextLength))
     }
 
-    private func replaceCompositionWith(_ text: String) {
+    private func replaceCompositionWith(_ candidate: KeyboardCandidate) {
         guard hasActiveComposition else {
-            textDocumentProxy.insertText(text)
+            textDocumentProxy.insertText(candidate.text)
             hasInsertedTextInCurrentContext = true
             resetCompositionState()
             refreshCompositionDisplay()
@@ -519,20 +524,24 @@ final class KeyboardViewController: UIInputViewController {
             return
         }
 
-        let pinyin = activeCandidatePinyin
-        candidateProvider.recordSelection(text, for: pinyin)
-        if selectedCompositionSegments.isEmpty {
-            removeActivePinyinPrefix()
-        } else {
-            compositionBuffer = ""
-            compositionCursorOffset = 0
-        }
-        selectedCompositionSegments.append(SelectedCompositionSegment(pinyin: pinyin, text: text))
+        let activePinyin = activeCandidatePinyin
+        let consumeLength = max(0, min(candidate.consumeLength, activePinyin.count))
+        let consumedPinyin = String(activePinyin.prefix(consumeLength))
+        guard !consumedPinyin.isEmpty else { return }
+
+        candidateProvider.recordSelection(candidate.text, for: consumedPinyin)
+        removeActivePinyinPrefix(length: consumeLength)
+        selectedCompositionSegments.append(SelectedCompositionSegment(pinyin: consumedPinyin, text: candidate.text))
 
         if compositionBuffer.isEmpty {
-            textDocumentProxy.insertText(selectedCompositionText)
+            let committedText = selectedCompositionText
+            let committedPinyin = selectedCompositionPinyin
+            if selectedCompositionSegments.count > 1 {
+                candidateProvider.recordSelection(committedText, for: committedPinyin)
+            }
+            textDocumentProxy.insertText(committedText)
             hasInsertedTextInCurrentContext = true
-            associationContext = limitedAssociationContext(selectedCompositionText)
+            associationContext = limitedAssociationContext(committedText)
             resetCompositionState()
             refreshCompositionDisplay()
         } else {
@@ -555,7 +564,9 @@ final class KeyboardViewController: UIInputViewController {
         if pinyin.isEmpty {
             if !hasActiveComposition, let associationContext {
                 candidateMode = .association
-                allCandidates = associationProvider.associations(for: associationContext)
+                allCandidates = associationProvider.associations(for: associationContext).map { candidate in
+                    KeyboardCandidate(text: candidate, consumeLength: 0)
+                }
             } else {
                 candidateMode = .composition
                 allCandidates = []
@@ -589,7 +600,7 @@ final class KeyboardViewController: UIInputViewController {
         for (index, candidate) in allCandidates.prefix(visibleCandidateCount).enumerated() {
             let isHighlighted = index == highlightedCandidateIndex
             let button = UIButton(type: .system)
-            button.setTitle(candidate, for: .normal)
+            button.setTitle(candidate.text, for: .normal)
             button.titleLabel?.font = .systemFont(ofSize: 17, weight: isHighlighted ? .semibold : .regular)
             button.setTitleColor(isHighlighted ? highlightedCandidateText : primaryText, for: .normal)
             button.backgroundColor = isHighlighted ? highlightedCandidateBackground : .clear
@@ -718,9 +729,11 @@ final class KeyboardViewController: UIInputViewController {
         isDark ? .black : UIColor(white: 0.45, alpha: 1)
     }
 
-    private func candidates(for pinyin: String) -> [String] {
+    private func candidates(for pinyin: String) -> [KeyboardCandidate] {
         guard !pinyin.isEmpty else { return [] }
-        return candidateProvider.candidates(for: pinyin)
+        return candidateProvider.candidates(for: pinyin).map { candidate in
+            KeyboardCandidate(text: candidate.text, consumeLength: candidate.consumeLength)
+        }
     }
 
     private var hasActiveComposition: Bool {
@@ -908,8 +921,8 @@ final class KeyboardViewController: UIInputViewController {
         updateCandidates(resetScroll: true)
     }
 
-    private func removeActivePinyinPrefix() {
-        let prefixLength = activeCandidatePinyin.count
+    private func removeActivePinyinPrefix(length: Int) {
+        let prefixLength = max(0, min(length, compositionBuffer.count))
         guard prefixLength > 0 else { return }
         let end = compositionBuffer.index(compositionBuffer.startIndex, offsetBy: prefixLength)
         compositionBuffer.removeSubrange(compositionBuffer.startIndex..<end)
@@ -1081,6 +1094,24 @@ private enum KeyKind {
 private struct PinyinCandidate {
     let text: String
     let weight: Int
+    let tier: Int
+    let wordLength: Int
+    let syllableCount: Int
+    let consumeLength: Int
+
+    init(text: String, weight: Int, tier: Int = 2, wordLength: Int? = nil, syllableCount: Int = 1, consumeLength: Int = 0) {
+        self.text = text
+        self.weight = weight
+        self.tier = tier
+        self.wordLength = wordLength ?? text.count
+        self.syllableCount = syllableCount
+        self.consumeLength = consumeLength
+    }
+}
+
+private struct PinyinCompletion {
+    let key: String
+    let consumeLength: Int
 }
 
 private struct PinyinSegmenter {
@@ -1110,6 +1141,18 @@ private struct PinyinSegmenter {
         "za", "zai", "zan", "zang", "zao", "ze", "zei", "zen", "zeng", "zha", "zhai", "zhan", "zhang", "zhao", "zhe", "zhen", "zheng", "zhi", "zhong", "zhou", "zhu", "zhua", "zhuai", "zhuan", "zhuang", "zhui", "zhun", "zhuo", "zi", "zong", "zou", "zu", "zuan", "zui", "zun", "zuo"
     ]
 
+    private static let completionPriority: [String: [String]] = [
+        "k": ["kan", "kao", "kai", "kuai", "ke", "kong", "kou", "ku", "kang", "ken", "keng", "ka", "kuan", "kuang", "kui", "kun", "kuo", "kua"],
+        "x": ["xiang", "xin", "xing", "xian", "xiao", "xue", "xi", "xia", "xie", "xiu", "xu", "xuan", "xun", "xiong"]
+    ]
+
+    private static let orderedSyllables = syllables.sorted {
+        if $0.count != $1.count {
+            return $0.count < $1.count
+        }
+        return $0 < $1
+    }
+
     static func segment(_ key: String) -> [String] {
         var index = key.startIndex
         var result: [String] = []
@@ -1132,6 +1175,120 @@ private struct PinyinSegmenter {
         }
 
         return result
+    }
+
+    static func completionKeys(for key: String, limit: Int) -> [PinyinCompletion] {
+        let partial = partialSegmentation(for: key)
+        guard !partial.remainder.isEmpty, partial.remainder.count <= 3 else {
+            return []
+        }
+        let chunks = prefixChunks(for: partial.remainder)
+        guard !chunks.isEmpty else { return [] }
+
+        let completions = chunks.map { completionSyllables(for: $0) }
+        guard completions.allSatisfy({ !$0.isEmpty }) else { return [] }
+
+        let baseKey = partial.segments.joined(separator: "")
+        let baseConsumeLength = partial.segments.reduce(0) { $0 + $1.count }
+        var results: [PinyinCompletion] = []
+        var seen: Set<String> = []
+
+        func append(_ key: String, consumedChunks: Int) {
+            guard results.count < limit, key != baseKey, seen.insert(key).inserted else { return }
+            let consumeLength = baseConsumeLength + chunks.prefix(consumedChunks).reduce(0) { $0 + $1.count }
+            results.append(PinyinCompletion(key: key, consumeLength: consumeLength))
+        }
+
+        let primaryCompletion = completions.compactMap { $0.first }.joined(separator: "")
+        append(baseKey + primaryCompletion, consumedChunks: completions.count)
+        if completions.count > 1 {
+            for count in stride(from: completions.count - 1, through: 1, by: -1) {
+                let partialCompletion = completions.prefix(count).compactMap { $0.first }.joined(separator: "")
+                append(baseKey + partialCompletion, consumedChunks: count)
+            }
+        }
+
+        func build(index: Int, key: String) {
+            guard results.count < limit else { return }
+            if index == completions.count {
+                append(key, consumedChunks: completions.count)
+                return
+            }
+
+            for syllable in completions[index] {
+                build(index: index + 1, key: key + syllable)
+                if results.count >= limit {
+                    break
+                }
+            }
+        }
+
+        build(index: 0, key: baseKey)
+        return results
+    }
+
+    private static func partialSegmentation(for key: String) -> (segments: [String], remainder: String) {
+        var index = key.startIndex
+        var result: [String] = []
+
+        while index < key.endIndex {
+            var best: String?
+            var end = key.index(index, offsetBy: min(6, key.distance(from: index, to: key.endIndex)), limitedBy: key.endIndex) ?? key.endIndex
+            while end > index {
+                let piece = String(key[index..<end])
+                if syllables.contains(piece) {
+                    best = piece
+                    break
+                }
+                end = key.index(before: end)
+            }
+
+            guard let best else {
+                return (result, String(key[index...]))
+            }
+            result.append(best)
+            index = key.index(index, offsetBy: best.count)
+        }
+
+        return (result, "")
+    }
+
+    private static func prefixChunks(for remainder: String) -> [String] {
+        var chunks: [String] = []
+        var index = remainder.startIndex
+
+        while index < remainder.endIndex {
+            var best: String?
+            var end = remainder.index(index, offsetBy: min(4, remainder.distance(from: index, to: remainder.endIndex)), limitedBy: remainder.endIndex) ?? remainder.endIndex
+            while end > index {
+                let piece = String(remainder[index..<end])
+                if hasSyllable(withPrefix: piece) {
+                    best = piece
+                    break
+                }
+                end = remainder.index(before: end)
+            }
+
+            guard let best else { return [] }
+            chunks.append(best)
+            index = remainder.index(index, offsetBy: best.count)
+        }
+
+        return chunks
+    }
+
+    private static func completionSyllables(for prefix: String) -> [String] {
+        let matching = orderedSyllables.filter { $0.hasPrefix(prefix) }
+        guard !matching.isEmpty else { return [] }
+
+        let priority = completionPriority[prefix] ?? []
+        let prioritySet = Set(priority)
+        return priority.filter { syllables.contains($0) && $0.hasPrefix(prefix) }
+            + matching.filter { !prioritySet.contains($0) }
+    }
+
+    private static func hasSyllable(withPrefix prefix: String) -> Bool {
+        orderedSyllables.contains { $0.hasPrefix(prefix) }
     }
 }
 
@@ -1261,12 +1418,14 @@ private final class PinyinAssociationProvider {
     }
 
     private func merge(_ candidates: [PinyinCandidate]) -> [PinyinCandidate] {
-        var bestByText: [String: Int] = [:]
+        var bestByText: [String: PinyinCandidate] = [:]
         for candidate in candidates where !candidate.text.isEmpty {
-            bestByText[candidate.text] = max(bestByText[candidate.text] ?? Int.min, candidate.weight)
+            if let current = bestByText[candidate.text], current.weight >= candidate.weight {
+                continue
+            }
+            bestByText[candidate.text] = candidate
         }
-        return bestByText
-            .map { PinyinCandidate(text: $0.key, weight: $0.value) }
+        return Array(bestByText.values)
             .sorted {
                 if $0.weight != $1.weight {
                     return $0.weight > $1.weight
@@ -1279,6 +1438,19 @@ private final class PinyinAssociationProvider {
     }
 
     private static func parseCandidateField(_ field: String, fallbackWeight: Int) -> PinyinCandidate {
+        let parts = field.split(separator: ":", omittingEmptySubsequences: false)
+        if parts.count >= 5 {
+            let text = parts.dropLast(4).map(String.init).joined(separator: ":")
+            let metadata = parts.suffix(4).map(String.init)
+            return PinyinCandidate(
+                text: text,
+                weight: Int(metadata[0]) ?? fallbackWeight,
+                tier: Int(metadata[1]) ?? 2,
+                wordLength: Int(metadata[2]) ?? text.count,
+                syllableCount: Int(metadata[3]) ?? 1
+            )
+        }
+
         guard let separator = field.lastIndex(of: ":") else {
             return PinyinCandidate(text: field, weight: fallbackWeight)
         }
@@ -1307,17 +1479,44 @@ private final class PinyinAssociationProvider {
 
 private final class PinyinCandidateProvider {
     private struct IndexRecord {
-        let key: String
+        let keyHash: UInt64
         let offset: UInt64
         let length: Int
     }
 
-    private static let memoryDefaultsKey = "pinyinCandidateSelectionMemory.v1"
+    private struct SelectionMemoryEntry {
+        let count: Int
+        let lastUsed: TimeInterval
+    }
+
+    private struct BeamPath {
+        let text: String
+        let score: Int
+        let parts: Int
+    }
+
+    private enum MatchKind {
+        case exact
+        case completion
+        case prefix
+        case beam
+        case fallback
+    }
+
+    private static let memoryDefaultsKey = "pinyinCandidateSelectionMemory.v2"
+    private static let legacyMemoryDefaultsKey = "pinyinCandidateSelectionMemory.v1"
     private static let maxMemoryEntries = 1_000
     private static let maxMemoryCount = 100
-    private static let memoryWeightStep = 2_000_000
-    private static let recordSize = 28
-    private static let keySize = 16
+    private static let memoryFrequencyStep = 160_000
+    private static let maxMemoryBoost = 2_500_000
+    private static let recordSize = 20
+    private static let fnvOffsetBasis: UInt64 = 14_695_981_039_346_656_037
+    private static let fnvPrime: UInt64 = 1_099_511_628_211
+    private static let maxBeamSyllables = 8
+    private static let maxBeamSpan = 4
+    private static let maxBeamWidth = 8
+    private static let maxCompletionKeys = 32
+    private static let completionRankPenalty = 120_000
 
     private let lexiconURL = Bundle.main.url(forResource: "PinyinLexicon", withExtension: "tsv")
     private let indexURL = Bundle.main.url(forResource: "PinyinLexicon", withExtension: "idx")
@@ -1333,27 +1532,27 @@ private final class PinyinCandidateProvider {
         }
     }
 
-    func candidates(for pinyin: String) -> [String] {
+    func candidates(for pinyin: String) -> [PinyinCandidate] {
         let key = Self.normalizedKey(pinyin)
         guard !key.isEmpty else { return [] }
 
+        var lookupCache: [String: [PinyinCandidate]] = [:]
         var candidates: [PinyinCandidate] = []
-
-        candidates += weightedCandidates(for: key, baseWeight: 1_000_000)
+        candidates += scoredCandidates(for: key, match: .exact, consumeLength: key.count, cache: &lookupCache)
+        let completionCandidates = completionCandidates(for: key, cache: &lookupCache)
+        candidates += completionCandidates
 
         let segments = PinyinSegmenter.segment(key)
-        if segments.count == 2 {
-            candidates += longestPrefixCandidates(for: key, baseWeight: 850_000)
-            candidates += phraseCandidates(from: segments, baseWeight: 750_000)
-        } else if segments.count > 2 {
-            candidates += phraseCandidates(from: segments, baseWeight: 850_000)
-            candidates += longestPrefixCandidates(for: key, baseWeight: 750_000)
-        } else {
-            candidates += longestPrefixCandidates(for: key, baseWeight: 600_000)
+        if segments.count > 1 {
+            candidates += beamCandidates(from: segments, fullKey: key, cache: &lookupCache)
         }
-        candidates += fallbackCandidates(for: key, baseWeight: 100_000)
 
-        return applyUserMemory(to: merge(candidates), key: key).map(\.text)
+        if !completionCandidates.isEmpty || candidates.count < 16 {
+            candidates += longestPrefixCandidates(for: key, cache: &lookupCache)
+        }
+        candidates += fallbackCandidates(for: key)
+
+        return applyUserMemory(to: merge(candidates), key: key)
     }
 
     func recordSelection(_ text: String, for pinyin: String) {
@@ -1362,13 +1561,17 @@ private final class PinyinCandidateProvider {
 
         let memoryKey = Self.memoryKey(pinyin: key, text: text)
         var memory = selectionMemory
-        let nextCount = min(Self.maxMemoryCount, (memory[memoryKey] ?? 0) + 1)
-        memory[memoryKey] = nextCount
+        let current = memory[memoryKey]
+        let nextCount = min(Self.maxMemoryCount, (current?.count ?? 0) + 1)
+        memory[memoryKey] = SelectionMemoryEntry(count: nextCount, lastUsed: Date().timeIntervalSince1970)
 
         if memory.count > Self.maxMemoryEntries {
             let sortedKeys = memory.sorted {
-                if $0.value != $1.value {
-                    return $0.value > $1.value
+                if $0.value.count != $1.value.count {
+                    return $0.value.count > $1.value.count
+                }
+                if $0.value.lastUsed != $1.value.lastUsed {
+                    return $0.value.lastUsed > $1.value.lastUsed
                 }
                 return $0.key < $1.key
             }.prefix(Self.maxMemoryEntries).map(\.key)
@@ -1377,22 +1580,41 @@ private final class PinyinCandidateProvider {
             })
         }
 
-        defaults.set(memory, forKey: Self.memoryDefaultsKey)
+        let storage = memory.mapValues { entry in
+            [
+                "count": entry.count,
+                "lastUsed": entry.lastUsed
+            ] as [String: Any]
+        }
+        defaults.set(storage, forKey: Self.memoryDefaultsKey)
     }
 
-    private func weightedCandidates(for key: String, baseWeight: Int) -> [PinyinCandidate] {
-        guard let lineCandidates = bundledCandidates(for: key) else { return [] }
-        return lineCandidates.map { candidate in
-            PinyinCandidate(text: candidate.text, weight: candidate.weight + baseWeight)
+    private func cachedBundledCandidates(for key: String, cache: inout [String: [PinyinCandidate]]) -> [PinyinCandidate] {
+        if let cached = cache[key] {
+            return cached
+        }
+        let candidates = bundledCandidates(for: key) ?? []
+        cache[key] = candidates
+        return candidates
+    }
+
+    private func scoredCandidates(
+        for key: String,
+        match: MatchKind,
+        consumeLength: Int,
+        cache: inout [String: [PinyinCandidate]]
+    ) -> [PinyinCandidate] {
+        cachedBundledCandidates(for: key, cache: &cache).map { candidate in
+            scoredCandidate(candidate, match: match, consumeLength: consumeLength)
         }
     }
 
-    private func longestPrefixCandidates(for key: String, baseWeight: Int) -> [PinyinCandidate] {
+    private func longestPrefixCandidates(for key: String, cache: inout [String: [PinyinCandidate]]) -> [PinyinCandidate] {
         var lookupKey = key
         while !lookupKey.isEmpty {
             lookupKey.removeLast()
             guard !lookupKey.isEmpty else { break }
-            let candidates = weightedCandidates(for: lookupKey, baseWeight: baseWeight)
+            let candidates = scoredCandidates(for: lookupKey, match: .prefix, consumeLength: lookupKey.count, cache: &cache)
             if !candidates.isEmpty {
                 return candidates
             }
@@ -1400,36 +1622,93 @@ private final class PinyinCandidateProvider {
         return []
     }
 
-    private func phraseCandidates(from segments: [String], baseWeight: Int) -> [PinyinCandidate] {
-        let groups = segments.map { segment in
-            weightedCandidates(for: segment, baseWeight: 0).prefix(8).map { $0 }
-        }
-        guard groups.allSatisfy({ !$0.isEmpty }) else { return [] }
-
-        var results: [PinyinCandidate] = []
-
-        func build(index: Int, text: String, weight: Int) {
-            if results.count >= 80 { return }
-            if index == groups.count {
-                results.append(PinyinCandidate(text: text, weight: baseWeight + weight / max(1, groups.count)))
-                return
-            }
-
-            for candidate in groups[index] {
-                build(index: index + 1, text: text + candidate.text, weight: weight + candidate.weight)
+    private func completionCandidates(for key: String, cache: inout [String: [PinyinCandidate]]) -> [PinyinCandidate] {
+        PinyinSegmenter.completionKeys(for: key, limit: Self.maxCompletionKeys).enumerated().flatMap { rank, completion in
+            scoredCandidates(for: completion.key, match: .completion, consumeLength: completion.consumeLength, cache: &cache).prefix(4).map { candidate in
+                PinyinCandidate(
+                    text: candidate.text,
+                    weight: candidate.weight - rank * Self.completionRankPenalty,
+                    tier: candidate.tier,
+                    wordLength: candidate.wordLength,
+                    syllableCount: candidate.syllableCount,
+                    consumeLength: candidate.consumeLength
+                )
             }
         }
-
-        build(index: 0, text: "", weight: 0)
-        return results
     }
 
-    private func fallbackCandidates(for key: String, baseWeight: Int) -> [PinyinCandidate] {
+    private func beamCandidates(
+        from segments: [String],
+        fullKey: String,
+        cache: inout [String: [PinyinCandidate]]
+    ) -> [PinyinCandidate] {
+        guard segments.count > 1, segments.count <= Self.maxBeamSyllables else { return [] }
+
+        var paths = Array(repeating: [BeamPath](), count: segments.count + 1)
+        paths[0] = [BeamPath(text: "", score: 0, parts: 0)]
+
+        for start in 0..<segments.count {
+            guard !paths[start].isEmpty else { continue }
+            let maxEnd = min(segments.count, start + Self.maxBeamSpan)
+            for path in paths[start] {
+                for end in (start + 1)...maxEnd {
+                    let lookupKey = segments[start..<end].joined(separator: "")
+                    guard lookupKey != fullKey else { continue }
+
+                    let limit = end - start == 1 ? 4 : 8
+                    let candidates = cachedBundledCandidates(for: lookupKey, cache: &cache).prefix(limit)
+                    for candidate in candidates {
+                        let text = path.text + candidate.text
+                        guard text.count <= 16 else { continue }
+                        let score = path.score + beamPartScore(candidate, span: end - start)
+                        paths[end].append(BeamPath(text: text, score: score, parts: path.parts + 1))
+                    }
+                    paths[end] = pruneBeamPaths(paths[end])
+                }
+            }
+        }
+
+        return pruneBeamPaths(paths[segments.count])
+            .filter { $0.parts > 1 }
+            .map { path in
+                let averageScore = path.score / max(1, path.parts)
+                let score = 6_200_000 + averageScore - path.parts * 60_000
+                return PinyinCandidate(
+                    text: path.text,
+                    weight: score,
+                    tier: 2,
+                    wordLength: path.text.count,
+                    syllableCount: segments.count,
+                    consumeLength: fullKey.count
+                )
+            }
+    }
+
+    private func pruneBeamPaths(_ paths: [BeamPath]) -> [BeamPath] {
+        var bestByText: [String: BeamPath] = [:]
+        for path in paths where !path.text.isEmpty || path.parts == 0 {
+            if let current = bestByText[path.text], current.score >= path.score {
+                continue
+            }
+            bestByText[path.text] = path
+        }
+        return bestByText.values.sorted {
+            if $0.score != $1.score {
+                return $0.score > $1.score
+            }
+            if $0.parts != $1.parts {
+                return $0.parts < $1.parts
+            }
+            return $0.text < $1.text
+        }.prefix(Self.maxBeamWidth).map { $0 }
+    }
+
+    private func fallbackCandidates(for key: String) -> [PinyinCandidate] {
         var candidates: [PinyinCandidate] = []
 
         if let exact = Self.fallbackDictionary[key] {
             candidates += exact.enumerated().map { index, text in
-                PinyinCandidate(text: text, weight: baseWeight + 10_000 - index)
+                PinyinCandidate(text: text, weight: 1_000_000 + 10_000 - index, tier: 5, consumeLength: key.count)
             }
         }
 
@@ -1439,19 +1718,89 @@ private final class PinyinCandidateProvider {
             .flatMap(\.value)
 
         candidates += prefixCandidates.enumerated().map { index, text in
-            PinyinCandidate(text: text, weight: baseWeight - index)
+            PinyinCandidate(text: text, weight: 900_000 - index, tier: 5, consumeLength: key.count)
         }
 
         return candidates
     }
 
-    private func merge(_ candidates: [PinyinCandidate]) -> [PinyinCandidate] {
-        var bestByText: [String: Int] = [:]
-        for candidate in candidates where !candidate.text.isEmpty {
-            bestByText[candidate.text] = max(bestByText[candidate.text] ?? Int.min, candidate.weight)
+    private func scoredCandidate(_ candidate: PinyinCandidate, match: MatchKind, consumeLength: Int) -> PinyinCandidate {
+        let baseScore: Int
+        let lengthBonus: Int
+        switch match {
+        case .exact:
+            baseScore = 10_000_000
+            lengthBonus = min(candidate.wordLength, 8) * 45_000
+        case .completion:
+            baseScore = 8_400_000
+            lengthBonus = min(candidate.wordLength, 8) * 35_000
+        case .prefix:
+            baseScore = 4_800_000
+            lengthBonus = min(candidate.wordLength, 8) * 20_000
+        case .beam:
+            baseScore = 6_200_000
+            lengthBonus = min(candidate.wordLength, 8) * 25_000
+        case .fallback:
+            baseScore = 900_000
+            lengthBonus = 0
         }
-        return bestByText
-            .map { PinyinCandidate(text: $0.key, weight: $0.value) }
+
+        let score = baseScore
+            + dictionaryScore(candidate.weight)
+            + tierBonus(candidate.tier)
+            + lengthBonus
+            + min(candidate.syllableCount, 6) * 35_000
+
+        return PinyinCandidate(
+            text: candidate.text,
+            weight: score,
+            tier: candidate.tier,
+            wordLength: candidate.wordLength,
+            syllableCount: candidate.syllableCount,
+            consumeLength: consumeLength
+        )
+    }
+
+    private func beamPartScore(_ candidate: PinyinCandidate, span: Int) -> Int {
+        let singleCharacterPenalty = span == 1 && candidate.wordLength == 1 ? 500_000 : 0
+        return dictionaryScore(candidate.weight)
+            + tierBonus(candidate.tier)
+            + min(candidate.wordLength, 8) * 30_000
+            + max(0, span - 1) * 350_000
+            - singleCharacterPenalty
+    }
+
+    private func dictionaryScore(_ weight: Int) -> Int {
+        min(max(weight, 1), 1_200_000)
+    }
+
+    private func tierBonus(_ tier: Int) -> Int {
+        if tier <= 0 {
+            return 600_000
+        }
+        switch tier {
+        case 1:
+            return 420_000
+        case 2:
+            return 260_000
+        case 3:
+            return 120_000
+        case 4:
+            return 40_000
+        default:
+            return 0
+        }
+    }
+
+    private func merge(_ candidates: [PinyinCandidate]) -> [PinyinCandidate] {
+        var bestByText: [String: PinyinCandidate] = [:]
+        for candidate in candidates where !candidate.text.isEmpty {
+            if let current = bestByText[candidate.text], current.weight >= candidate.weight {
+                continue
+            }
+            bestByText[candidate.text] = candidate
+        }
+        return Array(bestByText.values)
             .sorted {
                 if $0.weight != $1.weight {
                     return $0.weight > $1.weight
@@ -1465,10 +1814,19 @@ private final class PinyinCandidateProvider {
 
     private func applyUserMemory(to candidates: [PinyinCandidate], key: String) -> [PinyinCandidate] {
         let memory = selectionMemory
+        let now = Date().timeIntervalSince1970
         return candidates
             .map { candidate in
-                let count = memory[Self.memoryKey(pinyin: key, text: candidate.text)] ?? 0
-                return PinyinCandidate(text: candidate.text, weight: candidate.weight + count * Self.memoryWeightStep)
+                let entry = memory[Self.memoryKey(pinyin: key, text: candidate.text)]
+                let boost = memoryBoost(for: entry, now: now)
+                return PinyinCandidate(
+                    text: candidate.text,
+                    weight: candidate.weight + boost,
+                    tier: candidate.tier,
+                    wordLength: candidate.wordLength,
+                    syllableCount: candidate.syllableCount,
+                    consumeLength: candidate.consumeLength
+                )
             }
             .sorted {
                 if $0.weight != $1.weight {
@@ -1481,17 +1839,72 @@ private final class PinyinCandidateProvider {
             }
     }
 
-    private var selectionMemory: [String: Int] {
-        guard let rawMemory = defaults.dictionary(forKey: Self.memoryDefaultsKey) else { return [:] }
-        return rawMemory.compactMapValues { value in
+    private func memoryBoost(for entry: SelectionMemoryEntry?, now: TimeInterval) -> Int {
+        guard let entry else { return 0 }
+
+        let frequency = min(Self.maxMemoryCount, entry.count) * Self.memoryFrequencyStep
+        let recency: Int
+        if entry.lastUsed > 0 {
+            let ageDays = max(0, (now - entry.lastUsed) / 86_400)
+            recency = max(0, 350_000 - Int(ageDays * 20_000))
+        } else {
+            recency = 0
+        }
+
+        return min(Self.maxMemoryBoost, frequency + recency)
+    }
+
+    private var selectionMemory: [String: SelectionMemoryEntry] {
+        if let rawMemory = defaults.dictionary(forKey: Self.memoryDefaultsKey) {
+            return parseSelectionMemory(rawMemory)
+        }
+        guard let legacyMemory = defaults.dictionary(forKey: Self.legacyMemoryDefaultsKey) else { return [:] }
+        return legacyMemory.compactMapValues { value in
             if let count = value as? Int {
-                return count
+                return SelectionMemoryEntry(count: count, lastUsed: 0)
             }
             if let count = value as? NSNumber {
-                return count.intValue
+                return SelectionMemoryEntry(count: count.intValue, lastUsed: 0)
             }
             return nil
         }
+    }
+
+    private func parseSelectionMemory(_ rawMemory: [String: Any]) -> [String: SelectionMemoryEntry] {
+        return rawMemory.compactMapValues { value in
+            if let entry = value as? [String: Any] {
+                return Self.parseMemoryEntry(entry)
+            }
+            if let entry = value as? [String: NSNumber] {
+                return SelectionMemoryEntry(
+                    count: entry["count"]?.intValue ?? 0,
+                    lastUsed: entry["lastUsed"]?.doubleValue ?? 0
+                )
+            }
+            return nil
+        }
+    }
+
+    private static func parseMemoryEntry(_ entry: [String: Any]) -> SelectionMemoryEntry {
+        let count: Int
+        if let value = entry["count"] as? Int {
+            count = value
+        } else if let value = entry["count"] as? NSNumber {
+            count = value.intValue
+        } else {
+            count = 0
+        }
+
+        let lastUsed: TimeInterval
+        if let value = entry["lastUsed"] as? TimeInterval {
+            lastUsed = value
+        } else if let value = entry["lastUsed"] as? NSNumber {
+            lastUsed = value.doubleValue
+        } else {
+            lastUsed = 0
+        }
+
+        return SelectionMemoryEntry(count: count, lastUsed: lastUsed)
     }
 
     private static func memoryKey(pinyin: String, text: String) -> String {
@@ -1500,49 +1913,63 @@ private final class PinyinCandidateProvider {
 
     private func bundledCandidates(for key: String) -> [PinyinCandidate]? {
         guard let lexiconURL, let indexURL, recordCount > 0 else { return nil }
-        guard let record = findRecord(for: key, in: indexURL) else { return nil }
+        let records = findRecords(for: key, in: indexURL)
+        guard !records.isEmpty else { return nil }
         guard let handle = try? FileHandle(forReadingFrom: lexiconURL) else { return nil }
         defer { try? handle.close() }
 
-        do {
-            try handle.seek(toOffset: record.offset)
-            let data = try handle.read(upToCount: record.length) ?? Data()
-            guard let line = String(data: data, encoding: .utf8) else { return nil }
-            return line
-                .trimmingCharacters(in: .newlines)
-                .split(separator: "\t", omittingEmptySubsequences: true)
-                .dropFirst()
-                .enumerated()
-                .map { index, field in
-                    Self.parseCandidateField(String(field), fallbackWeight: 120 - index)
-                }
-        } catch {
-            return nil
-        }
-    }
-
-    private func findRecord(for key: String, in indexURL: URL) -> IndexRecord? {
-        guard let handle = try? FileHandle(forReadingFrom: indexURL) else { return nil }
-        defer { try? handle.close() }
-
-        var low = 0
-        var high = recordCount - 1
-
-        while low <= high {
-            let mid = (low + high) / 2
-            guard let record = readRecord(at: mid, from: handle) else { return nil }
-            let comparison = record.key.compare(key)
-
-            if comparison == .orderedSame {
-                return record
-            } else if comparison == .orderedAscending {
-                low = mid + 1
-            } else {
-                high = mid - 1
+        for record in records {
+            do {
+                try handle.seek(toOffset: record.offset)
+                let data = try handle.read(upToCount: record.length) ?? Data()
+                guard let line = String(data: data, encoding: .utf8) else { continue }
+                let fields = line
+                    .trimmingCharacters(in: .newlines)
+                    .split(separator: "\t", omittingEmptySubsequences: true)
+                guard fields.first.map(String.init) == key else { continue }
+                return fields
+                    .dropFirst()
+                    .enumerated()
+                    .map { index, field in
+                        Self.parseCandidateField(String(field), fallbackWeight: 120 - index)
+                    }
+            } catch {
+                continue
             }
         }
 
         return nil
+    }
+
+    private func findRecords(for key: String, in indexURL: URL) -> [IndexRecord] {
+        guard let handle = try? FileHandle(forReadingFrom: indexURL) else { return [] }
+        defer { try? handle.close() }
+
+        let targetHash = Self.hashKey(key)
+        var low = 0
+        var high = recordCount
+
+        while low < high {
+            let mid = (low + high) / 2
+            guard let record = readRecord(at: mid, from: handle) else { return [] }
+            if record.keyHash < targetHash {
+                low = mid + 1
+            } else {
+                high = mid
+            }
+        }
+
+        var results: [IndexRecord] = []
+        var index = low
+        while index < recordCount {
+            guard let record = readRecord(at: index, from: handle), record.keyHash == targetHash else {
+                break
+            }
+            results.append(record)
+            index += 1
+        }
+
+        return results
     }
 
     private func readRecord(at index: Int, from handle: FileHandle) -> IndexRecord? {
@@ -1551,12 +1978,10 @@ private final class PinyinCandidateProvider {
             let data = try handle.read(upToCount: Self.recordSize) ?? Data()
             guard data.count == Self.recordSize else { return nil }
 
-            let keyData = data.prefix(Self.keySize).prefix { $0 != 0 }
-            guard let key = String(data: Data(keyData), encoding: .utf8) else { return nil }
-
-            let offset = Self.uint64LE(data, start: 16)
-            let length = Int(Self.uint32LE(data, start: 24))
-            return IndexRecord(key: key, offset: offset, length: length)
+            let keyHash = Self.uint64LE(data, start: 0)
+            let offset = Self.uint64LE(data, start: 8)
+            let length = Int(Self.uint32LE(data, start: 16))
+            return IndexRecord(keyHash: keyHash, offset: offset, length: length)
         } catch {
             return nil
         }
@@ -1572,7 +1997,29 @@ private final class PinyinCandidateProvider {
         })
     }
 
+    private static func hashKey(_ key: String) -> UInt64 {
+        var result = Self.fnvOffsetBasis
+        for byte in key.utf8 {
+            result ^= UInt64(byte)
+            result = result &* Self.fnvPrime
+        }
+        return result
+    }
+
     private static func parseCandidateField(_ field: String, fallbackWeight: Int) -> PinyinCandidate {
+        let parts = field.split(separator: ":", omittingEmptySubsequences: false)
+        if parts.count >= 5 {
+            let text = parts.dropLast(4).map(String.init).joined(separator: ":")
+            let metadata = parts.suffix(4).map(String.init)
+            return PinyinCandidate(
+                text: text,
+                weight: Int(metadata[0]) ?? fallbackWeight,
+                tier: Int(metadata[1]) ?? 2,
+                wordLength: Int(metadata[2]) ?? text.count,
+                syllableCount: Int(metadata[3]) ?? 1
+            )
+        }
+
         guard let separator = field.lastIndex(of: ":") else {
             return PinyinCandidate(text: field, weight: fallbackWeight)
         }
