@@ -71,7 +71,7 @@ final class KeyboardViewController: UIInputViewController {
         view.backgroundColor = keyboardBackground
 
         rootStack.axis = .vertical
-        rootStack.spacing = 7
+        rootStack.spacing = 6
         rootStack.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(rootStack)
 
@@ -100,14 +100,14 @@ final class KeyboardViewController: UIInputViewController {
             self?.moveCompositionCursor(toCompositionTextOffset: offset)
         }
         rootStack.addArrangedSubview(compositionBar)
-        compositionBar.heightAnchor.constraint(equalToConstant: 24).isActive = true
+        compositionBar.heightAnchor.constraint(equalToConstant: 18).isActive = true
 
         candidateScrollView.showsHorizontalScrollIndicator = false
         candidateScrollView.alwaysBounceHorizontal = true
         candidateScrollView.clipsToBounds = false
         candidateScrollView.delegate = self
         rootStack.addArrangedSubview(candidateScrollView)
-        candidateScrollView.heightAnchor.constraint(equalToConstant: 34).isActive = true
+        candidateScrollView.heightAnchor.constraint(equalToConstant: 30).isActive = true
 
         candidateStack.axis = .horizontal
         candidateStack.spacing = 6
@@ -159,7 +159,7 @@ final class KeyboardViewController: UIInputViewController {
                     let spacer = KeyboardKeySpacer()
                     spacer.widthUnit = key.widthUnit
                     rowStack.addArrangedSubview(spacer)
-                    spacer.heightAnchor.constraint(equalToConstant: 44).isActive = true
+                    spacer.heightAnchor.constraint(equalToConstant: 40).isActive = true
                     rowSpacers.append(spacer)
                     continue
                 }
@@ -167,7 +167,7 @@ final class KeyboardViewController: UIInputViewController {
                 let button = makeButton(for: key)
                 button.widthUnit = key.widthUnit
                 rowStack.addArrangedSubview(button)
-                button.heightAnchor.constraint(equalToConstant: 44).isActive = true
+                button.heightAnchor.constraint(equalToConstant: 40).isActive = true
                 if usesUniformLetterKeys, key.kind.isPrimary {
                     button.widthAnchor.constraint(equalTo: rowStack.widthAnchor, multiplier: 0.1, constant: -5.4).isActive = true
                 }
@@ -498,7 +498,7 @@ final class KeyboardViewController: UIInputViewController {
             button.titleLabel?.font = .systemFont(ofSize: 17, weight: isHighlighted ? .semibold : .regular)
             button.setTitleColor(isHighlighted ? highlightedCandidateText : primaryText, for: .normal)
             button.backgroundColor = isHighlighted ? highlightedCandidateBackground : .clear
-            button.contentEdgeInsets = UIEdgeInsets(top: 3, left: 12, bottom: 3, right: 12)
+            button.contentEdgeInsets = UIEdgeInsets(top: 2, left: 12, bottom: 2, right: 12)
             button.layer.cornerRadius = 7
             button.layer.borderWidth = 0.5
             button.layer.borderColor = (isHighlighted ? UIColor.clear : candidateBorder).cgColor
@@ -525,12 +525,12 @@ final class KeyboardViewController: UIInputViewController {
         button.titleLabel?.font = .systemFont(ofSize: 20, weight: .semibold)
         button.setTitleColor(secondaryText, for: .normal)
         button.backgroundColor = candidateBackground
-        button.contentEdgeInsets = UIEdgeInsets(top: 3, left: 14, bottom: 3, right: 14)
+        button.contentEdgeInsets = UIEdgeInsets(top: 2, left: 14, bottom: 2, right: 14)
         button.layer.cornerRadius = 7
         button.layer.borderWidth = 0.5
         button.layer.borderColor = candidateBorder.cgColor
         candidateStack.addArrangedSubview(button)
-        button.heightAnchor.constraint(equalToConstant: 28).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 24).isActive = true
         button.widthAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
     }
 
@@ -848,7 +848,7 @@ private final class KeyboardKeyButton: UIButton {
     var widthUnit: CGFloat = 1
 
     override var intrinsicContentSize: CGSize {
-        CGSize(width: 32 * widthUnit, height: 44)
+        CGSize(width: 32 * widthUnit, height: 40)
     }
 }
 
@@ -856,7 +856,7 @@ private final class KeyboardKeySpacer: UIView {
     var widthUnit: CGFloat = 1
 
     override var intrinsicContentSize: CGSize {
-        CGSize(width: 32 * widthUnit, height: 44)
+        CGSize(width: 32 * widthUnit, height: 40)
     }
 }
 
@@ -867,7 +867,7 @@ private final class CompositionBarView: UIView {
     private var cursorOffset = 0
     private var rawOffsets: [Int] = [0]
     private let font = UIFont.systemFont(ofSize: 15, weight: .regular)
-    private let textInsets = UIEdgeInsets(top: 1, left: 10, bottom: 1, right: 10)
+    private let textInsets = UIEdgeInsets(top: 0, left: 10, bottom: 0, right: 10)
     private var barTextColor = UIColor.black
     private var barCursorColor = UIColor.systemBlue
 
@@ -908,8 +908,8 @@ private final class CompositionBarView: UIView {
         (text as NSString).draw(at: textOrigin, withAttributes: attributes)
 
         let cursorX = max(textRect.minX, min(textRect.minX + width(upTo: cursorOffset), textRect.maxX))
-        let cursorTop = max(textRect.minY + 1, bounds.midY - 8)
-        let cursorBottom = min(textRect.maxY - 1, bounds.midY + 8)
+        let cursorTop = max(textRect.minY + 1, bounds.midY - 6)
+        let cursorBottom = min(textRect.maxY - 1, bounds.midY + 6)
         let cursorPath = UIBezierPath()
         cursorPath.move(to: CGPoint(x: cursorX, y: cursorTop))
         cursorPath.addLine(to: CGPoint(x: cursorX, y: cursorBottom))
