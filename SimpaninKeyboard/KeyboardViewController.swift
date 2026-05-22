@@ -19,11 +19,14 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private let candidateProvider = PinyinCandidateProvider()
+    private let keyboardBackdropView = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
     private let rootStack = UIStackView()
     private let trackpadBlurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
     private let compositionBar = CompositionBarView()
     private let candidateScrollView = UIScrollView()
     private let candidateStack = UIStackView()
+    private let utilityOverlayView = UIView()
+    private let utilityOverlayButton = UIButton(type: .system)
     private var allCandidates: [String] = []
     private var visibleCandidateCount = 0
     private var highlightedCandidateIndex = 0
@@ -70,8 +73,12 @@ final class KeyboardViewController: UIInputViewController {
     private func setupKeyboard() {
         view.backgroundColor = keyboardBackground
 
+        keyboardBackdropView.translatesAutoresizingMaskIntoConstraints = false
+        keyboardBackdropView.isUserInteractionEnabled = false
+        view.addSubview(keyboardBackdropView)
+
         rootStack.axis = .vertical
-        rootStack.spacing = 6
+        rootStack.spacing = 7
         rootStack.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(rootStack)
 
@@ -81,6 +88,10 @@ final class KeyboardViewController: UIInputViewController {
         view.addSubview(trackpadBlurView)
 
         NSLayoutConstraint.activate([
+            keyboardBackdropView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            keyboardBackdropView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            keyboardBackdropView.topAnchor.constraint(equalTo: view.topAnchor),
+            keyboardBackdropView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
             rootStack.leadingAnchor.constraint(equalTo: view.leadingAnchor, constant: 4),
             rootStack.trailingAnchor.constraint(equalTo: view.trailingAnchor, constant: -4),
             rootStack.topAnchor.constraint(equalTo: view.topAnchor, constant: 6),
@@ -125,6 +136,33 @@ final class KeyboardViewController: UIInputViewController {
             candidateStack.bottomAnchor.constraint(equalTo: candidateScrollView.contentLayoutGuide.bottomAnchor),
             candidateStack.heightAnchor.constraint(equalTo: candidateScrollView.frameLayoutGuide.heightAnchor)
         ])
+
+        utilityOverlayView.translatesAutoresizingMaskIntoConstraints = false
+        utilityOverlayView.isUserInteractionEnabled = true
+        utilityOverlayView.isHidden = true
+        utilityOverlayView.backgroundColor = .clear
+        view.addSubview(utilityOverlayView)
+
+        utilityOverlayButton.translatesAutoresizingMaskIntoConstraints = false
+        utilityOverlayButton.setTitle("⌘", for: .normal)
+        utilityOverlayButton.titleLabel?.font = .systemFont(ofSize: 20, weight: .semibold)
+        utilityOverlayButton.backgroundColor = candidateBackground
+        utilityOverlayButton.contentEdgeInsets = UIEdgeInsets(top: 2, left: 14, bottom: 2, right: 14)
+        utilityOverlayButton.layer.cornerRadius = 7
+        utilityOverlayButton.layer.borderWidth = 0.5
+        utilityOverlayView.addSubview(utilityOverlayButton)
+
+        NSLayoutConstraint.activate([
+            utilityOverlayView.leadingAnchor.constraint(equalTo: rootStack.leadingAnchor),
+            utilityOverlayView.trailingAnchor.constraint(equalTo: rootStack.trailingAnchor),
+            utilityOverlayView.topAnchor.constraint(equalTo: compositionBar.topAnchor),
+            utilityOverlayView.bottomAnchor.constraint(equalTo: candidateScrollView.bottomAnchor),
+            utilityOverlayButton.leadingAnchor.constraint(equalTo: utilityOverlayView.leadingAnchor, constant: 8),
+            utilityOverlayButton.centerYAnchor.constraint(equalTo: utilityOverlayView.centerYAnchor),
+            utilityOverlayButton.heightAnchor.constraint(equalToConstant: 24),
+            utilityOverlayButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 44)
+        ])
+        view.bringSubviewToFront(trackpadBlurView)
     }
 
     private func renderKeyboard() {
@@ -483,11 +521,9 @@ final class KeyboardViewController: UIInputViewController {
             candidateStack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
+        utilityOverlayView.isHidden = hasActiveComposition || !allCandidates.isEmpty
 
         guard !allCandidates.isEmpty else {
-            if !hasActiveComposition {
-                renderUtilityCandidateButton()
-            }
             return
         }
 
@@ -515,25 +551,6 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
-    private func renderUtilityCandidateButton() {
-        let leadingSpacer = UIView()
-        candidateStack.addArrangedSubview(leadingSpacer)
-        leadingSpacer.widthAnchor.constraint(equalToConstant: 8).isActive = true
-
-        let button = UIButton(type: .system)
-        button.setTitle("⌘", for: .normal)
-        button.titleLabel?.font = .systemFont(ofSize: 20, weight: .semibold)
-        button.setTitleColor(secondaryText, for: .normal)
-        button.backgroundColor = candidateBackground
-        button.contentEdgeInsets = UIEdgeInsets(top: 2, left: 14, bottom: 2, right: 14)
-        button.layer.cornerRadius = 7
-        button.layer.borderWidth = 0.5
-        button.layer.borderColor = candidateBorder.cgColor
-        candidateStack.addArrangedSubview(button)
-        button.heightAnchor.constraint(equalToConstant: 24).isActive = true
-        button.widthAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
-    }
-
     private func appendMoreCandidatesIfNeeded() {
         guard visibleCandidateCount < allCandidates.count else { return }
         visibleCandidateCount = min(visibleCandidateCount + Self.candidateBatchSize, allCandidates.count)
@@ -542,6 +559,7 @@ final class KeyboardViewController: UIInputViewController {
 
     private func applyTheme() {
         view.backgroundColor = keyboardBackground
+        keyboardBackdropView.effect = UIBlurEffect(style: .systemThinMaterial)
 
         for button in keyButtons {
             if let keyButton = button as? KeyboardKeyButton, case .returnKey = keyButton.kind {
@@ -557,6 +575,9 @@ final class KeyboardViewController: UIInputViewController {
             button.setTitleColor(primaryText, for: .normal)
             button.layer.shadowColor = shadowColor.cgColor
         }
+        utilityOverlayButton.setTitleColor(secondaryText, for: .normal)
+        utilityOverlayButton.backgroundColor = candidateBackground
+        utilityOverlayButton.layer.borderColor = candidateBorder.cgColor
         updateCompositionBarAppearance()
     }
 
@@ -574,7 +595,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private var keyboardBackground: UIColor {
-        isDark ? UIColor(red: 0.18, green: 0.18, blue: 0.19, alpha: 1) : UIColor(red: 0.82, green: 0.84, blue: 0.87, alpha: 1)
+        isDark ? UIColor(red: 0.13, green: 0.14, blue: 0.14, alpha: 0.72) : UIColor(red: 0.73, green: 0.75, blue: 0.78, alpha: 0.72)
     }
 
     private var keyBackground: UIColor {
