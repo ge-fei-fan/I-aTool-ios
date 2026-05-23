@@ -233,7 +233,7 @@ private struct KeyboardExtensionDiagnostics {
                 Item("Extension Point", extensionPoint, isExpected: extensionPoint == "com.apple.keyboard-service"),
                 Item("Primary Language", primaryLanguage, isExpected: primaryLanguage == "zh-Hans"),
                 Item("ASCII Capable", boolText(isASCIICapable), isExpected: isASCIICapable == true),
-                Item("Open Access", boolText(requestsOpenAccess), isExpected: requestsOpenAccess == false),
+                Item("Open Access", boolText(requestsOpenAccess), isExpected: requestsOpenAccess == true),
                 Item("AppeX", extensionBundle.bundleURL.lastPathComponent, isExpected: nil)
             ]
         )
@@ -1902,9 +1902,11 @@ private struct SettingsView: View {
     @StateObject private var updateVM = UpdateViewModel()
     @ObservedObject private var logStore = AppLogStore.shared
     @ObservedObject private var nezhaSettings = NezhaSettingsStore.shared
+    @ObservedObject private var quickFillStore = QuickFillStore.shared
     @State private var showingLogs = false
     @State private var showingNezhaSettings = false
     @State private var showingKeyboardGuide = false
+    @State private var showingQuickFillSettings = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1956,6 +1958,20 @@ private struct SettingsView: View {
                                 title: "中文键盘",
                                 trailingText: "离线",
                                 subtitle: "启用系统键盘扩展并测试拼音输入"
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        settingsDivider
+
+                        Button {
+                            showingQuickFillSettings = true
+                        } label: {
+                            settingsRow(
+                                icon: "text.append",
+                                title: "快速填充",
+                                trailingText: "\(quickFillStore.items.count) 项",
+                                subtitle: "配置键盘快速填充字符"
                             )
                         }
                         .buttonStyle(.plain)
@@ -2039,6 +2055,10 @@ private struct SettingsView: View {
         }
         .sheet(isPresented: $showingKeyboardGuide) {
             KeyboardGuideSheet()
+                .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showingQuickFillSettings) {
+            QuickFillSettingsSheet(store: quickFillStore)
                 .presentationDetents([.medium, .large])
         }
         .onAppear {
@@ -2655,7 +2675,8 @@ private struct KeyboardGuideSheet: View {
                         keyboardStep("1", "打开系统 设置")
                         keyboardStep("2", "进入 通用 > 键盘 > 键盘")
                         keyboardStep("3", "点击 添加新键盘，选择 FITNEX")
-                        keyboardStep("4", "切换到 FITNEX 中文键盘后输入拼音")
+                        keyboardStep("4", "开启 允许完全访问，用于同步快速填充配置")
+                        keyboardStep("5", "切换到 FITNEX 中文键盘后输入拼音")
                     }
 
                     VStack(alignment: .leading, spacing: 8) {
@@ -2709,7 +2730,7 @@ private struct KeyboardGuideSheet: View {
                         }
                     }
 
-                    Text("键盘离线运行，不需要允许完全访问。拼音候选词库基于 rime-frost（GPL-3.0）转换，来源：https://github.com/gaboolic/rime-frost。")
+                    Text("键盘离线运行，不会访问网络。快速填充配置通过 App Group 共享，需要在系统键盘设置中允许完全访问。拼音候选词库基于 rime-frost（GPL-3.0）转换，来源：https://github.com/gaboolic/rime-frost。")
                         .font(.fitnexBody(size: 11, weight: .regular))
                         .foregroundColor(FitnexColor.grayText)
                 }
@@ -2762,6 +2783,94 @@ private struct KeyboardGuideSheet: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+    }
+}
+
+private struct QuickFillSettingsSheet: View {
+    @ObservedObject var store: QuickFillStore
+    @State private var draftText = ""
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("快速填充项")
+                        .font(.fitnexTitle(size: 13))
+                        .foregroundColor(FitnexColor.black)
+
+                    if store.items.isEmpty {
+                        Text("暂无填充项，添加后可在键盘中快速插入")
+                            .font(.fitnexBody(size: 11, weight: .regular))
+                            .foregroundColor(FitnexColor.grayText)
+                            .padding(.vertical, 12)
+                    } else {
+                        List {
+                            ForEach(store.items.indices, id: \.self) { index in
+                                Text(store.items[index])
+                                    .font(.fitnexBody(size: 14, weight: .regular))
+                                    .foregroundColor(FitnexColor.black)
+                                    .lineLimit(1)
+                            }
+                            .onDelete { offsets in
+                                store.remove(at: offsets)
+                            }
+                            .onMove { source, destination in
+                                store.move(from: source, to: destination)
+                            }
+                        }
+                        .listStyle(.plain)
+                        .frame(minHeight: 120)
+                    }
+                }
+
+                HStack(spacing: 12) {
+                    TextField("输入填充文本", text: $draftText)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .font(.fitnexBody(size: 13, weight: .regular))
+                        .padding(.horizontal, 12)
+                        .frame(height: 44)
+                        .background(FitnexColor.pale, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                        .onSubmit {
+                            addIfValid()
+                        }
+
+                    Button(action: addIfValid) {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.system(size: 24, weight: .semibold))
+                            .foregroundColor(FitnexColor.orange)
+                    }
+                    .disabled(draftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+
+                Spacer()
+            }
+            .padding(20)
+            .background(FitnexColor.background)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("快速填充")
+                        .font(.fitnexTitle(size: 16))
+                        .foregroundColor(FitnexColor.black)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("完成") {
+                        dismiss()
+                    }
+                    .foregroundColor(FitnexColor.orange)
+                }
+            }
+            .environment(\.editMode, .constant(.active))
+        }
+    }
+
+    private func addIfValid() {
+        let trimmed = draftText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        store.add(trimmed)
+        draftText = ""
     }
 }
 
@@ -4112,6 +4221,46 @@ private final class NezhaSettingsStore: ObservableObject {
             return "https://" + String(trimmed.dropFirst(6))
         }
         return "http://\(trimmed)"
+    }
+}
+
+private final class QuickFillStore: ObservableObject {
+    static let shared = QuickFillStore()
+
+    @Published private(set) var items: [String]
+
+    private let defaults: UserDefaults?
+    private let itemsKey = "quickFill.items"
+
+    private init() {
+        defaults = UserDefaults(suiteName: "group.com.local.fitnex")
+        items = defaults?.stringArray(forKey: itemsKey) ?? []
+    }
+
+    func add(_ text: String) {
+        let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return }
+        items.append(trimmed)
+        save()
+    }
+
+    func remove(at offsets: IndexSet) {
+        items.remove(atOffsets: offsets)
+        save()
+    }
+
+    func move(from source: IndexSet, to destination: Int) {
+        items.move(fromOffsets: source, toOffset: destination)
+        save()
+    }
+
+    private func save() {
+        defaults?.set(items, forKey: itemsKey)
+    }
+
+    static var sharedItems: [String] {
+        guard let defaults = UserDefaults(suiteName: "group.com.local.fitnex") else { return [] }
+        return defaults.stringArray(forKey: "quickFill.items") ?? []
     }
 }
 

@@ -81,12 +81,13 @@ final class KeyboardViewController: UIInputViewController {
     private var hasInsertedTextInCurrentContext = false
     private let trackpadActivationFeedback = UIImpactFeedbackGenerator(style: .medium)
     private let trackpadMovementFeedback = UISelectionFeedbackGenerator()
+    private var quickFillItems: [String] = []
+    private var isQuickFillPanelVisible = false
 
     private static let candidateBatchSize = 30
     private static let candidatePanelAnimationDuration: TimeInterval = 0.22
     private static let candidateToggleButtonWidth: CGFloat = 34
     private static let candidateToggleButtonHeight: CGFloat = 30
-    private static let utilityFillText = "kk223344"
     private static let trackpadStepWidth: CGFloat = 10
     private static let keyPreviewHorizontalInset: CGFloat = 4
     private static let previewableLetterScalars = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
@@ -97,8 +98,14 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        reloadQuickFillItems()
         setupKeyboard()
         renderKeyboard()
+    }
+
+    override func viewWillAppear(_ animated: Bool) {
+        super.viewWillAppear(animated)
+        reloadQuickFillItems()
     }
 
     override func traitCollectionDidChange(_ previousTraitCollection: UITraitCollection?) {
@@ -117,10 +124,14 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
-        guard isCandidatePageVisible else { return }
+        guard isCandidatePageVisible || isQuickFillPanelVisible else { return }
         let width = candidatePageView.bounds.width
         if abs(width - candidatePageRenderedWidth) > 1 {
-            renderCandidatePage()
+            if isQuickFillPanelVisible {
+                renderQuickFillPanel()
+            } else {
+                renderCandidatePage()
+            }
         }
     }
 
@@ -261,7 +272,11 @@ final class KeyboardViewController: UIInputViewController {
         candidatePageCollapseButton.translatesAutoresizingMaskIntoConstraints = false
         configureCandidateToggleButton(candidatePageCollapseButton, systemName: "chevron.up")
         candidatePageCollapseButton.addAction(UIAction { [weak self] _ in
-            self?.setCandidatePageVisible(false)
+            if self?.isQuickFillPanelVisible == true {
+                self?.setQuickFillPanelVisible(false)
+            } else {
+                self?.setCandidatePageVisible(false)
+            }
         }, for: .touchUpInside)
         candidatePageView.addSubview(candidatePageCollapseButton)
 
@@ -329,20 +344,36 @@ final class KeyboardViewController: UIInputViewController {
             rows = symbolRows
         }
 
-        for row in rows {
+        for (rowIndex, row) in rows.enumerated() {
             let usesUniformLetterKeys = keyboardMode == .letters && row.contains { $0.kind.isPrimary }
+            let alignsLetterControlRow = keyboardMode == .letters && rowIndex == 3
             let rowStack = UIStackView()
             rowStack.axis = .horizontal
             rowStack.spacing = 6
             rowStack.alignment = .fill
-            rowStack.distribution = usesUniformLetterKeys ? .fill : .fillProportionally
+            rowStack.distribution = usesUniformLetterKeys || alignsLetterControlRow ? .fill : .fillProportionally
             var rowSpacers: [UIView] = []
             var sideKeys: [UIButton] = []
+            var numberModeButton: KeyboardKeyButton?
+            var spaceButton: KeyboardKeyButton?
+            var languageButton: KeyboardKeyButton?
+            var returnButton: KeyboardKeyButton?
 
             for key in row {
                 if case .spacer = key.kind {
-                    let spacer = KeyboardKeySpacer()
-                    spacer.widthUnit = key.widthUnit
+                    let spacer: UIView
+                    if let proxyKind = key.proxyKind {
+                        let proxySpacer = KeyboardProxySpacerButton(type: .custom)
+                        proxySpacer.widthUnit = key.widthUnit
+                        proxySpacer.addAction(UIAction { [weak self] _ in
+                            self?.handle(proxyKind)
+                        }, for: .touchUpInside)
+                        spacer = proxySpacer
+                    } else {
+                        let plainSpacer = KeyboardKeySpacer()
+                        plainSpacer.widthUnit = key.widthUnit
+                        spacer = plainSpacer
+                    }
                     rowStack.addArrangedSubview(spacer)
                     spacer.heightAnchor.constraint(equalToConstant: 41).isActive = true
                     rowSpacers.append(spacer)
@@ -362,6 +393,20 @@ final class KeyboardViewController: UIInputViewController {
                 if usesUniformLetterKeys, case .backspace = key.kind {
                     sideKeys.append(button)
                 }
+                if alignsLetterControlRow {
+                    switch key.kind {
+                    case .modeSwitch(.numbers):
+                        numberModeButton = button
+                    case .space:
+                        spaceButton = button
+                    case .languageSwitch:
+                        languageButton = button
+                    case .returnKey:
+                        returnButton = button
+                    default:
+                        break
+                    }
+                }
                 keyButtons.append(button)
             }
 
@@ -371,6 +416,19 @@ final class KeyboardViewController: UIInputViewController {
             if sideKeys.count == 2 {
                 sideKeys[0].widthAnchor.constraint(equalTo: sideKeys[1].widthAnchor).isActive = true
             }
+            if alignsLetterControlRow,
+               let numberModeButton = numberModeButton,
+               let spaceButton = spaceButton,
+               let languageButton = languageButton,
+               let returnButton = returnButton {
+                applyLetterControlRowAlignment(
+                    rowStack: rowStack,
+                    numberModeButton: numberModeButton,
+                    spaceButton: spaceButton,
+                    languageButton: languageButton,
+                    returnButton: returnButton
+                )
+            }
 
             keyboardRowsStack.addArrangedSubview(rowStack)
         }
@@ -379,9 +437,25 @@ final class KeyboardViewController: UIInputViewController {
         applyTheme()
     }
 
+    private func applyLetterControlRowAlignment(
+        rowStack: UIStackView,
+        numberModeButton: KeyboardKeyButton,
+        spaceButton: KeyboardKeyButton,
+        languageButton: KeyboardKeyButton,
+        returnButton: KeyboardKeyButton
+    ) {
+        let rowSpacing = rowStack.spacing
+        NSLayoutConstraint.activate([
+            numberModeButton.widthAnchor.constraint(equalTo: rowStack.widthAnchor, multiplier: 0.25, constant: -4.5),
+            spaceButton.widthAnchor.constraint(equalTo: rowStack.widthAnchor, multiplier: 0.4, constant: 8.4 - (2 * rowSpacing)),
+            languageButton.widthAnchor.constraint(equalTo: rowStack.widthAnchor, multiplier: 0.12, constant: -1.8),
+            returnButton.widthAnchor.constraint(equalTo: rowStack.widthAnchor, multiplier: 0.23, constant: -8.1)
+        ])
+    }
+
     private var letterRows: [[KeySpec]] {
         let row1 = "qwertyuiop".map { KeySpec(.character(String($0))) }
-        let row2 = [KeySpec(.spacer, widthUnit: 0.5)] + "asdfghjkl".map { KeySpec(.character(String($0))) } + [KeySpec(.spacer, widthUnit: 0.5)]
+        let row2 = [KeySpec(.spacer, widthUnit: 0.5, proxyKind: .character("a"))] + "asdfghjkl".map { KeySpec(.character(String($0))) } + [KeySpec(.spacer, widthUnit: 0.5, proxyKind: .character("l"))]
         let row3 = [KeySpec(.shift, widthUnit: 1.5)] + "zxcvbnm".map { KeySpec(.character(String($0))) } + [KeySpec(.backspace, widthUnit: 1.5)]
         let row4 = [
             KeySpec(.modeSwitch(.numbers), title: "123", widthUnit: 1.35),
@@ -433,6 +507,9 @@ final class KeyboardViewController: UIInputViewController {
         button.titleEdgeInsets = .zero
         button.titleLabel?.textAlignment = .center
         button.titleLabel?.font = font(for: spec.kind)
+        button.titleLabel?.adjustsFontSizeToFitWidth = true
+        button.titleLabel?.minimumScaleFactor = 0.75
+        button.titleLabel?.baselineAdjustment = .alignCenters
         button.setTitle(title(for: spec), for: .normal)
         button.addAction(UIAction { [weak self] _ in
             self?.handle(spec.kind)
@@ -828,7 +905,7 @@ final class KeyboardViewController: UIInputViewController {
             candidateStack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
-        utilityOverlayView.isHidden = hasActiveComposition || !allCandidates.isEmpty
+        utilityOverlayView.isHidden = hasActiveComposition || !allCandidates.isEmpty || isQuickFillPanelVisible
         updateCandidateExpandButtonVisibility()
 
         guard !allCandidates.isEmpty else {
@@ -901,6 +978,10 @@ final class KeyboardViewController: UIInputViewController {
     private func setCandidatePageVisible(_ visible: Bool, animated: Bool = true) {
         let shouldShow = visible && keyboardMode == .letters && inputLanguage == .chinese && !allCandidates.isEmpty
         guard isCandidatePageVisible != shouldShow || candidatePageView.isHidden == shouldShow else { return }
+
+        if shouldShow {
+            setQuickFillPanelVisible(false, animated: false)
+        }
 
         isCandidatePageVisible = shouldShow
         view.layoutIfNeeded()
@@ -1376,10 +1457,134 @@ final class KeyboardViewController: UIInputViewController {
 
     private func handleUtilityFillButtonTap() {
         hideKeyPreview(animated: false)
-        setCandidatePageVisible(false)
+        guard !quickFillItems.isEmpty else { return }
+        if isQuickFillPanelVisible {
+            setQuickFillPanelVisible(false)
+        } else {
+            setCandidatePageVisible(false)
+            setQuickFillPanelVisible(true)
+        }
+    }
+
+    private func reloadQuickFillItems() {
+        let sharedDefaults = UserDefaults(suiteName: "group.com.local.fitnex")
+        quickFillItems = sharedDefaults?.stringArray(forKey: "quickFill.items") ?? []
+    }
+
+    private func setQuickFillPanelVisible(_ visible: Bool, animated: Bool = true) {
+        let shouldShow = visible && !quickFillItems.isEmpty
+        guard isQuickFillPanelVisible != shouldShow else { return }
+        isQuickFillPanelVisible = shouldShow
+
+        if shouldShow {
+            renderQuickFillPanel()
+            candidatePageView.backgroundColor = candidatePageBackground
+            candidatePageView.isHidden = false
+            candidatePageView.alpha = 1
+            view.bringSubviewToFront(candidatePageView)
+            view.bringSubviewToFront(trackpadBlurView)
+            view.bringSubviewToFront(keyPreviewView)
+            candidatePageCollapseButton.isHidden = false
+
+            let keyboardOffset = keyboardRowsDismissOffset
+            let animations = {
+                self.candidatePageView.transform = .identity
+                self.keyboardRowsStack.transform = CGAffineTransform(translationX: 0, y: keyboardOffset)
+            }
+            if animated {
+                candidatePageView.transform = CGAffineTransform(translationX: 0, y: candidatePageDismissOffset)
+                keyboardRowsStack.transform = .identity
+                UIView.animate(
+                    withDuration: Self.candidatePanelAnimationDuration,
+                    delay: 0,
+                    options: [.curveEaseInOut, .beginFromCurrentState],
+                    animations: animations
+                )
+            } else {
+                animations()
+            }
+        } else {
+            let animations = {
+                self.candidatePageView.transform = CGAffineTransform(translationX: 0, y: self.candidatePageDismissOffset)
+                self.keyboardRowsStack.transform = .identity
+            }
+            let complete: (Bool) -> Void = { _ in
+                guard !self.isQuickFillPanelVisible else { return }
+                self.candidatePageView.isHidden = true
+                self.candidatePageView.transform = .identity
+                self.clearCandidatePage()
+            }
+            if animated && !candidatePageView.isHidden {
+                UIView.animate(
+                    withDuration: Self.candidatePanelAnimationDuration,
+                    delay: 0,
+                    options: [.curveEaseInOut, .beginFromCurrentState],
+                    animations: animations,
+                    completion: complete
+                )
+            } else {
+                animations()
+                complete(true)
+            }
+        }
+    }
+
+    private func renderQuickFillPanel() {
+        clearCandidatePage()
+        candidatePageRenderedWidth = candidatePageView.bounds.width
+        guard !quickFillItems.isEmpty else { return }
+        candidatePageCollapseButton.isHidden = false
+
+        let spacing: CGFloat = 6
+        let contentWidth = max(candidatePageView.bounds.width - 12, 56)
+        var rowStack: UIStackView?
+        var rowWidth: CGFloat = 0
+
+        for text in quickFillItems {
+            let size = candidatePageButtonSize(for: text, maxWidth: contentWidth)
+            let needsNewRow = rowStack == nil || rowWidth + spacing + size.width > contentWidth
+            if needsNewRow {
+                let newRow = UIStackView()
+                newRow.axis = .horizontal
+                newRow.spacing = spacing
+                newRow.alignment = .top
+                newRow.distribution = .fill
+                candidatePageStack.addArrangedSubview(newRow)
+                rowStack = newRow
+                rowWidth = 0
+            }
+            let button = makeQuickFillButton(text: text)
+            rowStack?.addArrangedSubview(button)
+            button.widthAnchor.constraint(equalToConstant: size.width).isActive = true
+            button.heightAnchor.constraint(equalToConstant: size.height).isActive = true
+            rowWidth += (rowWidth == 0 ? 0 : spacing) + size.width
+        }
+    }
+
+    private func makeQuickFillButton(text: String) -> UIButton {
+        let button = UIButton(type: .system)
+        button.setTitle(text, for: .normal)
+        button.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
+        button.titleLabel?.numberOfLines = 0
+        button.titleLabel?.lineBreakMode = .byCharWrapping
+        button.titleLabel?.textAlignment = .center
+        button.setTitleColor(primaryText, for: .normal)
+        button.backgroundColor = candidateBackground
+        button.contentEdgeInsets = UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
+        button.layer.cornerRadius = 7
+        button.layer.borderWidth = 0.5
+        button.layer.borderColor = candidateBorder.cgColor
+        button.addAction(UIAction { [weak self] _ in
+            self?.handleQuickFillSelection(text)
+        }, for: .touchUpInside)
+        return button
+    }
+
+    private func handleQuickFillSelection(_ text: String) {
+        setQuickFillPanelVisible(false)
         finalizeComposition()
         associationContext = nil
-        textDocumentProxy.insertText(Self.utilityFillText)
+        textDocumentProxy.insertText(text)
         hasInsertedTextInCurrentContext = true
         updateCandidates(resetScroll: true)
     }
@@ -1427,11 +1632,13 @@ private struct KeySpec {
     let kind: KeyKind
     let title: String?
     let widthUnit: CGFloat
+    let proxyKind: KeyKind?
 
-    init(_ kind: KeyKind, title: String? = nil, widthUnit: CGFloat = 1) {
+    init(_ kind: KeyKind, title: String? = nil, widthUnit: CGFloat = 1, proxyKind: KeyKind? = nil) {
         self.kind = kind
         self.title = title
         self.widthUnit = widthUnit
+        self.proxyKind = proxyKind
     }
 }
 
@@ -1507,6 +1714,14 @@ private final class KeyPreviewView: UIView {
 }
 
 private final class KeyboardKeySpacer: UIView {
+    var widthUnit: CGFloat = 1
+
+    override var intrinsicContentSize: CGSize {
+        CGSize(width: 32 * widthUnit, height: 41)
+    }
+}
+
+private final class KeyboardProxySpacerButton: UIButton {
     var widthUnit: CGFloat = 1
 
     override var intrinsicContentSize: CGSize {
@@ -2038,6 +2253,11 @@ private final class PinyinCandidateProvider {
         let parts: Int
     }
 
+    private struct LooseKeyAlias {
+        let pinyinKeys: [String]
+        let preferredText: String?
+    }
+
     private enum MatchKind {
         case exact
         case completion
@@ -2060,6 +2280,15 @@ private final class PinyinCandidateProvider {
     private static let maxBeamWidth = 8
     private static let maxCompletionKeys = 32
     private static let completionRankPenalty = 120_000
+    private static let maxSegmentedPhraseInputLength = 18
+    private static let maxSegmentedPhraseSpan = 6
+    private static let maxSegmentedPhraseWidth = 10
+    private static let looseKeyAliases: [String: [LooseKeyAlias]] = [
+        "sj": [LooseKeyAlias(pinyinKeys: ["shouji"], preferredText: "手机")],
+        "qwer": [LooseKeyAlias(pinyinKeys: ["chuqu", "waner"], preferredText: "出去玩儿")],
+        "ty": [LooseKeyAlias(pinyinKeys: ["tianyu"], preferredText: "天宇")],
+        "ii": [LooseKeyAlias(pinyinKeys: ["o"], preferredText: "哦")]
+    ]
 
     private let lexiconURL = Bundle.main.url(forResource: "PinyinLexicon", withExtension: "tsv")
     private let indexURL = Bundle.main.url(forResource: "PinyinLexicon", withExtension: "idx")
@@ -2089,6 +2318,8 @@ private final class PinyinCandidateProvider {
         if segments.count > 1 {
             candidates += beamCandidates(from: segments, fullKey: key, cache: &lookupCache)
         }
+
+        candidates += segmentedPhraseCandidates(for: key, cache: &lookupCache)
 
         if !completionCandidates.isEmpty || candidates.count < 16 {
             candidates += longestPrefixCandidates(for: key, cache: &lookupCache)
@@ -2244,6 +2475,182 @@ private final class PinyinCandidateProvider {
             }
             return $0.text < $1.text
         }.prefix(Self.maxBeamWidth).map { $0 }
+    }
+
+    private func segmentedPhraseCandidates(for key: String, cache: inout [String: [PinyinCandidate]]) -> [PinyinCandidate] {
+        guard key.count >= 4, key.count <= Self.maxSegmentedPhraseInputLength else { return [] }
+
+        let indices = Array(key.indices) + [key.endIndex]
+        var paths = Array(repeating: [BeamPath](), count: key.count + 1)
+        paths[0] = [BeamPath(text: "", score: 0, parts: 0)]
+
+        for start in 0..<key.count {
+            guard !paths[start].isEmpty else { continue }
+            let matches = segmentedMatches(in: key, start: start, indices: indices, cache: &cache)
+            guard !matches.isEmpty else { continue }
+
+            for path in paths[start] {
+                for match in matches {
+                    let end = start + match.consumeLength
+                    let text = path.text + match.text
+                    guard text.count <= 24 else { continue }
+                    let score = path.score + beamPartScore(match, span: max(1, match.syllableCount))
+                    paths[end].append(BeamPath(text: text, score: score, parts: path.parts + 1))
+                }
+            }
+            let maxEnd = min(key.count, start + Self.maxSegmentedPhraseSpan)
+            for end in (start + 1)...maxEnd where !paths[end].isEmpty {
+                paths[end] = pruneSegmentedPhrasePaths(paths[end])
+            }
+        }
+
+        return pruneSegmentedPhrasePaths(paths[key.count])
+            .filter { $0.parts > 1 }
+            .map { path in
+                let averageScore = path.score / max(1, path.parts)
+                let score = 2_600_000 + averageScore - path.parts * 90_000
+                return PinyinCandidate(
+                    text: path.text,
+                    weight: score,
+                    tier: 4,
+                    wordLength: path.text.count,
+                    syllableCount: path.parts,
+                    consumeLength: key.count
+                )
+            }
+    }
+
+    private func segmentedMatches(
+        in key: String,
+        start: Int,
+        indices: [String.Index],
+        cache: inout [String: [PinyinCandidate]]
+    ) -> [PinyinCandidate] {
+        let maxEnd = min(key.count, start + Self.maxSegmentedPhraseSpan)
+        guard maxEnd > start else { return [] }
+
+        var results: [PinyinCandidate] = []
+        for end in stride(from: maxEnd, through: start + 1, by: -1) {
+            let piece = String(key[indices[start]..<indices[end]])
+            let consumeLength = end - start
+
+            let exact = scoredCandidates(for: piece, match: .exact, consumeLength: consumeLength, cache: &cache).prefix(4)
+            results += exact
+
+            let aliases = looseAliasCandidates(for: piece, consumeLength: consumeLength, cache: &cache).prefix(4)
+            results += aliases
+
+            let completions = segmentedCompletionCandidates(for: piece, consumeLength: consumeLength, cache: &cache).prefix(4)
+            results += completions
+        }
+
+        return results.sorted {
+            if $0.weight != $1.weight {
+                return $0.weight > $1.weight
+            }
+            if $0.consumeLength != $1.consumeLength {
+                return $0.consumeLength > $1.consumeLength
+            }
+            return $0.text < $1.text
+        }.prefix(12).map { $0 }
+    }
+
+    private func looseAliasCandidates(
+        for key: String,
+        consumeLength: Int,
+        cache: inout [String: [PinyinCandidate]]
+    ) -> [PinyinCandidate] {
+        guard let aliases = Self.looseKeyAliases[key] else { return [] }
+        var candidates: [PinyinCandidate] = []
+
+        for (aliasIndex, alias) in aliases.enumerated() {
+            if let preferredText = alias.preferredText {
+                candidates.append(PinyinCandidate(
+                    text: preferredText,
+                    weight: 1_800_000 - aliasIndex * 10_000,
+                    tier: 4,
+                    wordLength: preferredText.count,
+                    syllableCount: alias.pinyinKeys.count,
+                    consumeLength: consumeLength
+                ))
+            }
+            candidates += phraseCandidates(for: alias.pinyinKeys, consumeLength: consumeLength, cache: &cache)
+        }
+
+        return merge(candidates)
+    }
+
+    private func phraseCandidates(
+        for pinyinKeys: [String],
+        consumeLength: Int,
+        cache: inout [String: [PinyinCandidate]]
+    ) -> [PinyinCandidate] {
+        guard !pinyinKeys.isEmpty else { return [] }
+        var paths = [BeamPath(text: "", score: 0, parts: 0)]
+
+        for pinyinKey in pinyinKeys {
+            let candidates = cachedBundledCandidates(for: pinyinKey, cache: &cache).prefix(3)
+            guard !candidates.isEmpty else { return [] }
+
+            var nextPaths: [BeamPath] = []
+            for path in paths {
+                for candidate in candidates {
+                    let text = path.text + candidate.text
+                    let score = path.score + beamPartScore(candidate, span: 1)
+                    nextPaths.append(BeamPath(text: text, score: score, parts: path.parts + 1))
+                }
+            }
+            paths = pruneSegmentedPhrasePaths(nextPaths)
+        }
+
+        return paths.map { path in
+            PinyinCandidate(
+                text: path.text,
+                weight: path.score / max(1, path.parts),
+                tier: 4,
+                wordLength: path.text.count,
+                syllableCount: pinyinKeys.count,
+                consumeLength: consumeLength
+            )
+        }
+    }
+
+    private func segmentedCompletionCandidates(
+        for key: String,
+        consumeLength: Int,
+        cache: inout [String: [PinyinCandidate]]
+    ) -> [PinyinCandidate] {
+        PinyinSegmenter.completionKeys(for: key, limit: 12).enumerated().flatMap { rank, completion in
+            scoredCandidates(for: completion.key, match: .completion, consumeLength: consumeLength, cache: &cache).prefix(3).map { candidate in
+                PinyinCandidate(
+                    text: candidate.text,
+                    weight: candidate.weight - rank * Self.completionRankPenalty,
+                    tier: candidate.tier,
+                    wordLength: candidate.wordLength,
+                    syllableCount: candidate.syllableCount,
+                    consumeLength: consumeLength
+                )
+            }
+        }
+    }
+
+    private func pruneSegmentedPhrasePaths(_ paths: [BeamPath]) -> [BeamPath] {
+        var bestByText: [String: BeamPath] = [:]
+        for path in paths where !path.text.isEmpty || path.parts == 0 {
+            if let current = bestByText[path.text], current.score >= path.score {
+                continue
+            }
+            bestByText[path.text] = path
+        }
+        return bestByText.values.sorted {
+            if $0.score != $1.score {
+                return $0.score > $1.score
+            }
+            if $0.parts != $1.parts {
+                return $0.parts < $1.parts
+            }
+            return $0.text < $1.text
+        }.prefix(Self.maxSegmentedPhraseWidth).map { $0 }
     }
 
     private func fallbackCandidates(for key: String) -> [PinyinCandidate] {
