@@ -598,8 +598,8 @@ final class KeyboardViewController: UIInputViewController {
         button.titleLabel?.minimumScaleFactor = 0.75
         button.titleLabel?.baselineAdjustment = .alignCenters
         if case .backspace = spec.kind {
-            let configuration = UIImage.SymbolConfiguration(pointSize: 23, weight: .regular)
-            button.setImage(UIImage(systemName: "xmark.circle", withConfiguration: configuration), for: .normal)
+            let configuration = UIImage.SymbolConfiguration(pointSize: 20, weight: .regular)
+            button.setImage(UIImage(systemName: "delete.left", withConfiguration: configuration), for: .normal)
             button.tintColor = primaryText
             button.accessibilityLabel = "删除"
         } else {
@@ -738,7 +738,12 @@ final class KeyboardViewController: UIInputViewController {
 
     private func font(for kind: KeyKind) -> UIFont {
         switch kind {
-        case .character:
+        case .character(let value):
+            if shiftState == .off,
+               value.unicodeScalars.count == 1,
+               value.rangeOfCharacter(from: .lowercaseLetters) != nil {
+                return .systemFont(ofSize: 31, weight: .light)
+            }
             return .systemFont(ofSize: 23, weight: .regular)
         case .shift, .backspace:
             return .systemFont(ofSize: 26, weight: .regular)
@@ -1777,12 +1782,14 @@ private final class KeyboardKeyButton: UIButton {
         if let titleLabel,
            let title = titleLabel.text,
            !title.isEmpty {
-            let visualOffset = visualHorizontalOffset(for: title)
+            let titleHeight = ceil(titleLabel.font.lineHeight)
+            let horizontalOffset = titleHorizontalOffset(for: title)
+            let verticalOffset = lowercaseTitleVerticalOffset(for: title)
             titleLabel.frame = CGRect(
-                x: contentRect.minX + horizontalPadding + visualOffset,
-                y: contentRect.minY,
+                x: contentRect.minX + horizontalPadding + horizontalOffset,
+                y: contentRect.midY - titleHeight / 2 + verticalOffset,
                 width: availableWidth,
-                height: contentRect.height
+                height: titleHeight
             )
             titleLabel.textAlignment = .center
         }
@@ -1794,15 +1801,30 @@ private final class KeyboardKeyButton: UIButton {
         }
     }
 
-    private func visualHorizontalOffset(for title: String) -> CGFloat {
-        switch title {
-        case "【", "《", "（", "〈":
-            return 1.5
-        case "】", "》", "）", "〉":
-            return -1.5
+    private func titleHorizontalOffset(for title: String) -> CGFloat {
+        guard case .character(let value) = kind,
+              value == title else {
+            return 0
+        }
+
+        switch value {
+        case "。", "，", "？", "！":
+            return 4
+        case "：", "；":
+            return 3
         default:
             return 0
         }
+    }
+
+    private func lowercaseTitleVerticalOffset(for title: String) -> CGFloat {
+        guard case .character(let value) = kind,
+              value == title,
+              value.unicodeScalars.count == 1,
+              value.rangeOfCharacter(from: .lowercaseLetters) != nil else {
+            return 0
+        }
+        return -1
     }
 }
 
@@ -1907,7 +1929,7 @@ private final class CompositionBarView: UIView, UIGestureRecognizerDelegate {
         isOpaque = false
 
         let deleteImage = UIImage(
-            systemName: "delete.left",
+            systemName: "xmark.circle",
             withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .regular)
         )
         clearButton.setImage(deleteImage, for: .normal)
