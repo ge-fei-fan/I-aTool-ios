@@ -367,6 +367,8 @@ final class KeyboardViewController: UIInputViewController {
             var spaceButton: KeyboardKeyButton?
             var languageButton: KeyboardKeyButton?
             var returnButton: KeyboardKeyButton?
+            var previewSourceButtonsByCharacter: [String: KeyboardKeyButton] = [:]
+            var pendingProxyPreviewSpacers: [(button: KeyboardProxySpacerButton, proxyKind: KeyKind)] = []
 
             for key in row {
                 if case .spacer = key.kind {
@@ -374,11 +376,23 @@ final class KeyboardViewController: UIInputViewController {
                     if let proxyKind = key.proxyKind {
                         let proxySpacer = KeyboardProxySpacerButton(type: .custom)
                         proxySpacer.widthUnit = key.widthUnit
+                        if let previewKey = previewLookupKey(for: proxyKind),
+                           let previewSourceView = previewSourceButtonsByCharacter[previewKey] {
+                            proxySpacer.previewSourceView = previewSourceView
+                        } else {
+                            pendingProxyPreviewSpacers.append((proxySpacer, proxyKind))
+                        }
                         proxySpacer.addAction(UIAction { [weak self] _ in
                             self?.handle(proxyKind)
                         }, for: .touchUpInside)
                         if shouldPreviewKey(proxyKind) {
-                            bindKeyPreviewEvents(to: proxySpacer, previewText: title(for: KeySpec(proxyKind)))
+                            bindKeyPreviewEvents(
+                                to: proxySpacer,
+                                previewText: title(for: KeySpec(proxyKind)),
+                                sourceViewProvider: { [weak proxySpacer] in
+                                    proxySpacer?.previewSourceView
+                                }
+                            )
                         }
                         spacer = proxySpacer
                     } else {
@@ -394,6 +408,12 @@ final class KeyboardViewController: UIInputViewController {
 
                 let button = makeButton(for: key)
                 button.widthUnit = key.widthUnit
+                if let previewKey = previewLookupKey(for: key.kind) {
+                    previewSourceButtonsByCharacter[previewKey] = button
+                    for pending in pendingProxyPreviewSpacers where previewLookupKey(for: pending.proxyKind) == previewKey {
+                        pending.button.previewSourceView = button
+                    }
+                }
                 rowStack.addArrangedSubview(button)
                 button.heightAnchor.constraint(equalToConstant: 42).isActive = true
                 if usesUniformLetterKeys, key.kind.isPrimary {
@@ -599,10 +619,19 @@ final class KeyboardViewController: UIInputViewController {
         return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private func bindKeyPreviewEvents(to control: UIControl, previewText: String) {
+    private func previewLookupKey(for kind: KeyKind) -> String? {
+        guard case .character(let value) = kind else { return nil }
+        return value.lowercased()
+    }
+
+    private func bindKeyPreviewEvents(
+        to control: UIControl,
+        previewText: String,
+        sourceViewProvider: (() -> UIView?)? = nil
+    ) {
         control.addAction(UIAction { [weak self, weak control] _ in
             guard let control = control else { return }
-            self?.showKeyPreview(from: control, text: previewText)
+            self?.showKeyPreview(from: sourceViewProvider?() ?? control, text: previewText)
         }, for: [.touchDown, .touchDragInside, .touchDragEnter])
         control.addAction(UIAction { [weak self] _ in
             self?.hideKeyPreview()
@@ -1234,7 +1263,12 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func updateCompositionBarAppearance() {
-        compositionBar.configure(textColor: primaryText, cursorColor: compositionCursorColor)
+        compositionBar.configure(
+            textColor: primaryText,
+            cursorColor: compositionCursorColor,
+            clearButtonBackgroundColor: candidateBackground,
+            clearButtonBorderColor: candidateBorder
+        )
     }
 
     private var keyboardBackground: UIColor {
@@ -1725,6 +1759,33 @@ private final class KeyboardKeyButton: UIButton {
     override var intrinsicContentSize: CGSize {
         CGSize(width: 32 * widthUnit, height: 42)
     }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+
+        let contentRect = bounds.inset(by: contentEdgeInsets)
+        let horizontalPadding: CGFloat = 4
+        let availableWidth = max(0, contentRect.width - horizontalPadding * 2)
+
+        if let titleLabel,
+           let title = titleLabel.text,
+           !title.isEmpty {
+            let titleHeight = min(contentRect.height, ceil(titleLabel.font.lineHeight))
+            titleLabel.frame = CGRect(
+                x: contentRect.minX + horizontalPadding,
+                y: contentRect.midY - titleHeight / 2,
+                width: availableWidth,
+                height: titleHeight
+            )
+            titleLabel.textAlignment = .center
+        }
+
+        if let imageView,
+           imageView.image != nil {
+            imageView.sizeToFit()
+            imageView.center = CGPoint(x: contentRect.midX, y: contentRect.midY)
+        }
+    }
 }
 
 private final class KeyPreviewView: UIView {
@@ -1799,6 +1860,7 @@ private final class KeyboardKeySpacer: UIView {
 
 private final class KeyboardProxySpacerButton: UIButton {
     var widthUnit: CGFloat = 1
+    weak var previewSourceView: UIView?
 
     override var intrinsicContentSize: CGSize {
         CGSize(width: 32 * widthUnit, height: 42)
@@ -1815,10 +1877,12 @@ private final class CompositionBarView: UIView, UIGestureRecognizerDelegate {
     private let clearButton = UIButton(type: .system)
     private let font = UIFont.systemFont(ofSize: 15, weight: .regular)
     private let textInsets = UIEdgeInsets(top: 0, left: 10, bottom: 0, right: 10)
-    private let clearButtonSize = CGSize(width: 24, height: 18)
-    private let clearButtonSpacing: CGFloat = 4
+    private let clearButtonSize = CGSize(width: 18, height: 18)
+    private let clearButtonSpacing: CGFloat = 6
     private var barTextColor = UIColor.black
     private var barCursorColor = UIColor.systemBlue
+    private var clearButtonBackgroundColor = UIColor(white: 0.96, alpha: 1)
+    private var clearButtonBorderColor = UIColor(white: 0, alpha: 0.08)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -1832,7 +1896,13 @@ private final class CompositionBarView: UIView, UIGestureRecognizerDelegate {
         clearButton.contentHorizontalAlignment = .center
         clearButton.contentVerticalAlignment = .center
         clearButton.tintColor = barTextColor
+        clearButton.backgroundColor = clearButtonBackgroundColor
+        clearButton.layer.cornerRadius = clearButtonSize.height / 2
+        clearButton.layer.borderWidth = 0.5
+        clearButton.layer.borderColor = clearButtonBorderColor.cgColor
+        clearButton.clipsToBounds = true
         clearButton.isHidden = true
+        clearButton.accessibilityLabel = "删除拼音"
         clearButton.addAction(UIAction { [weak self] _ in
             self?.onClearRequested?()
         }, for: .touchUpInside)
@@ -1847,10 +1917,19 @@ private final class CompositionBarView: UIView, UIGestureRecognizerDelegate {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(textColor: UIColor, cursorColor: UIColor) {
+    func configure(
+        textColor: UIColor,
+        cursorColor: UIColor,
+        clearButtonBackgroundColor: UIColor,
+        clearButtonBorderColor: UIColor
+    ) {
         barTextColor = textColor
         barCursorColor = cursorColor
+        self.clearButtonBackgroundColor = clearButtonBackgroundColor
+        self.clearButtonBorderColor = clearButtonBorderColor
         clearButton.tintColor = textColor
+        clearButton.backgroundColor = clearButtonBackgroundColor
+        clearButton.layer.borderColor = clearButtonBorderColor.cgColor
         setNeedsDisplay()
     }
 
@@ -1883,7 +1962,10 @@ private final class CompositionBarView: UIView, UIGestureRecognizerDelegate {
         ]
         let textSize = (text as NSString).size(withAttributes: attributes)
         let textOrigin = CGPoint(x: textRect.minX, y: bounds.midY - textSize.height / 2)
+        UIGraphicsGetCurrentContext()?.saveGState()
+        UIBezierPath(rect: textRect).addClip()
         (text as NSString).draw(at: textOrigin, withAttributes: attributes)
+        UIGraphicsGetCurrentContext()?.restoreGState()
 
         let cursorX = max(textRect.minX, min(textRect.minX + width(upTo: cursorOffset), textRect.maxX))
         let cursorTop = max(textRect.minY + 1, bounds.midY - 6)
@@ -1997,7 +2079,22 @@ private struct PinyinCompletion {
     let consumeLength: Int
 }
 
+private struct PinyinCorrection {
+    let key: String
+    let syllables: [String]
+    let cost: Int
+    let correctedSyllables: Int
+}
+
 private struct PinyinSegmenter {
+    private struct CorrectionPath {
+        let key: String
+        let syllables: [String]
+        let cost: Int
+        let correctedSyllables: Int
+        let sortScore: Int
+    }
+
     private static let syllables: Set<String> = [
         "a", "ai", "an", "ang", "ao",
         "ba", "bai", "ban", "bang", "bao", "bei", "ben", "beng", "bi", "bian", "biao", "bie", "bin", "bing", "bo", "bu",
@@ -2035,6 +2132,16 @@ private struct PinyinSegmenter {
         }
         return $0 < $1
     }
+    private static let maxCorrectionCost = 2
+    private static let maxCorrectedSyllables = 2
+    private static let maxCorrectionInputLength = 18
+    private static let maxCorrectionSpan = 7
+    private static let maxCorrectionWidth = 24
+    private static let keyboardNeighbors: [Character: String] = [
+        "q": "wa", "w": "qase", "e": "wsdr", "r": "edft", "t": "rfgy", "y": "tghu", "u": "yhji", "i": "ujko", "o": "iklp", "p": "ol",
+        "a": "qwsz", "s": "awedxz", "d": "serfcx", "f": "drtgvc", "g": "ftyhbv", "h": "gyujnb", "j": "huikmn", "k": "jiolm", "l": "kop",
+        "z": "asx", "x": "zsdc", "c": "xdfv", "v": "cfgb", "b": "vghn", "n": "bhjm", "m": "njk"
+    ]
 
     static func segment(_ key: String) -> [String] {
         var index = key.startIndex
@@ -2110,6 +2217,59 @@ private struct PinyinSegmenter {
         return results
     }
 
+    static func correctionKeys(for key: String, limit: Int) -> [PinyinCorrection] {
+        guard key.count >= 4, key.count <= maxCorrectionInputLength else { return [] }
+        guard segment(key).joined(separator: "") != key else { return [] }
+
+        let characters = Array(key)
+        var paths = Array(repeating: [CorrectionPath](), count: characters.count + 1)
+        paths[0] = [CorrectionPath(key: "", syllables: [], cost: 0, correctedSyllables: 0, sortScore: 0)]
+
+        for start in 0..<characters.count {
+            guard !paths[start].isEmpty else { continue }
+            let maxEnd = min(characters.count, start + maxCorrectionSpan)
+
+            for end in (start + 1)...maxEnd {
+                let piece = String(characters[start..<end])
+                let matches = correctionMatches(for: piece)
+                guard !matches.isEmpty else { continue }
+
+                for path in paths[start] {
+                    for match in matches {
+                        let correctedSyllables = path.correctedSyllables + (match.cost == 0 ? 0 : 1)
+                        let cost = path.cost + match.cost
+                        guard cost <= maxCorrectionCost,
+                              correctedSyllables <= maxCorrectedSyllables else {
+                            continue
+                        }
+
+                        paths[end].append(CorrectionPath(
+                            key: path.key + match.syllable,
+                            syllables: path.syllables + [match.syllable],
+                            cost: cost,
+                            correctedSyllables: correctedSyllables,
+                            sortScore: path.sortScore + correctionSortRank(from: piece, to: match.syllable)
+                        ))
+                    }
+                }
+
+                paths[end] = pruneCorrectionPaths(paths[end])
+            }
+        }
+
+        return pruneCorrectionPaths(paths[characters.count])
+            .filter { $0.cost > 0 && $0.key != key }
+            .prefix(limit)
+            .map { path in
+                PinyinCorrection(
+                    key: path.key,
+                    syllables: path.syllables,
+                    cost: path.cost,
+                    correctedSyllables: path.correctedSyllables
+                )
+            }
+    }
+
     private static func partialSegmentation(for key: String) -> (segments: [String], remainder: String) {
         var index = key.startIndex
         var result: [String] = []
@@ -2172,6 +2332,183 @@ private struct PinyinSegmenter {
 
     private static func hasSyllable(withPrefix prefix: String) -> Bool {
         orderedSyllables.contains { $0.hasPrefix(prefix) }
+    }
+
+    private static func correctionMatches(for piece: String) -> [(syllable: String, cost: Int)] {
+        orderedSyllables.compactMap { syllable in
+            correctionCost(from: piece, to: syllable).map { (syllable: syllable, cost: $0) }
+        }
+        .sorted {
+            if $0.cost != $1.cost {
+                return $0.cost < $1.cost
+            }
+            let firstPrefix = sharedPrefixLength($0.syllable, piece)
+            let secondPrefix = sharedPrefixLength($1.syllable, piece)
+            if firstPrefix != secondPrefix {
+                return firstPrefix > secondPrefix
+            }
+            let firstRank = correctionSortRank(from: piece, to: $0.syllable)
+            let secondRank = correctionSortRank(from: piece, to: $1.syllable)
+            if firstRank != secondRank {
+                return firstRank < secondRank
+            }
+            if $0.syllable.count != $1.syllable.count {
+                return $0.syllable.count < $1.syllable.count
+            }
+            return $0.syllable < $1.syllable
+        }
+        .prefix(maxCorrectionWidth)
+        .map { $0 }
+    }
+
+    private static func correctionCost(from input: String, to syllable: String) -> Int? {
+        if input == syllable {
+            return 0
+        }
+
+        let inputCharacters = Array(input)
+        let syllableCharacters = Array(syllable)
+        let lengthDelta = inputCharacters.count - syllableCharacters.count
+        guard abs(lengthDelta) <= 1 else { return nil }
+
+        if lengthDelta == 0 {
+            if hasSingleAdjacentKeyboardSubstitution(inputCharacters, syllableCharacters)
+                || hasAdjacentTransposition(inputCharacters, syllableCharacters) {
+                return 1
+            }
+            return nil
+        }
+
+        let longer = lengthDelta > 0 ? inputCharacters : syllableCharacters
+        let shorter = lengthDelta > 0 ? syllableCharacters : inputCharacters
+        return canMatchBySkippingOneCharacter(longer: longer, shorter: shorter) ? 1 : nil
+    }
+
+    private static func correctionSortRank(from input: String, to syllable: String) -> Int {
+        if input == syllable {
+            return 0
+        }
+
+        let inputCharacters = Array(input)
+        let syllableCharacters = Array(syllable)
+
+        if inputCharacters.count == syllableCharacters.count {
+            let mismatches = inputCharacters.indices.filter { inputCharacters[$0] != syllableCharacters[$0] }
+            if mismatches.count == 1 {
+                let typed = inputCharacters[mismatches[0]]
+                let expected = syllableCharacters[mismatches[0]]
+                if let neighbors = keyboardNeighbors[typed],
+                   let index = neighbors.firstIndex(of: expected) {
+                    return 10 + neighbors.distance(from: neighbors.startIndex, to: index)
+                }
+                if let neighbors = keyboardNeighbors[expected],
+                   let index = neighbors.firstIndex(of: typed) {
+                    return 10 + neighbors.distance(from: neighbors.startIndex, to: index)
+                }
+            }
+            if mismatches.count == 2 {
+                return 20
+            }
+        }
+
+        return inputCharacters.count == syllableCharacters.count ? 30 : 14
+    }
+
+    private static func hasSingleAdjacentKeyboardSubstitution(_ input: [Character], _ syllable: [Character]) -> Bool {
+        var mismatch: (Character, Character)?
+        for index in input.indices {
+            guard input[index] != syllable[index] else { continue }
+            if mismatch != nil {
+                return false
+            }
+            mismatch = (input[index], syllable[index])
+        }
+
+        guard let mismatch else { return false }
+        return areKeyboardNeighbors(mismatch.0, mismatch.1)
+    }
+
+    private static func hasAdjacentTransposition(_ input: [Character], _ syllable: [Character]) -> Bool {
+        var mismatches: [Int] = []
+        for index in input.indices where input[index] != syllable[index] {
+            mismatches.append(index)
+        }
+
+        guard mismatches.count == 2,
+              mismatches[1] == mismatches[0] + 1 else {
+            return false
+        }
+
+        return input[mismatches[0]] == syllable[mismatches[1]]
+            && input[mismatches[1]] == syllable[mismatches[0]]
+    }
+
+    private static func canMatchBySkippingOneCharacter(longer: [Character], shorter: [Character]) -> Bool {
+        var longerIndex = 0
+        var shorterIndex = 0
+        var skipped = false
+
+        while longerIndex < longer.count && shorterIndex < shorter.count {
+            if longer[longerIndex] == shorter[shorterIndex] {
+                longerIndex += 1
+                shorterIndex += 1
+            } else if skipped {
+                return false
+            } else {
+                skipped = true
+                longerIndex += 1
+            }
+        }
+
+        return true
+    }
+
+    private static func areKeyboardNeighbors(_ first: Character, _ second: Character) -> Bool {
+        keyboardNeighbors[first]?.contains(second) == true
+            || keyboardNeighbors[second]?.contains(first) == true
+    }
+
+    private static func sharedPrefixLength(_ first: String, _ second: String) -> Int {
+        var length = 0
+        for (left, right) in zip(first, second) {
+            guard left == right else { break }
+            length += 1
+        }
+        return length
+    }
+
+    private static func pruneCorrectionPaths(_ paths: [CorrectionPath]) -> [CorrectionPath] {
+        var bestByKey: [String: CorrectionPath] = [:]
+        for path in paths {
+            if let current = bestByKey[path.key],
+               current.cost < path.cost
+                || (current.cost == path.cost && current.correctedSyllables < path.correctedSyllables)
+                || (current.cost == path.cost
+                    && current.correctedSyllables == path.correctedSyllables
+                    && current.sortScore <= path.sortScore) {
+                continue
+            }
+            bestByKey[path.key] = path
+        }
+
+        return bestByKey.values.sorted {
+            if $0.cost != $1.cost {
+                return $0.cost < $1.cost
+            }
+            if $0.key.count != $1.key.count {
+                return $0.key.count < $1.key.count
+            }
+            if $0.sortScore != $1.sortScore {
+                return $0.sortScore < $1.sortScore
+            }
+            if $0.correctedSyllables != $1.correctedSyllables {
+                return $0.correctedSyllables < $1.correctedSyllables
+            }
+            if $0.syllables.count != $1.syllables.count {
+                return $0.syllables.count < $1.syllables.count
+            }
+            return $0.key < $1.key
+        }.prefix(maxCorrectionWidth).map { $0 }
     }
 }
 
@@ -2386,6 +2723,7 @@ private final class PinyinCandidateProvider {
     private enum MatchKind {
         case exact
         case completion
+        case fuzzy
         case prefix
         case beam
         case fallback
@@ -2405,6 +2743,10 @@ private final class PinyinCandidateProvider {
     private static let maxBeamWidth = 8
     private static let maxCompletionKeys = 32
     private static let completionRankPenalty = 120_000
+    private static let maxFuzzyCorrectionKeys = 24
+    private static let fuzzyRankPenalty = 10_000
+    private static let fuzzyCorrectionPenalty = 220_000
+    private static let fuzzyDeletedCharacterBonus = 650_000
     private static let maxSegmentedPhraseInputLength = 18
     private static let maxSegmentedPhraseSpan = 6
     private static let maxSegmentedPhraseWidth = 10
@@ -2438,6 +2780,7 @@ private final class PinyinCandidateProvider {
         candidates += scoredCandidates(for: key, match: .exact, consumeLength: key.count, cache: &lookupCache)
         let completionCandidates = completionCandidates(for: key, cache: &lookupCache)
         candidates += completionCandidates
+        candidates += fuzzyCorrectionCandidates(for: key, cache: &lookupCache)
 
         let segments = PinyinSegmenter.segment(key)
         if segments.count > 1 {
@@ -2533,6 +2876,22 @@ private final class PinyinCandidateProvider {
                     consumeLength: candidate.consumeLength
                 )
             }
+        }
+    }
+
+    private func fuzzyCorrectionCandidates(for key: String, cache: inout [String: [PinyinCandidate]]) -> [PinyinCandidate] {
+        PinyinSegmenter.correctionKeys(for: key, limit: Self.maxFuzzyCorrectionKeys).enumerated().flatMap { rank, correction in
+            var results = scoredCandidates(for: correction.key, match: .fuzzy, consumeLength: key.count, cache: &cache).prefix(6).map { candidate in
+                fuzzyCandidate(candidate, correction: correction, rank: rank, consumeLength: key.count)
+            }
+
+            if results.isEmpty {
+                results += phraseCandidates(for: correction.syllables, consumeLength: key.count, cache: &cache).prefix(4).map { candidate in
+                    fuzzyCandidate(candidate, correction: correction, rank: rank, consumeLength: key.count)
+                }
+            }
+
+            return results
         }
     }
 
@@ -2809,6 +3168,9 @@ private final class PinyinCandidateProvider {
         case .completion:
             baseScore = 8_400_000
             lengthBonus = min(candidate.wordLength, 8) * 35_000
+        case .fuzzy:
+            baseScore = 8_000_000
+            lengthBonus = min(candidate.wordLength, 8) * 35_000
         case .prefix:
             baseScore = 4_800_000
             lengthBonus = min(candidate.wordLength, 8) * 20_000
@@ -2829,6 +3191,26 @@ private final class PinyinCandidateProvider {
         return PinyinCandidate(
             text: candidate.text,
             weight: score,
+            tier: candidate.tier,
+            wordLength: candidate.wordLength,
+            syllableCount: candidate.syllableCount,
+            consumeLength: consumeLength
+        )
+    }
+
+    private func fuzzyCandidate(
+        _ candidate: PinyinCandidate,
+        correction: PinyinCorrection,
+        rank: Int,
+        consumeLength: Int
+    ) -> PinyinCandidate {
+        PinyinCandidate(
+            text: candidate.text,
+            weight: candidate.weight
+                - correction.cost * Self.fuzzyCorrectionPenalty
+                - correction.correctedSyllables * 80_000
+                - rank * Self.fuzzyRankPenalty
+                + max(0, consumeLength - correction.key.count) * Self.fuzzyDeletedCharacterBonus,
             tier: candidate.tier,
             wordLength: candidate.wordLength,
             syllableCount: candidate.syllableCount,
