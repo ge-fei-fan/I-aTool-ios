@@ -742,7 +742,7 @@ final class KeyboardViewController: UIInputViewController {
             if shiftState == .off,
                value.unicodeScalars.count == 1,
                value.rangeOfCharacter(from: .lowercaseLetters) != nil {
-                return .systemFont(ofSize: 31, weight: .light)
+                return .systemFont(ofSize: 30, weight: .light)
             }
             return .systemFont(ofSize: 23, weight: .regular)
         case .shift, .backspace:
