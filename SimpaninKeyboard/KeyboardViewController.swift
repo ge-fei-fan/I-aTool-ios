@@ -71,7 +71,8 @@ final class KeyboardViewController: UIInputViewController {
     private var keyboardMode: KeyboardMode = .letters
     private var inputLanguage: InputLanguage = .chinese
     private var shiftState: ShiftState = .off
-    private weak var previewedKeyButton: KeyboardKeyButton?
+    private weak var previewedKeySourceView: UIView?
+    private var previewedKeyText: String?
     private var isCandidatePageVisible = false
     private var candidatePageRenderedWidth: CGFloat = 0
     private var isTrackpadActive = false
@@ -179,6 +180,9 @@ final class KeyboardViewController: UIInputViewController {
         compositionBar.onOffsetSelected = { [weak self] offset in
             self?.moveCompositionCursor(toCompositionTextOffset: offset)
         }
+        compositionBar.onClearRequested = { [weak self] in
+            self?.clearCompositionFromBar()
+        }
         rootStack.addArrangedSubview(compositionBar)
         compositionBar.heightAnchor.constraint(equalToConstant: 18).isActive = true
 
@@ -222,7 +226,7 @@ final class KeyboardViewController: UIInputViewController {
         ])
 
         keyboardRowsStack.axis = .vertical
-        keyboardRowsStack.spacing = 10
+        keyboardRowsStack.spacing = 12
         keyboardRowsStack.alignment = .fill
         keyboardRowsStack.distribution = .fill
         rootStack.addArrangedSubview(keyboardRowsStack)
@@ -344,17 +348,22 @@ final class KeyboardViewController: UIInputViewController {
             rows = symbolRows
         }
 
-        for (rowIndex, row) in rows.enumerated() {
+        for row in rows {
             let usesUniformLetterKeys = keyboardMode == .letters && row.contains { $0.kind.isPrimary }
-            let alignsLetterControlRow = keyboardMode == .letters && rowIndex == 3
+            let alignsControlRow = row.contains { key in
+                if case .space = key.kind {
+                    return true
+                }
+                return false
+            }
             let rowStack = UIStackView()
             rowStack.axis = .horizontal
             rowStack.spacing = 6
             rowStack.alignment = .fill
-            rowStack.distribution = usesUniformLetterKeys || alignsLetterControlRow ? .fill : .fillProportionally
+            rowStack.distribution = usesUniformLetterKeys || alignsControlRow ? .fill : .fillProportionally
             var rowSpacers: [UIView] = []
             var sideKeys: [UIButton] = []
-            var numberModeButton: KeyboardKeyButton?
+            var modeSwitchButton: KeyboardKeyButton?
             var spaceButton: KeyboardKeyButton?
             var languageButton: KeyboardKeyButton?
             var returnButton: KeyboardKeyButton?
@@ -368,6 +377,9 @@ final class KeyboardViewController: UIInputViewController {
                         proxySpacer.addAction(UIAction { [weak self] _ in
                             self?.handle(proxyKind)
                         }, for: .touchUpInside)
+                        if shouldPreviewKey(proxyKind) {
+                            bindKeyPreviewEvents(to: proxySpacer, previewText: title(for: KeySpec(proxyKind)))
+                        }
                         spacer = proxySpacer
                     } else {
                         let plainSpacer = KeyboardKeySpacer()
@@ -375,7 +387,7 @@ final class KeyboardViewController: UIInputViewController {
                         spacer = plainSpacer
                     }
                     rowStack.addArrangedSubview(spacer)
-                    spacer.heightAnchor.constraint(equalToConstant: 41).isActive = true
+                    spacer.heightAnchor.constraint(equalToConstant: 42).isActive = true
                     rowSpacers.append(spacer)
                     continue
                 }
@@ -383,7 +395,7 @@ final class KeyboardViewController: UIInputViewController {
                 let button = makeButton(for: key)
                 button.widthUnit = key.widthUnit
                 rowStack.addArrangedSubview(button)
-                button.heightAnchor.constraint(equalToConstant: 41).isActive = true
+                button.heightAnchor.constraint(equalToConstant: 42).isActive = true
                 if usesUniformLetterKeys, key.kind.isPrimary {
                     button.widthAnchor.constraint(equalTo: rowStack.widthAnchor, multiplier: 0.1, constant: -5.4).isActive = true
                 }
@@ -393,10 +405,10 @@ final class KeyboardViewController: UIInputViewController {
                 if usesUniformLetterKeys, case .backspace = key.kind {
                     sideKeys.append(button)
                 }
-                if alignsLetterControlRow {
+                if alignsControlRow {
                     switch key.kind {
-                    case .modeSwitch(.numbers):
-                        numberModeButton = button
+                    case .modeSwitch(_):
+                        modeSwitchButton = button
                     case .space:
                         spaceButton = button
                     case .languageSwitch:
@@ -416,14 +428,14 @@ final class KeyboardViewController: UIInputViewController {
             if sideKeys.count == 2 {
                 sideKeys[0].widthAnchor.constraint(equalTo: sideKeys[1].widthAnchor).isActive = true
             }
-            if alignsLetterControlRow,
-               let numberModeButton = numberModeButton,
+            if alignsControlRow,
+               let modeSwitchButton = modeSwitchButton,
                let spaceButton = spaceButton,
                let languageButton = languageButton,
                let returnButton = returnButton {
-                applyLetterControlRowAlignment(
+                applyControlRowAlignment(
                     rowStack: rowStack,
-                    numberModeButton: numberModeButton,
+                    modeSwitchButton: modeSwitchButton,
                     spaceButton: spaceButton,
                     languageButton: languageButton,
                     returnButton: returnButton
@@ -437,16 +449,16 @@ final class KeyboardViewController: UIInputViewController {
         applyTheme()
     }
 
-    private func applyLetterControlRowAlignment(
+    private func applyControlRowAlignment(
         rowStack: UIStackView,
-        numberModeButton: KeyboardKeyButton,
+        modeSwitchButton: KeyboardKeyButton,
         spaceButton: KeyboardKeyButton,
         languageButton: KeyboardKeyButton,
         returnButton: KeyboardKeyButton
     ) {
         let rowSpacing = rowStack.spacing
         NSLayoutConstraint.activate([
-            numberModeButton.widthAnchor.constraint(equalTo: rowStack.widthAnchor, multiplier: 0.25, constant: -4.5),
+            modeSwitchButton.widthAnchor.constraint(equalTo: rowStack.widthAnchor, multiplier: 0.25, constant: -4.5),
             spaceButton.widthAnchor.constraint(equalTo: rowStack.widthAnchor, multiplier: 0.4, constant: 8.4 - (2 * rowSpacing)),
             languageButton.widthAnchor.constraint(equalTo: rowStack.widthAnchor, multiplier: 0.12, constant: -1.8),
             returnButton.widthAnchor.constraint(equalTo: rowStack.widthAnchor, multiplier: 0.23, constant: -8.1)
@@ -469,8 +481,8 @@ final class KeyboardViewController: UIInputViewController {
     private var numberRows: [[KeySpec]] {
         [
             "1234567890".map { KeySpec(.character(String($0))) },
-            ["-", "/", ":", ";", "(", ")", "$", "&", "@", "\""].map { KeySpec(.character($0)) },
-            [KeySpec(.modeSwitch(.symbols), title: "#+=", widthUnit: 1.35)] + [".", ",", "?", "!", "'"].map { KeySpec(.character($0)) } + [KeySpec(.backspace, widthUnit: 1.35)],
+            punctuationKeys(["-", "/", ":", ";", "(", ")", "$", "&", "@", "\""]),
+            [KeySpec(.modeSwitch(.symbols), title: "#+=", widthUnit: 1.35)] + punctuationKeys([".", ",", "?", "!", "'"]) + [KeySpec(.backspace, widthUnit: 1.35)],
             [
                 KeySpec(.modeSwitch(.letters), title: "ABC", widthUnit: 1.35),
                 KeySpec(.space, title: "空格", widthUnit: 3.55),
@@ -482,9 +494,9 @@ final class KeyboardViewController: UIInputViewController {
 
     private var symbolRows: [[KeySpec]] {
         [
-            ["[", "]", "{", "}", "#", "%", "^", "*", "+", "="].map { KeySpec(.character($0)) },
-            ["_", "\\", "|", "~", "<", ">", "€", "£", "¥", "·"].map { KeySpec(.character($0)) },
-            [KeySpec(.modeSwitch(.numbers), title: "123", widthUnit: 1.35)] + [".", ",", "?", "!", "'"].map { KeySpec(.character($0)) } + [KeySpec(.backspace, widthUnit: 1.35)],
+            punctuationKeys(["[", "]", "{", "}", "#", "%", "^", "*", "+", "="]),
+            punctuationKeys(["_", "\\", "|", "~", "<", ">", "€", "£", "¥", "·"]),
+            [KeySpec(.modeSwitch(.numbers), title: "123", widthUnit: 1.35)] + punctuationKeys([".", ",", "?", "!", "'"]) + [KeySpec(.backspace, widthUnit: 1.35)],
             [
                 KeySpec(.modeSwitch(.letters), title: "ABC", widthUnit: 1.35),
                 KeySpec(.space, title: "空格", widthUnit: 3.55),
@@ -492,6 +504,61 @@ final class KeyboardViewController: UIInputViewController {
                 KeySpec(.returnKey, widthUnit: 1.55)
             ]
         ]
+    }
+
+    private func punctuationKeys(_ values: [String]) -> [KeySpec] {
+        values.map { KeySpec(.character(localizedPunctuation($0))) }
+    }
+
+    private func localizedPunctuation(_ value: String) -> String {
+        guard inputLanguage == .chinese else { return value }
+
+        switch value {
+        case ":":
+            return "："
+        case ";":
+            return "；"
+        case "(":
+            return "（"
+        case ")":
+            return "）"
+        case "$":
+            return "¥"
+        case "\"":
+            return "“"
+        case ".":
+            return "。"
+        case ",":
+            return "，"
+        case "?":
+            return "？"
+        case "!":
+            return "！"
+        case "'":
+            return "’"
+        case "[":
+            return "【"
+        case "]":
+            return "】"
+        case "{":
+            return "《"
+        case "}":
+            return "》"
+        case "%":
+            return "％"
+        case "\\":
+            return "、"
+        case "|":
+            return "｜"
+        case "~":
+            return "～"
+        case "<":
+            return "〈"
+        case ">":
+            return "〉"
+        default:
+            return value
+        }
     }
 
     private func makeButton(for spec: KeySpec) -> KeyboardKeyButton {
@@ -515,7 +582,7 @@ final class KeyboardViewController: UIInputViewController {
             self?.handle(spec.kind)
         }, for: .touchUpInside)
         if shouldPreviewKey(spec.kind) {
-            bindKeyPreviewEvents(to: button)
+            bindKeyPreviewEvents(to: button, previewText: title(for: spec))
         }
         if case .space = spec.kind {
             let recognizer = UILongPressGestureRecognizer(target: self, action: #selector(handleKeyLongPress(_:)))
@@ -527,30 +594,29 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func shouldPreviewKey(_ kind: KeyKind) -> Bool {
-        guard keyboardMode == .letters, case .character(let value) = kind else { return false }
-        guard value.unicodeScalars.count == 1, let scalar = value.unicodeScalars.first else { return false }
-        return Self.previewableLetterScalars.contains(scalar)
+        guard case .character(let value) = kind else { return false }
+        guard value.unicodeScalars.count == 1 else { return false }
+        return !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
-    private func bindKeyPreviewEvents(to button: KeyboardKeyButton) {
-        button.addAction(UIAction { [weak self, weak button] _ in
-            guard let button = button else { return }
-            self?.showKeyPreview(for: button)
+    private func bindKeyPreviewEvents(to control: UIControl, previewText: String) {
+        control.addAction(UIAction { [weak self, weak control] _ in
+            guard let control = control else { return }
+            self?.showKeyPreview(from: control, text: previewText)
         }, for: [.touchDown, .touchDragInside, .touchDragEnter])
-        button.addAction(UIAction { [weak self] _ in
+        control.addAction(UIAction { [weak self] _ in
             self?.hideKeyPreview()
         }, for: [.touchDragExit, .touchUpInside, .touchUpOutside, .touchCancel])
     }
 
-    private func showKeyPreview(for button: KeyboardKeyButton) {
-        guard shouldPreviewKey(button.kind),
-              let previewText = button.title(for: .normal),
-              !previewText.isEmpty else {
+    private func showKeyPreview(from sourceView: UIView, text previewText: String) {
+        guard !previewText.isEmpty else {
             hideKeyPreview(animated: false)
             return
         }
 
-        previewedKeyButton = button
+        previewedKeySourceView = sourceView
+        previewedKeyText = previewText
         keyPreviewView.configure(
             text: previewText,
             backgroundColor: keyPreviewBackground,
@@ -558,7 +624,7 @@ final class KeyboardViewController: UIInputViewController {
             shadowColor: shadowColor
         )
 
-        let buttonFrame = button.convert(button.bounds, to: view)
+        let buttonFrame = sourceView.convert(sourceView.bounds, to: view)
         let previewSize = keyPreviewView.preferredSize(forButtonWidth: buttonFrame.width)
         let minX = Self.keyPreviewHorizontalInset
         let maxX = max(minX, view.bounds.width - previewSize.width - Self.keyPreviewHorizontalInset)
@@ -575,14 +641,15 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func hideKeyPreview(animated: Bool = true) {
-        previewedKeyButton = nil
+        previewedKeySourceView = nil
+        previewedKeyText = nil
         guard !keyPreviewView.isHidden else { return }
 
         let hide = {
             self.keyPreviewView.alpha = 0
         }
         let complete: (Bool) -> Void = { _ in
-            if self.previewedKeyButton == nil {
+            if self.previewedKeySourceView == nil {
                 self.keyPreviewView.isHidden = true
             }
         }
@@ -636,7 +703,7 @@ final class KeyboardViewController: UIInputViewController {
     private func font(for kind: KeyKind) -> UIFont {
         switch kind {
         case .character:
-            return .systemFont(ofSize: 22, weight: .regular)
+            return .systemFont(ofSize: 23, weight: .regular)
         case .shift, .backspace:
             return .systemFont(ofSize: 26, weight: .regular)
         default:
@@ -1132,8 +1199,9 @@ final class KeyboardViewController: UIInputViewController {
         candidatePageCollapseButton.layer.borderColor = candidateBorder.cgColor
         updateCompositionBarAppearance()
         renderCandidatePageIfNeeded()
-        if let previewedKeyButton = previewedKeyButton {
-            showKeyPreview(for: previewedKeyButton)
+        if let previewedKeySourceView = previewedKeySourceView,
+           let previewedKeyText = previewedKeyText {
+            showKeyPreview(from: previewedKeySourceView, text: previewedKeyText)
         }
     }
 
@@ -1367,6 +1435,14 @@ final class KeyboardViewController: UIInputViewController {
     private func clearCompositionAfterDeletion() {
         resetCompositionState()
         refreshCompositionDisplay()
+    }
+
+    private func clearCompositionFromBar() {
+        associationContext = nil
+        setCandidatePageVisible(false, animated: false)
+        resetCompositionState()
+        refreshCompositionDisplay()
+        updateCandidates(resetScroll: true)
     }
 
     private func moveCompositionCursor(toCompositionTextOffset textOffset: Int) {
@@ -1647,7 +1723,7 @@ private final class KeyboardKeyButton: UIButton {
     var widthUnit: CGFloat = 1
 
     override var intrinsicContentSize: CGSize {
-        CGSize(width: 32 * widthUnit, height: 41)
+        CGSize(width: 32 * widthUnit, height: 42)
     }
 }
 
@@ -1717,7 +1793,7 @@ private final class KeyboardKeySpacer: UIView {
     var widthUnit: CGFloat = 1
 
     override var intrinsicContentSize: CGSize {
-        CGSize(width: 32 * widthUnit, height: 41)
+        CGSize(width: 32 * widthUnit, height: 42)
     }
 }
 
@@ -1725,25 +1801,45 @@ private final class KeyboardProxySpacerButton: UIButton {
     var widthUnit: CGFloat = 1
 
     override var intrinsicContentSize: CGSize {
-        CGSize(width: 32 * widthUnit, height: 41)
+        CGSize(width: 32 * widthUnit, height: 42)
     }
 }
 
-private final class CompositionBarView: UIView {
+private final class CompositionBarView: UIView, UIGestureRecognizerDelegate {
     var onOffsetSelected: ((Int) -> Void)?
+    var onClearRequested: (() -> Void)?
 
     private var text = ""
     private var cursorOffset = 0
     private var rawOffsets: [Int] = [0]
+    private let clearButton = UIButton(type: .system)
     private let font = UIFont.systemFont(ofSize: 15, weight: .regular)
     private let textInsets = UIEdgeInsets(top: 0, left: 10, bottom: 0, right: 10)
+    private let clearButtonSize = CGSize(width: 24, height: 18)
+    private let clearButtonSpacing: CGFloat = 4
     private var barTextColor = UIColor.black
     private var barCursorColor = UIColor.systemBlue
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         isOpaque = false
+
+        let deleteImage = UIImage(
+            systemName: "delete.left",
+            withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+        )
+        clearButton.setImage(deleteImage, for: .normal)
+        clearButton.contentHorizontalAlignment = .center
+        clearButton.contentVerticalAlignment = .center
+        clearButton.tintColor = barTextColor
+        clearButton.isHidden = true
+        clearButton.addAction(UIAction { [weak self] _ in
+            self?.onClearRequested?()
+        }, for: .touchUpInside)
+        addSubview(clearButton)
+
         let recognizer = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
+        recognizer.delegate = self
         addGestureRecognizer(recognizer)
     }
 
@@ -1754,6 +1850,7 @@ private final class CompositionBarView: UIView {
     func configure(textColor: UIColor, cursorColor: UIColor) {
         barTextColor = textColor
         barCursorColor = cursorColor
+        clearButton.tintColor = textColor
         setNeedsDisplay()
     }
 
@@ -1761,13 +1858,25 @@ private final class CompositionBarView: UIView {
         self.text = text
         self.cursorOffset = max(0, min(text.count, cursorOffset))
         self.rawOffsets = rawOffsets ?? Array(0...text.count)
+        clearButton.isHidden = text.isEmpty
+        setNeedsLayout()
         setNeedsDisplay()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        clearButton.frame = CGRect(
+            x: bounds.maxX - textInsets.right - clearButtonSize.width,
+            y: bounds.midY - clearButtonSize.height / 2,
+            width: clearButtonSize.width,
+            height: clearButtonSize.height
+        )
     }
 
     override func draw(_ rect: CGRect) {
         guard !text.isEmpty else { return }
 
-        let textRect = bounds.inset(by: textInsets)
+        let textRect = textDrawingRect
         let attributes: [NSAttributedString.Key: Any] = [
             .font: font,
             .foregroundColor: barTextColor
@@ -1790,11 +1899,27 @@ private final class CompositionBarView: UIView {
     @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
         guard !text.isEmpty else { return }
         let point = recognizer.location(in: self)
-        let textRect = bounds.inset(by: textInsets)
+        guard clearButton.isHidden || !clearButton.frame.contains(point) else { return }
+
+        let textRect = textDrawingRect
         let x = max(0, min(point.x - textRect.minX, textRect.width))
         let displayOffset = nearestOffset(for: x)
         let safeOffset = max(0, min(displayOffset, rawOffsets.count - 1))
         onOffsetSelected?(rawOffsets[safeOffset])
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        guard let touchView = touch.view else { return true }
+        guard !touchView.isDescendant(of: clearButton) else { return false }
+        return true
+    }
+
+    private var textDrawingRect: CGRect {
+        var rect = bounds.inset(by: textInsets)
+        if !clearButton.isHidden {
+            rect.size.width = max(0, rect.width - clearButtonSize.width - clearButtonSpacing)
+        }
+        return rect
     }
 
     private func nearestOffset(for x: CGFloat) -> Int {
