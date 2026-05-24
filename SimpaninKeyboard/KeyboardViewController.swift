@@ -597,7 +597,14 @@ final class KeyboardViewController: UIInputViewController {
         button.titleLabel?.adjustsFontSizeToFitWidth = true
         button.titleLabel?.minimumScaleFactor = 0.75
         button.titleLabel?.baselineAdjustment = .alignCenters
-        button.setTitle(title(for: spec), for: .normal)
+        if case .backspace = spec.kind {
+            let configuration = UIImage.SymbolConfiguration(pointSize: 23, weight: .regular)
+            button.setImage(UIImage(systemName: "xmark.circle", withConfiguration: configuration), for: .normal)
+            button.tintColor = primaryText
+            button.accessibilityLabel = "删除"
+        } else {
+            button.setTitle(title(for: spec), for: .normal)
+        }
         button.addAction(UIAction { [weak self] _ in
             self?.handle(spec.kind)
         }, for: .touchUpInside)
@@ -1211,10 +1218,10 @@ final class KeyboardViewController: UIInputViewController {
             } else {
                 button.alpha = 1
             }
-            let title = button.title(for: .normal) ?? ""
-            let isSpecial = ["123", "ABC", "#+=", "⌫", "⇧", "英", "中", "搜索", "确认", "发送", "换行"].contains(title)
+            let isSpecial = (button as? KeyboardKeyButton)?.kind.isSpecialKey == true
             button.backgroundColor = isSpecial ? specialKeyBackground : keyBackground
             button.setTitleColor(primaryText, for: .normal)
+            button.tintColor = primaryText
             button.layer.shadowColor = shadowColor.cgColor
         }
         utilityOverlayButton.setTitleColor(secondaryText, for: .normal)
@@ -1770,12 +1777,12 @@ private final class KeyboardKeyButton: UIButton {
         if let titleLabel,
            let title = titleLabel.text,
            !title.isEmpty {
-            let titleHeight = min(contentRect.height, ceil(titleLabel.font.lineHeight))
+            let visualOffset = visualHorizontalOffset(for: title)
             titleLabel.frame = CGRect(
-                x: contentRect.minX + horizontalPadding,
-                y: contentRect.midY - titleHeight / 2,
+                x: contentRect.minX + horizontalPadding + visualOffset,
+                y: contentRect.minY,
                 width: availableWidth,
-                height: titleHeight
+                height: contentRect.height
             )
             titleLabel.textAlignment = .center
         }
@@ -1784,6 +1791,17 @@ private final class KeyboardKeyButton: UIButton {
            imageView.image != nil {
             imageView.sizeToFit()
             imageView.center = CGPoint(x: contentRect.midX, y: contentRect.midY)
+        }
+    }
+
+    private func visualHorizontalOffset(for title: String) -> CGFloat {
+        switch title {
+        case "【", "《", "（", "〈":
+            return 1.5
+        case "】", "》", "）", "〉":
+            return -1.5
+        default:
+            return 0
         }
     }
 }
@@ -2053,6 +2071,15 @@ private enum KeyKind {
             return true
         }
         return false
+    }
+
+    var isSpecialKey: Bool {
+        switch self {
+        case .shift, .backspace, .returnKey, .languageSwitch, .modeSwitch:
+            return true
+        default:
+            return false
+        }
     }
 }
 
