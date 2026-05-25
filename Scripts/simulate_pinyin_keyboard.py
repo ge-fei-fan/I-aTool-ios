@@ -561,9 +561,10 @@ class PinyinCandidateProvider:
     MAX_COMPLETION_KEYS = 32
     COMPLETION_RANK_PENALTY = 120_000
     INITIAL_SHORTHAND_PHRASE_BONUS = 350_000
-    MAX_ACRONYM_SYLLABLES_PER_LETTER = 16
-    MAX_ACRONYM_KEY_SEQUENCES = 4_096
-    MAX_ACRONYM_FALLBACK_SEQUENCES = 24
+    MAX_ACRONYM_SYLLABLES_PER_LETTER = 8
+    MAX_ACRONYM_KEY_SEQUENCES = 512
+    MAX_ACRONYM_FALLBACK_SEQUENCES = 12
+    MAX_ACRONYM_RESULTS = 96
     ACRONYM_PHRASE_BONUS = 600_000
     ACRONYM_FALLBACK_BASE_SCORE = 8_600_000
     MAX_FUZZY_CORRECTION_KEYS = 24
@@ -771,6 +772,8 @@ class PinyinCandidateProvider:
                 )
                 for candidate in self._scored_candidates(lookup_key, MatchKind.COMPLETION, len(key), cache)[:3]
             ]
+            if len(results) >= self.MAX_ACRONYM_RESULTS:
+                break
 
         for sequence in sequences[:self.MAX_ACRONYM_FALLBACK_SEQUENCES]:
             results += [

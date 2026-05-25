@@ -91,7 +91,7 @@ final class KeyboardViewController: UIInputViewController {
     private static let candidatePanelAnimationDuration: TimeInterval = 0.22
     private static let candidateToggleButtonWidth: CGFloat = 34
     private static let candidateToggleButtonHeight: CGFloat = 30
-    private static let keyboardIconPointSize: CGFloat = 20
+    private static let keyboardIconPointSize: CGFloat = 22
     private static let trackpadStepWidth: CGFloat = 10
     private static let keyPreviewHorizontalInset: CGFloat = 4
     private static let keyTouchOutset: CGFloat = 6
@@ -272,7 +272,7 @@ final class KeyboardViewController: UIInputViewController {
         utilityOverlayStack.spacing = 16
         utilityOverlayView.addSubview(utilityOverlayStack)
 
-        configureUtilityIconButton(utilityOverlayButton, asset: .heart, fallbackSystemName: "heart", accessibilityLabel: "Quick fill")
+        configureUtilityIconButton(utilityOverlayButton, asset: .diversity, fallbackSystemName: "person.2", accessibilityLabel: "Quick fill")
         utilityOverlayButton.addAction(UIAction { [weak self] _ in
             self?.handleUtilityFillButtonTap()
         }, for: .touchUpInside)
@@ -280,6 +280,7 @@ final class KeyboardViewController: UIInputViewController {
         utilityOverlayIconButtons.append(utilityOverlayButton)
 
         let utilityItems: [(asset: KeyboardIconAsset, fallbackSystemName: String, label: String, dismissesKeyboard: Bool)] = [
+            (asset: .heart, fallbackSystemName: "heart", label: "Messages", dismissesKeyboard: false),
             (asset: .happy, fallbackSystemName: "face.smiling", label: "Dictation", dismissesKeyboard: false),
             (asset: .happy, fallbackSystemName: "face.smiling", label: "Cursor", dismissesKeyboard: false),
             (asset: .happy, fallbackSystemName: "face.smiling", label: "Emoji", dismissesKeyboard: false),
@@ -3251,9 +3252,10 @@ private final class PinyinCandidateProvider {
     private static let maxCompletionKeys = 32
     private static let completionRankPenalty = 120_000
     private static let initialShorthandPhraseBonus = 350_000
-    private static let maxAcronymSyllablesPerLetter = 16
-    private static let maxAcronymKeySequences = 4_096
-    private static let maxAcronymFallbackSequences = 24
+    private static let maxAcronymSyllablesPerLetter = 8
+    private static let maxAcronymKeySequences = 512
+    private static let maxAcronymFallbackSequences = 12
+    private static let maxAcronymResults = 96
     private static let acronymPhraseBonus = 600_000
     private static let acronymFallbackBaseScore = 8_600_000
     private static let maxFuzzyCorrectionKeys = 24
@@ -3430,6 +3432,9 @@ private final class PinyinCandidateProvider {
                     syllableCount: candidate.syllableCount,
                     consumeLength: candidate.consumeLength
                 )
+            }
+            if results.count >= Self.maxAcronymResults {
+                break
             }
         }
 
