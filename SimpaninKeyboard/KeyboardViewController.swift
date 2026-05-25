@@ -94,6 +94,7 @@ final class KeyboardViewController: UIInputViewController {
     private static let keyboardIconPointSize: CGFloat = 20
     private static let trackpadStepWidth: CGFloat = 10
     private static let keyPreviewHorizontalInset: CGFloat = 4
+    private static let keyTouchOutset: CGFloat = 6
     private static let previewableLetterScalars = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
     private enum KeyboardIconAsset {
@@ -449,7 +450,8 @@ final class KeyboardViewController: UIInputViewController {
                 }
                 return false
             }
-            let rowStack = UIStackView()
+            let rowStack = KeyboardRowStack()
+            rowStack.touchTargetOutset = Self.keyTouchOutset
             rowStack.axis = .horizontal
             rowStack.spacing = 6
             rowStack.alignment = .fill
@@ -677,6 +679,7 @@ final class KeyboardViewController: UIInputViewController {
     private func makeButton(for spec: KeySpec) -> KeyboardKeyButton {
         let button = KeyboardKeyButton(type: .system)
         button.kind = spec.kind
+        button.touchOutset = Self.keyTouchOutset
         button.layer.cornerRadius = 6
         button.layer.shadowOpacity = 0.22
         button.layer.shadowRadius = 0
@@ -707,7 +710,7 @@ final class KeyboardViewController: UIInputViewController {
         if case .space = spec.kind {
             let recognizer = UILongPressGestureRecognizer(target: self, action: #selector(handleKeyLongPress(_:)))
             recognizer.minimumPressDuration = 0.35
-            recognizer.cancelsTouchesInView = true
+            recognizer.cancelsTouchesInView = false
             button.addGestureRecognizer(recognizer)
         }
         return button
@@ -1862,9 +1865,17 @@ private struct KeySpec {
 private final class KeyboardKeyButton: UIButton {
     var kind: KeyKind = .character("")
     var widthUnit: CGFloat = 1
+    var touchOutset: CGFloat = 0
 
     override var intrinsicContentSize: CGSize {
         CGSize(width: 32 * widthUnit, height: 42)
+    }
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        guard touchOutset > 0 else {
+            return super.point(inside: point, with: event)
+        }
+        return bounds.insetBy(dx: -touchOutset, dy: -touchOutset).contains(point)
     }
 
     override func layoutSubviews() {
@@ -1920,6 +1931,54 @@ private final class KeyboardKeyButton: UIButton {
             return 0
         }
         return -1
+    }
+}
+
+private final class KeyboardRowStack: UIStackView {
+    var touchTargetOutset: CGFloat = 0
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        super.point(inside: point, with: event) || nearestTouchTarget(at: point) != nil
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard !isHidden, alpha >= 0.01, isUserInteractionEnabled, point(inside: point, with: event) else {
+            return nil
+        }
+
+        let hitView = super.hitTest(point, with: event)
+        if let hitView, hitView !== self {
+            return hitView
+        }
+
+        return nearestTouchTarget(at: point)
+    }
+
+    private func nearestTouchTarget(at point: CGPoint) -> UIControl? {
+        let targets = arrangedSubviews.compactMap { view -> UIControl? in
+            guard let control = view as? UIControl,
+                  !control.isHidden,
+                  control.alpha >= 0.01,
+                  control.isEnabled,
+                  control.isUserInteractionEnabled else {
+                return nil
+            }
+            return control
+        }
+
+        return targets
+            .filter { $0.frame.insetBy(dx: -touchTargetOutset, dy: -touchTargetOutset).contains(point) }
+            .min { left, right in
+                squaredDistance(from: point, to: left.frame) < squaredDistance(from: point, to: right.frame)
+            }
+    }
+
+    private func squaredDistance(from point: CGPoint, to rect: CGRect) -> CGFloat {
+        let clampedX = min(max(point.x, rect.minX), rect.maxX)
+        let clampedY = min(max(point.y, rect.minY), rect.maxY)
+        let dx = point.x - clampedX
+        let dy = point.y - clampedY
+        return dx * dx + dy * dy
     }
 }
 
