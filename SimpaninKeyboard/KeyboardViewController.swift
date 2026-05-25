@@ -254,13 +254,14 @@ final class KeyboardViewController: UIInputViewController {
         utilityOverlayStack.addArrangedSubview(utilityOverlayButton)
         utilityOverlayIconButtons.append(utilityOverlayButton)
 
-        [
+        let utilityItems: [(systemName: String?, title: String?, label: String)] = [
             (systemName: "message", title: nil, label: "Messages"),
             (systemName: "mic", title: nil, label: "Dictation"),
             (systemName: nil, title: "<I>", label: "Cursor"),
             (systemName: "face.smiling", title: nil, label: "Emoji"),
             (systemName: "chevron.down", title: nil, label: "Dismiss keyboard")
-        ].forEach { item in
+        ]
+        utilityItems.forEach { item in
             let button = UIButton(type: .system)
             configureUtilityIconButton(
                 button,
