@@ -91,9 +91,33 @@ final class KeyboardViewController: UIInputViewController {
     private static let candidatePanelAnimationDuration: TimeInterval = 0.22
     private static let candidateToggleButtonWidth: CGFloat = 34
     private static let candidateToggleButtonHeight: CGFloat = 30
+    private static let keyboardIconPointSize: CGFloat = 20
     private static let trackpadStepWidth: CGFloat = 10
     private static let keyPreviewHorizontalInset: CGFloat = 4
     private static let previewableLetterScalars = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
+
+    private enum KeyboardIconAsset {
+        case diversity
+        case heart
+        case happy
+        case arrowDown
+        case arrowUp
+
+        var fileName: String {
+            switch self {
+            case .diversity:
+                return "icons8-diversity-50"
+            case .heart:
+                return "icons8-heart-50"
+            case .happy:
+                return "icons8-happy-50"
+            case .arrowDown:
+                return "icons8-expand-arrow-50"
+            case .arrowUp:
+                return "icons8-collapse-arrow-50"
+            }
+        }
+    }
 
     private var isDark: Bool {
         traitCollection.userInterfaceStyle == .dark
@@ -198,12 +222,12 @@ final class KeyboardViewController: UIInputViewController {
 
         candidateScrollView.showsHorizontalScrollIndicator = false
         candidateScrollView.alwaysBounceHorizontal = true
-        candidateScrollView.clipsToBounds = false
+        candidateScrollView.clipsToBounds = true
         candidateScrollView.delegate = self
         candidateBarStack.addArrangedSubview(candidateScrollView)
 
         candidateExpandButton.translatesAutoresizingMaskIntoConstraints = false
-        configureCandidateToggleButton(candidateExpandButton, systemName: "chevron.down")
+        configureCandidateToggleButton(candidateExpandButton, asset: .arrowDown, fallbackSystemName: "chevron.down")
         candidateExpandButton.isHidden = true
         candidateExpandButton.addAction(UIAction { [weak self] _ in
             self?.setCandidatePageVisible(true)
@@ -247,31 +271,29 @@ final class KeyboardViewController: UIInputViewController {
         utilityOverlayStack.spacing = 16
         utilityOverlayView.addSubview(utilityOverlayStack)
 
-        configureUtilityIconButton(utilityOverlayButton, title: "\u{2318}", titleFontSize: 18, accessibilityLabel: "Quick fill")
+        configureUtilityIconButton(utilityOverlayButton, asset: .diversity, fallbackSystemName: "person.2", accessibilityLabel: "Quick fill")
         utilityOverlayButton.addAction(UIAction { [weak self] _ in
             self?.handleUtilityFillButtonTap()
         }, for: .touchUpInside)
         utilityOverlayStack.addArrangedSubview(utilityOverlayButton)
         utilityOverlayIconButtons.append(utilityOverlayButton)
 
-        let utilityItems: [(systemName: String?, title: String?, label: String)] = [
-            (systemName: "message", title: nil, label: "Messages"),
-            (systemName: "mic", title: nil, label: "Dictation"),
-            (systemName: nil, title: "<I>", label: "Cursor"),
-            (systemName: "face.smiling", title: nil, label: "Emoji"),
-            (systemName: "chevron.down", title: nil, label: "Dismiss keyboard")
+        let utilityItems: [(asset: KeyboardIconAsset, fallbackSystemName: String, label: String, dismissesKeyboard: Bool)] = [
+            (asset: .heart, fallbackSystemName: "heart", label: "Messages", dismissesKeyboard: false),
+            (asset: .happy, fallbackSystemName: "face.smiling", label: "Dictation", dismissesKeyboard: false),
+            (asset: .happy, fallbackSystemName: "face.smiling", label: "Cursor", dismissesKeyboard: false),
+            (asset: .happy, fallbackSystemName: "face.smiling", label: "Emoji", dismissesKeyboard: false),
+            (asset: .arrowDown, fallbackSystemName: "chevron.down", label: "Dismiss keyboard", dismissesKeyboard: true)
         ]
         utilityItems.forEach { item in
             let button = UIButton(type: .system)
             configureUtilityIconButton(
                 button,
-                systemName: item.systemName,
-                title: item.title,
-                symbolPointSize: 17,
-                titleFontSize: 16,
+                asset: item.asset,
+                fallbackSystemName: item.fallbackSystemName,
                 accessibilityLabel: item.label
             )
-            if item.systemName == "chevron.down" {
+            if item.dismissesKeyboard {
                 button.addAction(UIAction { [weak self] _ in
                     self?.dismissKeyboard()
                 }, for: .touchUpInside)
@@ -307,7 +329,7 @@ final class KeyboardViewController: UIInputViewController {
         view.addSubview(candidatePageView)
 
         candidatePageCollapseButton.translatesAutoresizingMaskIntoConstraints = false
-        configureCandidateToggleButton(candidatePageCollapseButton, systemName: "chevron.up")
+        configureCandidateToggleButton(candidatePageCollapseButton, asset: .arrowUp, fallbackSystemName: "chevron.up")
         candidatePageCollapseButton.addAction(UIAction { [weak self] _ in
             if self?.isQuickFillPanelVisible == true {
                 self?.setQuickFillPanelVisible(false)
@@ -352,9 +374,8 @@ final class KeyboardViewController: UIInputViewController {
         ])
     }
 
-    private func configureCandidateToggleButton(_ button: UIButton, systemName: String) {
-        let configuration = UIImage.SymbolConfiguration(pointSize: 14, weight: .semibold)
-        button.setImage(UIImage(systemName: systemName, withConfiguration: configuration), for: .normal)
+    private func configureCandidateToggleButton(_ button: UIButton, asset: KeyboardIconAsset, fallbackSystemName: String) {
+        button.setImage(keyboardIcon(asset, fallbackSystemName: fallbackSystemName), for: .normal)
         button.contentEdgeInsets = UIEdgeInsets(top: 2, left: 8, bottom: 2, right: 8)
         button.layer.cornerRadius = 7
         button.layer.borderWidth = 0.5
@@ -364,13 +385,10 @@ final class KeyboardViewController: UIInputViewController {
 
     private func configureUtilityIconButton(
         _ button: UIButton,
-        systemName: String? = nil,
-        title: String? = nil,
-        symbolPointSize: CGFloat = 18,
-        titleFontSize: CGFloat = 17,
+        asset: KeyboardIconAsset,
+        fallbackSystemName: String,
         accessibilityLabel: String
     ) {
-        let configuration = UIImage.SymbolConfiguration(pointSize: symbolPointSize, weight: .regular)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.backgroundColor = .clear
         button.layer.borderWidth = 0
@@ -379,14 +397,30 @@ final class KeyboardViewController: UIInputViewController {
         button.contentHorizontalAlignment = .center
         button.contentVerticalAlignment = .center
         button.accessibilityLabel = accessibilityLabel
-        button.titleLabel?.font = .systemFont(ofSize: titleFontSize, weight: .semibold)
-        if let systemName {
-            button.setImage(UIImage(systemName: systemName, withConfiguration: configuration), for: .normal)
-        } else {
-            button.setTitle(title, for: .normal)
-        }
+        button.setTitle(nil, for: .normal)
+        button.setImage(keyboardIcon(asset, fallbackSystemName: fallbackSystemName), for: .normal)
         button.widthAnchor.constraint(equalToConstant: 34).isActive = true
         button.heightAnchor.constraint(equalToConstant: 32).isActive = true
+    }
+
+    private func keyboardIcon(_ asset: KeyboardIconAsset, fallbackSystemName: String) -> UIImage? {
+        if let url = Bundle(for: Self.self).url(forResource: asset.fileName, withExtension: "png", subdirectory: "ios-icon"),
+           let image = UIImage(contentsOfFile: url.path) {
+            return resizedTemplateImage(image, pointSize: Self.keyboardIconPointSize)
+        }
+        let configuration = UIImage.SymbolConfiguration(pointSize: Self.keyboardIconPointSize, weight: .regular)
+        return UIImage(systemName: fallbackSystemName, withConfiguration: configuration)
+    }
+
+    private func resizedTemplateImage(_ image: UIImage, pointSize: CGFloat) -> UIImage {
+        let size = CGSize(width: pointSize, height: pointSize)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.opaque = false
+        format.scale = UIScreen.main.scale
+        let resized = UIGraphicsImageRenderer(size: size, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: size))
+        }
+        return resized.withRenderingMode(.alwaysTemplate)
     }
 
     private func renderKeyboard() {

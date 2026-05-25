@@ -19,6 +19,7 @@
 		222222222222222222222110 /* PinyinAssociations.tsv in Resources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222120 /* PinyinAssociations.tsv */; };
 		222222222222222222222111 /* PinyinAssociations.idx in Resources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222121 /* PinyinAssociations.idx */; };
 		222222222222222222222131 /* 河狸.png in Resources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222130 /* 河狸.png */; };
+		333333333333333333333101 /* ios-icon in Resources */ = {isa = PBXBuildFile; fileRef = 333333333333333333333001 /* ios-icon */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -62,6 +63,7 @@
 		222222222222222222222120 /* PinyinAssociations.tsv */ = {isa = PBXFileReference; lastKnownFileType = text; path = PinyinAssociations.tsv; sourceTree = "<group>"; };
 		222222222222222222222121 /* PinyinAssociations.idx */ = {isa = PBXFileReference; lastKnownFileType = file; path = PinyinAssociations.idx; sourceTree = "<group>"; };
 		222222222222222222222130 /* 河狸.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "河狸.png"; sourceTree = "<group>"; };
+		333333333333333333333001 /* ios-icon */ = {isa = PBXFileReference; lastKnownFileType = folder; path = "ios-icon"; sourceTree = SOURCE_ROOT; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -87,6 +89,7 @@
 			children = (
 				111111111111111111111021 /* Simpanin */,
 				222222222222222222222021 /* SimpaninKeyboard */,
+				333333333333333333333001 /* ios-icon */,
 				222222222222222222222130 /* 河狸.png */,
 				111111111111111111111022 /* Products */,
 			);
@@ -224,6 +227,7 @@
 				222222222222222222222104 /* rime-frost-LICENSE.txt in Resources */,
 				222222222222222222222109 /* rime-frost-NOTICE.txt in Resources */,
 				222222222222222222222131 /* 河狸.png in Resources */,
+				333333333333333333333101 /* ios-icon in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
