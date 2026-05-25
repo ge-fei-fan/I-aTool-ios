@@ -58,7 +58,9 @@ final class KeyboardViewController: UIInputViewController {
     private let candidatePageCollapseButton = UIButton(type: .system)
     private let keyboardRowsStack = UIStackView()
     private let utilityOverlayView = UIView()
+    private let utilityOverlayStack = UIStackView()
     private let utilityOverlayButton = UIButton(type: .system)
+    private var utilityOverlayIconButtons: [UIButton] = []
     private var allCandidates: [KeyboardCandidate] = []
     private var visibleCandidateCount = 0
     private var highlightedCandidateIndex = 0
@@ -180,9 +182,10 @@ final class KeyboardViewController: UIInputViewController {
         compositionBar.onOffsetSelected = { [weak self] offset in
             self?.moveCompositionCursor(toCompositionTextOffset: offset)
         }
-        compositionBar.onClearRequested = { [weak self] in
-            self?.clearCompositionFromBar()
-        }
+        // Clear button is disabled for now.
+        // compositionBar.onClearRequested = { [weak self] in
+        //     self?.clearCompositionFromBar()
+        // }
         rootStack.addArrangedSubview(compositionBar)
         compositionBar.heightAnchor.constraint(equalToConstant: 18).isActive = true
 
@@ -191,7 +194,7 @@ final class KeyboardViewController: UIInputViewController {
         candidateBarStack.alignment = .fill
         candidateBarStack.distribution = .fill
         rootStack.addArrangedSubview(candidateBarStack)
-        candidateBarStack.heightAnchor.constraint(equalToConstant: 30).isActive = true
+        candidateBarStack.heightAnchor.constraint(equalToConstant: 32).isActive = true
 
         candidateScrollView.showsHorizontalScrollIndicator = false
         candidateScrollView.alwaysBounceHorizontal = true
@@ -237,17 +240,44 @@ final class KeyboardViewController: UIInputViewController {
         utilityOverlayView.backgroundColor = .clear
         view.addSubview(utilityOverlayView)
 
-        utilityOverlayButton.translatesAutoresizingMaskIntoConstraints = false
-        utilityOverlayButton.setTitle("⌘", for: .normal)
-        utilityOverlayButton.titleLabel?.font = .systemFont(ofSize: 20, weight: .semibold)
-        utilityOverlayButton.backgroundColor = candidateBackground
-        utilityOverlayButton.contentEdgeInsets = UIEdgeInsets(top: 2, left: 14, bottom: 2, right: 14)
-        utilityOverlayButton.layer.cornerRadius = 7
-        utilityOverlayButton.layer.borderWidth = 0.5
+        utilityOverlayStack.translatesAutoresizingMaskIntoConstraints = false
+        utilityOverlayStack.axis = .horizontal
+        utilityOverlayStack.alignment = .center
+        utilityOverlayStack.distribution = .equalSpacing
+        utilityOverlayStack.spacing = 16
+        utilityOverlayView.addSubview(utilityOverlayStack)
+
+        configureUtilityIconButton(utilityOverlayButton, title: "\u{2318}", accessibilityLabel: "Quick fill")
         utilityOverlayButton.addAction(UIAction { [weak self] _ in
             self?.handleUtilityFillButtonTap()
         }, for: .touchUpInside)
-        utilityOverlayView.addSubview(utilityOverlayButton)
+        utilityOverlayStack.addArrangedSubview(utilityOverlayButton)
+        utilityOverlayIconButtons.append(utilityOverlayButton)
+
+        [
+            (systemName: "message", title: nil, label: "Messages"),
+            (systemName: "mic", title: nil, label: "Dictation"),
+            (systemName: nil, title: "<I>", label: "Cursor"),
+            (systemName: "face.smiling", title: nil, label: "Emoji"),
+            (systemName: "chevron.down", title: nil, label: "Dismiss keyboard")
+        ].forEach { item in
+            let button = UIButton(type: .system)
+            configureUtilityIconButton(
+                button,
+                systemName: item.systemName,
+                title: item.title,
+                accessibilityLabel: item.label
+            )
+            if item.systemName == "chevron.down" {
+                button.addAction(UIAction { [weak self] _ in
+                    self?.dismissKeyboard()
+                }, for: .touchUpInside)
+            } else {
+                button.isUserInteractionEnabled = false
+            }
+            utilityOverlayStack.addArrangedSubview(button)
+            utilityOverlayIconButtons.append(button)
+        }
 
         setupCandidatePage()
 
@@ -256,10 +286,10 @@ final class KeyboardViewController: UIInputViewController {
             utilityOverlayView.trailingAnchor.constraint(equalTo: rootStack.trailingAnchor),
             utilityOverlayView.topAnchor.constraint(equalTo: compositionBar.topAnchor),
             utilityOverlayView.bottomAnchor.constraint(equalTo: candidateBarStack.bottomAnchor),
-            utilityOverlayButton.leadingAnchor.constraint(equalTo: utilityOverlayView.leadingAnchor, constant: 8),
-            utilityOverlayButton.centerYAnchor.constraint(equalTo: utilityOverlayView.centerYAnchor),
-            utilityOverlayButton.heightAnchor.constraint(equalToConstant: 28),
-            utilityOverlayButton.widthAnchor.constraint(greaterThanOrEqualToConstant: 44)
+            utilityOverlayStack.leadingAnchor.constraint(equalTo: utilityOverlayView.leadingAnchor, constant: 14),
+            utilityOverlayStack.trailingAnchor.constraint(equalTo: utilityOverlayView.trailingAnchor, constant: -14),
+            utilityOverlayStack.centerYAnchor.constraint(equalTo: utilityOverlayView.centerYAnchor),
+            utilityOverlayStack.heightAnchor.constraint(equalToConstant: 32)
         ])
         view.bringSubviewToFront(candidatePageView)
         view.bringSubviewToFront(trackpadBlurView)
@@ -327,6 +357,31 @@ final class KeyboardViewController: UIInputViewController {
         button.layer.borderWidth = 0.5
         button.contentHorizontalAlignment = .center
         button.contentVerticalAlignment = .center
+    }
+
+    private func configureUtilityIconButton(
+        _ button: UIButton,
+        systemName: String? = nil,
+        title: String? = nil,
+        accessibilityLabel: String
+    ) {
+        let configuration = UIImage.SymbolConfiguration(pointSize: 18, weight: .regular)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.backgroundColor = .clear
+        button.layer.borderWidth = 0
+        button.layer.shadowOpacity = 0
+        button.contentEdgeInsets = .zero
+        button.contentHorizontalAlignment = .center
+        button.contentVerticalAlignment = .center
+        button.accessibilityLabel = accessibilityLabel
+        button.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
+        if let systemName {
+            button.setImage(UIImage(systemName: systemName, withConfiguration: configuration), for: .normal)
+        } else {
+            button.setTitle(title, for: .normal)
+        }
+        button.widthAnchor.constraint(equalToConstant: 34).isActive = true
+        button.heightAnchor.constraint(equalToConstant: 32).isActive = true
     }
 
     private func renderKeyboard() {
@@ -1031,20 +1086,20 @@ final class KeyboardViewController: UIInputViewController {
         let isHighlighted = index == highlightedCandidateIndex
         let button = UIButton(type: .system)
         button.setTitle(candidate.text, for: .normal)
-        button.titleLabel?.font = .systemFont(ofSize: 17, weight: isHighlighted ? .semibold : .regular)
+        button.titleLabel?.font = .systemFont(ofSize: 19, weight: isHighlighted ? .semibold : .regular)
         button.titleLabel?.numberOfLines = expanded ? 0 : 1
         button.titleLabel?.lineBreakMode = expanded ? .byCharWrapping : .byTruncatingTail
         button.titleLabel?.textAlignment = .center
-        button.setTitleColor(isHighlighted ? highlightedCandidateText : primaryText, for: .normal)
-        button.backgroundColor = isHighlighted ? highlightedCandidateBackground : .clear
+        button.setTitleColor(primaryText, for: .normal)
+        button.backgroundColor = .clear
         button.contentEdgeInsets = expanded ? UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12) : UIEdgeInsets(top: 2, left: 12, bottom: 2, right: 12)
-        button.layer.cornerRadius = 7
-        button.layer.borderWidth = 0.5
-        button.layer.borderColor = (isHighlighted ? UIColor.clear : candidateBorder).cgColor
-        button.layer.shadowColor = isHighlighted ? candidateShadow.cgColor : UIColor.clear.cgColor
-        button.layer.shadowOpacity = isHighlighted ? (isDark ? 0.35 : 0.18) : 0
-        button.layer.shadowRadius = 1
-        button.layer.shadowOffset = CGSize(width: 0, height: 1)
+        button.layer.cornerRadius = 0
+        button.layer.borderWidth = 0
+        button.layer.borderColor = UIColor.clear.cgColor
+        button.layer.shadowColor = UIColor.clear.cgColor
+        button.layer.shadowOpacity = 0
+        button.layer.shadowRadius = 0
+        button.layer.shadowOffset = .zero
         button.addAction(UIAction { [weak self] _ in
             self?.handleCandidateSelection(candidate, index: index)
         }, for: .touchUpInside)
@@ -1056,7 +1111,7 @@ final class KeyboardViewController: UIInputViewController {
         let verticalInset: CGFloat = 12
         let minimumWidth: CGFloat = 56
         let minimumHeight: CGFloat = 34
-        let font = UIFont.systemFont(ofSize: 17, weight: .semibold)
+        let font = UIFont.systemFont(ofSize: 19, weight: .semibold)
         let unconstrainedSize = (text as NSString).boundingRect(
             with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
             options: [.usesLineFragmentOrigin, .usesFontLeading],
@@ -1229,15 +1284,18 @@ final class KeyboardViewController: UIInputViewController {
             button.tintColor = primaryText
             button.layer.shadowColor = shadowColor.cgColor
         }
-        utilityOverlayButton.setTitleColor(secondaryText, for: .normal)
-        utilityOverlayButton.backgroundColor = candidateBackground
-        utilityOverlayButton.layer.borderColor = candidateBorder.cgColor
+        for button in utilityOverlayIconButtons {
+            button.setTitleColor(secondaryText, for: .normal)
+            button.tintColor = secondaryText
+            button.backgroundColor = .clear
+            button.layer.borderColor = UIColor.clear.cgColor
+        }
         candidateExpandButton.tintColor = secondaryText
-        candidateExpandButton.backgroundColor = candidateBackground
-        candidateExpandButton.layer.borderColor = candidateBorder.cgColor
+        candidateExpandButton.backgroundColor = .clear
+        candidateExpandButton.layer.borderColor = UIColor.clear.cgColor
         candidatePageCollapseButton.tintColor = secondaryText
-        candidatePageCollapseButton.backgroundColor = candidateBackground
-        candidatePageCollapseButton.layer.borderColor = candidateBorder.cgColor
+        candidatePageCollapseButton.backgroundColor = .clear
+        candidatePageCollapseButton.layer.borderColor = UIColor.clear.cgColor
         updateCompositionBarAppearance()
         renderCandidatePageIfNeeded()
         if let previewedKeySourceView = previewedKeySourceView,
@@ -1278,8 +1336,7 @@ final class KeyboardViewController: UIInputViewController {
         compositionBar.configure(
             textColor: primaryText,
             cursorColor: compositionCursorColor,
-            clearButtonBackgroundColor: candidateBackground,
-            clearButtonBorderColor: candidateBorder
+            mascotImage: UIImage(named: "\u{6CB3}\u{72F8}")
         )
     }
 
@@ -1914,39 +1971,47 @@ private final class CompositionBarView: UIView, UIGestureRecognizerDelegate {
     private var text = ""
     private var cursorOffset = 0
     private var rawOffsets: [Int] = [0]
-    private let clearButton = UIButton(type: .system)
+    private let mascotImageView = UIImageView()
+    // private let clearButton = UIButton(type: .system)
     private let font = UIFont.systemFont(ofSize: 15, weight: .regular)
     private let textInsets = UIEdgeInsets(top: 0, left: 10, bottom: 0, right: 10)
-    private let clearButtonSize = CGSize(width: 18, height: 18)
-    private let clearButtonSpacing: CGFloat = 6
+    private let mascotImageSize = CGSize(width: 24, height: 18)
+    private let mascotImageSpacing: CGFloat = 6
+    // private let clearButtonSize = CGSize(width: 18, height: 18)
+    // private let clearButtonSpacing: CGFloat = 6
     private var barTextColor = UIColor.black
     private var barCursorColor = UIColor.systemBlue
-    private var clearButtonBackgroundColor = UIColor(white: 0.96, alpha: 1)
-    private var clearButtonBorderColor = UIColor(white: 0, alpha: 0.08)
+    // private var clearButtonBackgroundColor = UIColor(white: 0.96, alpha: 1)
+    // private var clearButtonBorderColor = UIColor(white: 0, alpha: 0.08)
 
     override init(frame: CGRect) {
         super.init(frame: frame)
         isOpaque = false
 
-        let deleteImage = UIImage(
-            systemName: "xmark.circle",
-            withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .regular)
-        )
-        clearButton.setImage(deleteImage, for: .normal)
-        clearButton.contentHorizontalAlignment = .center
-        clearButton.contentVerticalAlignment = .center
-        clearButton.tintColor = barTextColor
-        clearButton.backgroundColor = clearButtonBackgroundColor
-        clearButton.layer.cornerRadius = clearButtonSize.height / 2
-        clearButton.layer.borderWidth = 0.5
-        clearButton.layer.borderColor = clearButtonBorderColor.cgColor
-        clearButton.clipsToBounds = true
-        clearButton.isHidden = true
-        clearButton.accessibilityLabel = "删除拼音"
-        clearButton.addAction(UIAction { [weak self] _ in
-            self?.onClearRequested?()
-        }, for: .touchUpInside)
-        addSubview(clearButton)
+        mascotImageView.contentMode = .scaleAspectFit
+        mascotImageView.isUserInteractionEnabled = false
+        addSubview(mascotImageView)
+
+        // Clear button is intentionally disabled for now.
+        // let deleteImage = UIImage(
+        //     systemName: "xmark.circle",
+        //     withConfiguration: UIImage.SymbolConfiguration(pointSize: 13, weight: .regular)
+        // )
+        // clearButton.setImage(deleteImage, for: .normal)
+        // clearButton.contentHorizontalAlignment = .center
+        // clearButton.contentVerticalAlignment = .center
+        // clearButton.tintColor = barTextColor
+        // clearButton.backgroundColor = clearButtonBackgroundColor
+        // clearButton.layer.cornerRadius = clearButtonSize.height / 2
+        // clearButton.layer.borderWidth = 0.5
+        // clearButton.layer.borderColor = clearButtonBorderColor.cgColor
+        // clearButton.clipsToBounds = true
+        // clearButton.isHidden = true
+        // clearButton.accessibilityLabel = "Delete pinyin"
+        // clearButton.addAction(UIAction { [weak self] _ in
+        //     self?.onClearRequested?()
+        // }, for: .touchUpInside)
+        // addSubview(clearButton)
 
         let recognizer = UITapGestureRecognizer(target: self, action: #selector(handleTap(_:)))
         recognizer.delegate = self
@@ -1960,16 +2025,16 @@ private final class CompositionBarView: UIView, UIGestureRecognizerDelegate {
     func configure(
         textColor: UIColor,
         cursorColor: UIColor,
-        clearButtonBackgroundColor: UIColor,
-        clearButtonBorderColor: UIColor
+        mascotImage: UIImage?
     ) {
         barTextColor = textColor
         barCursorColor = cursorColor
-        self.clearButtonBackgroundColor = clearButtonBackgroundColor
-        self.clearButtonBorderColor = clearButtonBorderColor
-        clearButton.tintColor = textColor
-        clearButton.backgroundColor = clearButtonBackgroundColor
-        clearButton.layer.borderColor = clearButtonBorderColor.cgColor
+        mascotImageView.image = mascotImage
+        mascotImageView.isHidden = mascotImage == nil
+        // clearButton.tintColor = textColor
+        // clearButton.backgroundColor = clearButtonBackgroundColor
+        // clearButton.layer.borderColor = clearButtonBorderColor.cgColor
+        setNeedsLayout()
         setNeedsDisplay()
     }
 
@@ -1977,18 +2042,18 @@ private final class CompositionBarView: UIView, UIGestureRecognizerDelegate {
         self.text = text
         self.cursorOffset = max(0, min(text.count, cursorOffset))
         self.rawOffsets = rawOffsets ?? Array(0...text.count)
-        clearButton.isHidden = text.isEmpty
+        // clearButton.isHidden = text.isEmpty
         setNeedsLayout()
         setNeedsDisplay()
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        clearButton.frame = CGRect(
-            x: bounds.maxX - textInsets.right - clearButtonSize.width,
-            y: bounds.midY - clearButtonSize.height / 2,
-            width: clearButtonSize.width,
-            height: clearButtonSize.height
+        mascotImageView.frame = CGRect(
+            x: bounds.maxX - textInsets.right - mascotImageSize.width,
+            y: bounds.midY - mascotImageSize.height / 2,
+            width: mascotImageSize.width,
+            height: mascotImageSize.height
         )
     }
 
@@ -2020,10 +2085,9 @@ private final class CompositionBarView: UIView, UIGestureRecognizerDelegate {
 
     @objc private func handleTap(_ recognizer: UITapGestureRecognizer) {
         guard !text.isEmpty else { return }
-        let point = recognizer.location(in: self)
-        guard clearButton.isHidden || !clearButton.frame.contains(point) else { return }
 
         let textRect = textDrawingRect
+        let point = recognizer.location(in: self)
         let x = max(0, min(point.x - textRect.minX, textRect.width))
         let displayOffset = nearestOffset(for: x)
         let safeOffset = max(0, min(displayOffset, rawOffsets.count - 1))
@@ -2031,15 +2095,13 @@ private final class CompositionBarView: UIView, UIGestureRecognizerDelegate {
     }
 
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
-        guard let touchView = touch.view else { return true }
-        guard !touchView.isDescendant(of: clearButton) else { return false }
         return true
     }
 
     private var textDrawingRect: CGRect {
         var rect = bounds.inset(by: textInsets)
-        if !clearButton.isHidden {
-            rect.size.width = max(0, rect.width - clearButtonSize.width - clearButtonSpacing)
+        if !mascotImageView.isHidden {
+            rect.size.width = max(0, rect.width - mascotImageSize.width - mascotImageSpacing)
         }
         return rect
     }

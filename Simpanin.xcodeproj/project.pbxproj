@@ -18,6 +18,7 @@
 		222222222222222222222108 /* PinyinLexicon.idx in Resources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222106 /* PinyinLexicon.idx */; };
 		222222222222222222222110 /* PinyinAssociations.tsv in Resources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222120 /* PinyinAssociations.tsv */; };
 		222222222222222222222111 /* PinyinAssociations.idx in Resources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222121 /* PinyinAssociations.idx */; };
+		222222222222222222222131 /* 河狸.png in Resources */ = {isa = PBXBuildFile; fileRef = 222222222222222222222130 /* 河狸.png */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -60,6 +61,7 @@
 		222222222222222222222106 /* PinyinLexicon.idx */ = {isa = PBXFileReference; lastKnownFileType = file; path = PinyinLexicon.idx; sourceTree = "<group>"; };
 		222222222222222222222120 /* PinyinAssociations.tsv */ = {isa = PBXFileReference; lastKnownFileType = text; path = PinyinAssociations.tsv; sourceTree = "<group>"; };
 		222222222222222222222121 /* PinyinAssociations.idx */ = {isa = PBXFileReference; lastKnownFileType = file; path = PinyinAssociations.idx; sourceTree = "<group>"; };
+		222222222222222222222130 /* 河狸.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = "河狸.png"; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -85,6 +87,7 @@
 			children = (
 				111111111111111111111021 /* Simpanin */,
 				222222222222222222222021 /* SimpaninKeyboard */,
+				222222222222222222222130 /* 河狸.png */,
 				111111111111111111111022 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -220,6 +223,7 @@
 				222222222222222222222111 /* PinyinAssociations.idx in Resources */,
 				222222222222222222222104 /* rime-frost-LICENSE.txt in Resources */,
 				222222222222222222222109 /* rime-frost-NOTICE.txt in Resources */,
+				222222222222222222222131 /* 河狸.png in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

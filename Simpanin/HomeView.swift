@@ -1941,7 +1941,7 @@ private struct SettingsView: View {
                         } label: {
                             settingsRow(
                                 icon: "server.rack",
-                                title: "哪吒监控设置",
+                                title: "哪吒配置",
                                 trailingText: nezhaSettings.isConfigured ? "已配置" : "未配置",
                                 subtitle: nezhaSettings.displayHost
                             )
@@ -1956,7 +1956,6 @@ private struct SettingsView: View {
                             settingsRow(
                                 icon: "keyboard",
                                 title: "中文键盘",
-                                trailingText: "离线",
                                 subtitle: "启用系统键盘扩展并测试拼音输入"
                             )
                         }
