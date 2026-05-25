@@ -4322,7 +4322,7 @@ private final class NezhaSettingsStore: ObservableObject {
     private let authTokenKey = "nezha.authToken"
 
     private init() {
-        baseURL = normalizedHTTPBaseURL(defaults.string(forKey: baseURLKey) ?? "")
+        baseURL = Self.normalizedHTTPBaseURL(defaults.string(forKey: baseURLKey) ?? "")
         authToken = defaults.string(forKey: authTokenKey) ?? ""
     }
 
@@ -4333,11 +4333,11 @@ private final class NezhaSettingsStore: ObservableObject {
     var displayHost: String {
         let trimmed = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return "Nezha service not configured" }
-        return URL(string: normalizedHTTPBaseURL(trimmed))?.host ?? trimmed
+        return URL(string: Self.normalizedHTTPBaseURL(trimmed))?.host ?? trimmed
     }
 
     func save(baseURL: String, authToken: String) {
-        let normalizedBaseURL = normalizedHTTPBaseURL(baseURL)
+        let normalizedBaseURL = Self.normalizedHTTPBaseURL(baseURL)
         let trimmedToken = authToken.trimmingCharacters(in: .whitespacesAndNewlines)
         self.baseURL = normalizedBaseURL
         self.authToken = trimmedToken
@@ -4345,7 +4345,7 @@ private final class NezhaSettingsStore: ObservableObject {
         defaults.set(trimmedToken, forKey: authTokenKey)
     }
 
-    private func normalizedHTTPBaseURL(_ value: String) -> String {
+    private static func normalizedHTTPBaseURL(_ value: String) -> String {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
         guard !trimmed.isEmpty else { return Self.defaultBaseURL }
         if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
