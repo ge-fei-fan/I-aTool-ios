@@ -2883,8 +2883,8 @@ private struct QuickFillSettingsSheet: View {
                             .padding(.vertical, 12)
                     } else {
                         List {
-                            ForEach(store.items.indices, id: \.self) { index in
-                                Text(store.items[index])
+                            ForEach(store.items) { item in
+                                Text(item.text)
                                     .font(.fitnexBody(size: 14, weight: .regular))
                                     .foregroundColor(FitnexColor.black)
                                     .lineLimit(1)
@@ -4364,23 +4364,33 @@ private final class NezhaSettingsStore: ObservableObject {
     }
 }
 
+private struct QuickFillItem: Identifiable, Equatable {
+    let id: UUID
+    let text: String
+
+    init(id: UUID = UUID(), text: String) {
+        self.id = id
+        self.text = text
+    }
+}
+
 private final class QuickFillStore: ObservableObject {
     static let shared = QuickFillStore()
 
-    @Published private(set) var items: [String]
+    @Published private(set) var items: [QuickFillItem]
 
     private let defaults: UserDefaults?
     private let itemsKey = "quickFill.items"
 
     private init() {
         defaults = UserDefaults(suiteName: "group.com.local.fitnex")
-        items = defaults?.stringArray(forKey: itemsKey) ?? []
+        items = (defaults?.stringArray(forKey: itemsKey) ?? []).map { QuickFillItem(text: $0) }
     }
 
     func add(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        items.append(trimmed)
+        items.append(QuickFillItem(text: trimmed))
         save()
     }
 
@@ -4395,7 +4405,7 @@ private final class QuickFillStore: ObservableObject {
     }
 
     private func save() {
-        defaults?.set(items, forKey: itemsKey)
+        defaults?.set(items.map(\.text), forKey: itemsKey)
     }
 
     static var sharedItems: [String] {

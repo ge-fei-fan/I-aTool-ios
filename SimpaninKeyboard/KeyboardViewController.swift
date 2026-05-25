@@ -271,7 +271,7 @@ final class KeyboardViewController: UIInputViewController {
         utilityOverlayStack.spacing = 16
         utilityOverlayView.addSubview(utilityOverlayStack)
 
-        configureUtilityIconButton(utilityOverlayButton, asset: .diversity, fallbackSystemName: "person.2", accessibilityLabel: "Quick fill")
+        configureUtilityIconButton(utilityOverlayButton, asset: .heart, fallbackSystemName: "heart", accessibilityLabel: "Quick fill")
         utilityOverlayButton.addAction(UIAction { [weak self] _ in
             self?.handleUtilityFillButtonTap()
         }, for: .touchUpInside)
@@ -279,7 +279,6 @@ final class KeyboardViewController: UIInputViewController {
         utilityOverlayIconButtons.append(utilityOverlayButton)
 
         let utilityItems: [(asset: KeyboardIconAsset, fallbackSystemName: String, label: String, dismissesKeyboard: Bool)] = [
-            (asset: .heart, fallbackSystemName: "heart", label: "Messages", dismissesKeyboard: false),
             (asset: .happy, fallbackSystemName: "face.smiling", label: "Dictation", dismissesKeyboard: false),
             (asset: .happy, fallbackSystemName: "face.smiling", label: "Cursor", dismissesKeyboard: false),
             (asset: .happy, fallbackSystemName: "face.smiling", label: "Emoji", dismissesKeyboard: false),
@@ -1375,7 +1374,7 @@ final class KeyboardViewController: UIInputViewController {
         compositionBar.configure(
             textColor: primaryText,
             cursorColor: compositionCursorColor,
-            mascotImage: UIImage(named: "\u{6CB3}\u{72F8}")
+            mascotImage: UIImage(named: "\u{732B}")
         )
     }
 
@@ -2012,12 +2011,12 @@ private final class CompositionBarView: UIView, UIGestureRecognizerDelegate {
     private var rawOffsets: [Int] = [0]
     private let mascotControl = UIControl()
     private let mascotImageView = UIImageView()
-    private let hazelnutView = HazelnutView()
+    private let heartBurstView = HeartBurstView()
     // private let clearButton = UIButton(type: .system)
     private let font = UIFont.systemFont(ofSize: 15, weight: .regular)
     private let textInsets = UIEdgeInsets(top: 0, left: 10, bottom: 0, right: 10)
-    private let mascotImageSize = CGSize(width: 36, height: 28)
-    private let mascotHitSize = CGSize(width: 50, height: 36)
+    private let mascotImageSize = CGSize(width: 32, height: 38)
+    private let mascotHitSize = CGSize(width: 56, height: 42)
     private let mascotImageSpacing: CGFloat = 8
     // private let clearButtonSize = CGSize(width: 18, height: 18)
     // private let clearButtonSpacing: CGFloat = 6
@@ -2032,17 +2031,17 @@ private final class CompositionBarView: UIView, UIGestureRecognizerDelegate {
         isOpaque = false
 
         mascotControl.isHidden = true
-        mascotControl.accessibilityLabel = "Beaver"
+        mascotControl.accessibilityLabel = "Cat"
+        mascotControl.clipsToBounds = false
         mascotControl.addTarget(self, action: #selector(handleMascotTap), for: .touchUpInside)
         addSubview(mascotControl)
+
+        heartBurstView.isUserInteractionEnabled = false
+        mascotControl.addSubview(heartBurstView)
 
         mascotImageView.contentMode = .scaleAspectFit
         mascotImageView.isUserInteractionEnabled = false
         mascotControl.addSubview(mascotImageView)
-
-        hazelnutView.alpha = 0
-        hazelnutView.isUserInteractionEnabled = false
-        mascotControl.addSubview(hazelnutView)
 
         // Clear button is intentionally disabled for now.
         // let deleteImage = UIImage(
@@ -2114,12 +2113,7 @@ private final class CompositionBarView: UIView, UIGestureRecognizerDelegate {
             width: mascotImageSize.width,
             height: mascotImageSize.height
         )
-        hazelnutView.frame = CGRect(
-            x: mascotImageView.frame.minX - 3,
-            y: mascotImageView.frame.minY + 2,
-            width: 12,
-            height: 13
-        )
+        heartBurstView.frame = mascotControl.bounds
     }
 
     override func draw(_ rect: CGRect) {
@@ -2163,34 +2157,26 @@ private final class CompositionBarView: UIView, UIGestureRecognizerDelegate {
         guard !mascotControl.isHidden, !isMascotAnimating else { return }
 
         isMascotAnimating = true
-        hazelnutView.layer.removeAllAnimations()
+        heartBurstView.play()
         mascotImageView.layer.removeAllAnimations()
         mascotImageView.transform = .identity
-        hazelnutView.transform = CGAffineTransform(translationX: 5, y: 10).scaledBy(x: 0.7, y: 0.7)
-        hazelnutView.alpha = 0
 
         UIView.animateKeyframes(
-            withDuration: 0.62,
+            withDuration: 0.68,
             delay: 0,
             options: [.calculationModeCubic],
             animations: {
-                UIView.addKeyframe(withRelativeStartTime: 0, relativeDuration: 0.36) {
-                    self.mascotImageView.transform = CGAffineTransform(translationX: -1, y: -4)
-                        .rotated(by: -.pi / 48)
+                UIView.addKeyframe(withRelativeStartTime: 0, relativeDuration: 0.42) {
+                    self.mascotImageView.transform = CGAffineTransform(translationX: -1, y: -5)
+                        .rotated(by: -.pi / 52)
                         .scaledBy(x: 1.08, y: 1.08)
-                    self.hazelnutView.alpha = 1
-                    self.hazelnutView.transform = CGAffineTransform(translationX: -8, y: -12)
                 }
-                UIView.addKeyframe(withRelativeStartTime: 0.58, relativeDuration: 0.42) {
+                UIView.addKeyframe(withRelativeStartTime: 0.56, relativeDuration: 0.44) {
                     self.mascotImageView.transform = .identity
-                    self.hazelnutView.alpha = 0
-                    self.hazelnutView.transform = CGAffineTransform(translationX: 5, y: 10).scaledBy(x: 0.7, y: 0.7)
                 }
             },
             completion: { _ in
                 self.mascotImageView.transform = .identity
-                self.hazelnutView.alpha = 0
-                self.hazelnutView.transform = .identity
                 self.isMascotAnimating = false
             }
         )
@@ -2236,9 +2222,88 @@ private final class CompositionBarView: UIView, UIGestureRecognizerDelegate {
     }
 }
 
-private final class HazelnutView: UIView {
+private final class HeartBurstView: UIView {
+    private struct Particle {
+        let x: CGFloat
+        let y: CGFloat
+        let rotation: CGFloat
+        let delay: TimeInterval
+        let scale: CGFloat
+        let size: CGFloat
+        let color: UIColor
+    }
+
+    private let particles: [Particle] = [
+        Particle(x: -34, y: -32, rotation: 14, delay: 0, scale: 0.76, size: 13, color: UIColor(red: 1.00, green: 0.35, blue: 0.58, alpha: 1)),
+        Particle(x: -22, y: -48, rotation: -8, delay: 0.03, scale: 0.88, size: 11, color: UIColor(red: 1.00, green: 0.48, blue: 0.66, alpha: 1)),
+        Particle(x: -8, y: -58, rotation: 10, delay: 0.055, scale: 0.72, size: 9, color: UIColor(red: 1.00, green: 0.27, blue: 0.44, alpha: 1)),
+        Particle(x: 8, y: -58, rotation: -12, delay: 0.075, scale: 0.80, size: 10, color: UIColor(red: 0.96, green: 0.25, blue: 0.52, alpha: 1)),
+        Particle(x: 24, y: -46, rotation: 16, delay: 0.095, scale: 0.92, size: 12, color: UIColor(red: 1.00, green: 0.62, blue: 0.74, alpha: 1)),
+        Particle(x: 36, y: -30, rotation: -10, delay: 0.12, scale: 0.78, size: 10, color: UIColor(red: 1.00, green: 0.35, blue: 0.58, alpha: 1)),
+        Particle(x: -38, y: -14, rotation: -18, delay: 0.07, scale: 0.68, size: 8, color: UIColor(red: 1.00, green: 0.48, blue: 0.66, alpha: 1)),
+        Particle(x: 40, y: -12, rotation: 20, delay: 0.14, scale: 0.70, size: 8, color: UIColor(red: 1.00, green: 0.27, blue: 0.44, alpha: 1)),
+        Particle(x: -18, y: -26, rotation: 8, delay: 0.11, scale: 0.62, size: 7, color: UIColor(red: 0.96, green: 0.25, blue: 0.52, alpha: 1)),
+        Particle(x: 18, y: -26, rotation: -8, delay: 0.155, scale: 0.66, size: 7, color: UIColor(red: 1.00, green: 0.62, blue: 0.74, alpha: 1)),
+        Particle(x: -6, y: -42, rotation: 22, delay: 0.17, scale: 0.58, size: 8, color: UIColor(red: 1.00, green: 0.35, blue: 0.58, alpha: 1)),
+        Particle(x: 6, y: -42, rotation: -22, delay: 0.195, scale: 0.58, size: 8, color: UIColor(red: 1.00, green: 0.48, blue: 0.66, alpha: 1))
+    ]
+
     override init(frame: CGRect) {
         super.init(frame: frame)
+        backgroundColor = .clear
+        isOpaque = false
+        clipsToBounds = false
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func play() {
+        subviews.forEach { view in
+            view.layer.removeAllAnimations()
+            view.removeFromSuperview()
+        }
+
+        let origin = CGPoint(x: bounds.maxX - 16, y: bounds.midY + 1)
+        particles.forEach { particle in
+            let heart = HeartParticleView(color: particle.color)
+            heart.bounds = CGRect(x: 0, y: 0, width: particle.size, height: particle.size)
+            heart.center = origin
+            heart.alpha = 0
+            heart.transform = CGAffineTransform(rotationAngle: .pi / 4).scaledBy(x: 0.35, y: 0.35)
+            addSubview(heart)
+
+            UIView.animateKeyframes(
+                withDuration: 0.76,
+                delay: particle.delay,
+                options: [.calculationModeCubic, .allowUserInteraction],
+                animations: {
+                    UIView.addKeyframe(withRelativeStartTime: 0, relativeDuration: 0.2) {
+                        heart.alpha = 1
+                        heart.transform = CGAffineTransform(rotationAngle: .pi / 4).scaledBy(x: 0.72, y: 0.72)
+                    }
+                    UIView.addKeyframe(withRelativeStartTime: 0.16, relativeDuration: 0.84) {
+                        heart.center = CGPoint(x: origin.x + particle.x, y: origin.y + particle.y)
+                        heart.alpha = 0
+                        heart.transform = CGAffineTransform(rotationAngle: .pi / 4 + particle.rotation * .pi / 180)
+                            .scaledBy(x: particle.scale, y: particle.scale)
+                    }
+                },
+                completion: { _ in
+                    heart.removeFromSuperview()
+                }
+            )
+        }
+    }
+}
+
+private final class HeartParticleView: UIView {
+    private let color: UIColor
+
+    init(color: UIColor) {
+        self.color = color
+        super.init(frame: .zero)
         backgroundColor = .clear
         isOpaque = false
     }
@@ -2248,45 +2313,32 @@ private final class HazelnutView: UIView {
     }
 
     override func draw(_ rect: CGRect) {
-        guard let context = UIGraphicsGetCurrentContext() else { return }
-
-        context.saveGState()
-        let leafPath = UIBezierPath()
-        leafPath.move(to: CGPoint(x: rect.midX - 1, y: rect.minY + 3))
-        leafPath.addQuadCurve(
-            to: CGPoint(x: rect.midX + 5, y: rect.minY + 1),
-            controlPoint: CGPoint(x: rect.midX + 1, y: rect.minY - 1)
+        let path = UIBezierPath()
+        path.move(to: CGPoint(x: rect.midX, y: rect.maxY))
+        path.addCurve(
+            to: CGPoint(x: rect.minX, y: rect.midY - rect.height * 0.08),
+            controlPoint1: CGPoint(x: rect.minX + rect.width * 0.18, y: rect.maxY - rect.height * 0.18),
+            controlPoint2: CGPoint(x: rect.minX, y: rect.midY + rect.height * 0.18)
         )
-        leafPath.addQuadCurve(
-            to: CGPoint(x: rect.midX + 1, y: rect.minY + 5),
-            controlPoint: CGPoint(x: rect.midX + 6, y: rect.minY + 5)
+        path.addCurve(
+            to: CGPoint(x: rect.midX, y: rect.minY + rect.height * 0.24),
+            controlPoint1: CGPoint(x: rect.minX, y: rect.minY + rect.height * 0.12),
+            controlPoint2: CGPoint(x: rect.midX - rect.width * 0.24, y: rect.minY)
         )
-        leafPath.close()
-        UIColor(red: 0.36, green: 0.50, blue: 0.20, alpha: 1).setFill()
-        leafPath.fill()
-
-        let nutRect = rect.insetBy(dx: 1.2, dy: 2.2).offsetBy(dx: 0, dy: 1)
-        let nutPath = UIBezierPath(ovalIn: nutRect)
-        UIColor(red: 0.78, green: 0.48, blue: 0.22, alpha: 1).setFill()
-        nutPath.fill()
-
-        let lowerPath = UIBezierPath()
-        lowerPath.move(to: CGPoint(x: nutRect.minX + 1.5, y: nutRect.midY))
-        lowerPath.addQuadCurve(
-            to: CGPoint(x: nutRect.maxX - 1, y: nutRect.maxY - 1),
-            controlPoint: CGPoint(x: nutRect.midX + 3, y: nutRect.midY + 2)
+        path.addCurve(
+            to: CGPoint(x: rect.maxX, y: rect.midY - rect.height * 0.08),
+            controlPoint1: CGPoint(x: rect.midX + rect.width * 0.24, y: rect.minY),
+            controlPoint2: CGPoint(x: rect.maxX, y: rect.minY + rect.height * 0.12)
         )
-        lowerPath.addQuadCurve(
-            to: CGPoint(x: nutRect.minX + 1.5, y: nutRect.midY),
-            controlPoint: CGPoint(x: nutRect.midX - 1, y: nutRect.maxY + 1)
+        path.addCurve(
+            to: CGPoint(x: rect.midX, y: rect.maxY),
+            controlPoint1: CGPoint(x: rect.maxX, y: rect.midY + rect.height * 0.18),
+            controlPoint2: CGPoint(x: rect.maxX - rect.width * 0.18, y: rect.maxY - rect.height * 0.18)
         )
-        UIColor(red: 0.46, green: 0.25, blue: 0.12, alpha: 1).setFill()
-        lowerPath.fill()
+        path.close()
 
-        UIColor(white: 1, alpha: 0.22).setStroke()
-        nutPath.lineWidth = 0.7
-        nutPath.stroke()
-        context.restoreGState()
+        color.setFill()
+        path.fill()
     }
 }
 
