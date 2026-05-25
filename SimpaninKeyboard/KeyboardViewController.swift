@@ -187,7 +187,7 @@ final class KeyboardViewController: UIInputViewController {
         //     self?.clearCompositionFromBar()
         // }
         rootStack.addArrangedSubview(compositionBar)
-        compositionBar.heightAnchor.constraint(equalToConstant: 18).isActive = true
+        compositionBar.heightAnchor.constraint(equalToConstant: 20).isActive = true
 
         candidateBarStack.axis = .horizontal
         candidateBarStack.spacing = 6
@@ -247,7 +247,7 @@ final class KeyboardViewController: UIInputViewController {
         utilityOverlayStack.spacing = 16
         utilityOverlayView.addSubview(utilityOverlayStack)
 
-        configureUtilityIconButton(utilityOverlayButton, title: "\u{2318}", accessibilityLabel: "Quick fill")
+        configureUtilityIconButton(utilityOverlayButton, title: "\u{2318}", titleFontSize: 18, accessibilityLabel: "Quick fill")
         utilityOverlayButton.addAction(UIAction { [weak self] _ in
             self?.handleUtilityFillButtonTap()
         }, for: .touchUpInside)
@@ -267,6 +267,8 @@ final class KeyboardViewController: UIInputViewController {
                 button,
                 systemName: item.systemName,
                 title: item.title,
+                symbolPointSize: 17,
+                titleFontSize: 16,
                 accessibilityLabel: item.label
             )
             if item.systemName == "chevron.down" {
@@ -285,7 +287,7 @@ final class KeyboardViewController: UIInputViewController {
         NSLayoutConstraint.activate([
             utilityOverlayView.leadingAnchor.constraint(equalTo: rootStack.leadingAnchor),
             utilityOverlayView.trailingAnchor.constraint(equalTo: rootStack.trailingAnchor),
-            utilityOverlayView.topAnchor.constraint(equalTo: compositionBar.topAnchor),
+            utilityOverlayView.topAnchor.constraint(equalTo: candidateBarStack.topAnchor),
             utilityOverlayView.bottomAnchor.constraint(equalTo: candidateBarStack.bottomAnchor),
             utilityOverlayStack.leadingAnchor.constraint(equalTo: utilityOverlayView.leadingAnchor, constant: 14),
             utilityOverlayStack.trailingAnchor.constraint(equalTo: utilityOverlayView.trailingAnchor, constant: -14),
@@ -364,9 +366,11 @@ final class KeyboardViewController: UIInputViewController {
         _ button: UIButton,
         systemName: String? = nil,
         title: String? = nil,
+        symbolPointSize: CGFloat = 18,
+        titleFontSize: CGFloat = 17,
         accessibilityLabel: String
     ) {
-        let configuration = UIImage.SymbolConfiguration(pointSize: 18, weight: .regular)
+        let configuration = UIImage.SymbolConfiguration(pointSize: symbolPointSize, weight: .regular)
         button.translatesAutoresizingMaskIntoConstraints = false
         button.backgroundColor = .clear
         button.layer.borderWidth = 0
@@ -375,7 +379,7 @@ final class KeyboardViewController: UIInputViewController {
         button.contentHorizontalAlignment = .center
         button.contentVerticalAlignment = .center
         button.accessibilityLabel = accessibilityLabel
-        button.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
+        button.titleLabel?.font = .systemFont(ofSize: titleFontSize, weight: .semibold)
         if let systemName {
             button.setImage(UIImage(systemName: systemName, withConfiguration: configuration), for: .normal)
         } else {
