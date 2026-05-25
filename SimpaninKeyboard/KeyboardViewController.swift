@@ -211,7 +211,7 @@ final class KeyboardViewController: UIInputViewController {
         //     self?.clearCompositionFromBar()
         // }
         rootStack.addArrangedSubview(compositionBar)
-        compositionBar.heightAnchor.constraint(equalToConstant: 20).isActive = true
+        compositionBar.heightAnchor.constraint(equalToConstant: 30).isActive = true
 
         candidateBarStack.axis = .horizontal
         candidateBarStack.spacing = 6
@@ -2010,16 +2010,20 @@ private final class CompositionBarView: UIView, UIGestureRecognizerDelegate {
     private var text = ""
     private var cursorOffset = 0
     private var rawOffsets: [Int] = [0]
+    private let mascotControl = UIControl()
     private let mascotImageView = UIImageView()
+    private let hazelnutView = HazelnutView()
     // private let clearButton = UIButton(type: .system)
     private let font = UIFont.systemFont(ofSize: 15, weight: .regular)
     private let textInsets = UIEdgeInsets(top: 0, left: 10, bottom: 0, right: 10)
-    private let mascotImageSize = CGSize(width: 24, height: 18)
-    private let mascotImageSpacing: CGFloat = 6
+    private let mascotImageSize = CGSize(width: 36, height: 28)
+    private let mascotHitSize = CGSize(width: 50, height: 36)
+    private let mascotImageSpacing: CGFloat = 8
     // private let clearButtonSize = CGSize(width: 18, height: 18)
     // private let clearButtonSpacing: CGFloat = 6
     private var barTextColor = UIColor.black
     private var barCursorColor = UIColor.systemBlue
+    private var isMascotAnimating = false
     // private var clearButtonBackgroundColor = UIColor(white: 0.96, alpha: 1)
     // private var clearButtonBorderColor = UIColor(white: 0, alpha: 0.08)
 
@@ -2027,9 +2031,18 @@ private final class CompositionBarView: UIView, UIGestureRecognizerDelegate {
         super.init(frame: frame)
         isOpaque = false
 
+        mascotControl.isHidden = true
+        mascotControl.accessibilityLabel = "Beaver"
+        mascotControl.addTarget(self, action: #selector(handleMascotTap), for: .touchUpInside)
+        addSubview(mascotControl)
+
         mascotImageView.contentMode = .scaleAspectFit
         mascotImageView.isUserInteractionEnabled = false
-        addSubview(mascotImageView)
+        mascotControl.addSubview(mascotImageView)
+
+        hazelnutView.alpha = 0
+        hazelnutView.isUserInteractionEnabled = false
+        mascotControl.addSubview(hazelnutView)
 
         // Clear button is intentionally disabled for now.
         // let deleteImage = UIImage(
@@ -2069,7 +2082,8 @@ private final class CompositionBarView: UIView, UIGestureRecognizerDelegate {
         barTextColor = textColor
         barCursorColor = cursorColor
         mascotImageView.image = mascotImage
-        mascotImageView.isHidden = mascotImage == nil
+        mascotControl.isHidden = mascotImage == nil
+        mascotControl.isAccessibilityElement = mascotImage != nil
         // clearButton.tintColor = textColor
         // clearButton.backgroundColor = clearButtonBackgroundColor
         // clearButton.layer.borderColor = clearButtonBorderColor.cgColor
@@ -2088,11 +2102,23 @@ private final class CompositionBarView: UIView, UIGestureRecognizerDelegate {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        mascotControl.frame = CGRect(
+            x: bounds.maxX - textInsets.right - mascotHitSize.width,
+            y: bounds.midY - mascotHitSize.height / 2,
+            width: mascotHitSize.width,
+            height: mascotHitSize.height
+        )
         mascotImageView.frame = CGRect(
-            x: bounds.maxX - textInsets.right - mascotImageSize.width,
-            y: bounds.midY - mascotImageSize.height / 2,
+            x: mascotControl.bounds.maxX - mascotImageSize.width,
+            y: mascotControl.bounds.midY - mascotImageSize.height / 2,
             width: mascotImageSize.width,
             height: mascotImageSize.height
+        )
+        hazelnutView.frame = CGRect(
+            x: mascotImageView.frame.minX - 3,
+            y: mascotImageView.frame.minY + 2,
+            width: 12,
+            height: 13
         )
     }
 
@@ -2133,14 +2159,55 @@ private final class CompositionBarView: UIView, UIGestureRecognizerDelegate {
         onOffsetSelected?(rawOffsets[safeOffset])
     }
 
+    @objc private func handleMascotTap() {
+        guard !mascotControl.isHidden, !isMascotAnimating else { return }
+
+        isMascotAnimating = true
+        hazelnutView.layer.removeAllAnimations()
+        mascotImageView.layer.removeAllAnimations()
+        mascotImageView.transform = .identity
+        hazelnutView.transform = CGAffineTransform(translationX: 5, y: 10).scaledBy(x: 0.7, y: 0.7)
+        hazelnutView.alpha = 0
+
+        UIView.animateKeyframes(
+            withDuration: 0.62,
+            delay: 0,
+            options: [.calculationModeCubic],
+            animations: {
+                UIView.addKeyframe(withRelativeStartTime: 0, relativeDuration: 0.36) {
+                    self.mascotImageView.transform = CGAffineTransform(translationX: -1, y: -4)
+                        .rotated(by: -.pi / 48)
+                        .scaledBy(x: 1.08, y: 1.08)
+                    self.hazelnutView.alpha = 1
+                    self.hazelnutView.transform = CGAffineTransform(translationX: -8, y: -12)
+                }
+                UIView.addKeyframe(withRelativeStartTime: 0.58, relativeDuration: 0.42) {
+                    self.mascotImageView.transform = .identity
+                    self.hazelnutView.alpha = 0
+                    self.hazelnutView.transform = CGAffineTransform(translationX: 5, y: 10).scaledBy(x: 0.7, y: 0.7)
+                }
+            },
+            completion: { _ in
+                self.mascotImageView.transform = .identity
+                self.hazelnutView.alpha = 0
+                self.hazelnutView.transform = .identity
+                self.isMascotAnimating = false
+            }
+        )
+    }
+
     func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldReceive touch: UITouch) -> Bool {
+        let point = touch.location(in: self)
+        if !mascotControl.isHidden, mascotControl.frame.contains(point) {
+            return false
+        }
         return true
     }
 
     private var textDrawingRect: CGRect {
         var rect = bounds.inset(by: textInsets)
-        if !mascotImageView.isHidden {
-            rect.size.width = max(0, rect.width - mascotImageSize.width - mascotImageSpacing)
+        if !mascotControl.isHidden {
+            rect.size.width = max(0, rect.width - mascotHitSize.width - mascotImageSpacing)
         }
         return rect
     }
@@ -2166,6 +2233,60 @@ private final class CompositionBarView: UIView, UIGestureRecognizerDelegate {
         let end = text.index(text.startIndex, offsetBy: safeOffset)
         let prefix = String(text[..<end]) as NSString
         return ceil(prefix.size(withAttributes: [.font: font]).width)
+    }
+}
+
+private final class HazelnutView: UIView {
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        isOpaque = false
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func draw(_ rect: CGRect) {
+        guard let context = UIGraphicsGetCurrentContext() else { return }
+
+        context.saveGState()
+        let leafPath = UIBezierPath()
+        leafPath.move(to: CGPoint(x: rect.midX - 1, y: rect.minY + 3))
+        leafPath.addQuadCurve(
+            to: CGPoint(x: rect.midX + 5, y: rect.minY + 1),
+            controlPoint: CGPoint(x: rect.midX + 1, y: rect.minY - 1)
+        )
+        leafPath.addQuadCurve(
+            to: CGPoint(x: rect.midX + 1, y: rect.minY + 5),
+            controlPoint: CGPoint(x: rect.midX + 6, y: rect.minY + 5)
+        )
+        leafPath.close()
+        UIColor(red: 0.36, green: 0.50, blue: 0.20, alpha: 1).setFill()
+        leafPath.fill()
+
+        let nutRect = rect.insetBy(dx: 1.2, dy: 2.2).offsetBy(dx: 0, dy: 1)
+        let nutPath = UIBezierPath(ovalIn: nutRect)
+        UIColor(red: 0.78, green: 0.48, blue: 0.22, alpha: 1).setFill()
+        nutPath.fill()
+
+        let lowerPath = UIBezierPath()
+        lowerPath.move(to: CGPoint(x: nutRect.minX + 1.5, y: nutRect.midY))
+        lowerPath.addQuadCurve(
+            to: CGPoint(x: nutRect.maxX - 1, y: nutRect.maxY - 1),
+            controlPoint: CGPoint(x: nutRect.midX + 3, y: nutRect.midY + 2)
+        )
+        lowerPath.addQuadCurve(
+            to: CGPoint(x: nutRect.minX + 1.5, y: nutRect.midY),
+            controlPoint: CGPoint(x: nutRect.midX - 1, y: nutRect.maxY + 1)
+        )
+        UIColor(red: 0.46, green: 0.25, blue: 0.12, alpha: 1).setFill()
+        lowerPath.fill()
+
+        UIColor(white: 1, alpha: 0.22).setStroke()
+        nutPath.lineWidth = 0.7
+        nutPath.stroke()
+        context.restoreGState()
     }
 }
 

@@ -3,3 +3,4 @@
 # Xcode user-specific state
 *.xcuserstate
 xcuserdata/
+.superpowers/
