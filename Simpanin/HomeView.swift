@@ -11,6 +11,7 @@ struct HomeView: View {
     @State private var selectedTab: FitnexTab = .home
     @State private var detailScreen: DetailScreen?
     @State private var feedbackMessage: String?
+    @ObservedObject private var hostSettings = HostMonitorSettingsStore.shared
     @StateObject private var homeMetrics = HomeMetricsViewModel()
     @StateObject private var diskStatus = DiskStatusViewModel()
 
@@ -63,6 +64,15 @@ struct HomeView: View {
                     level: "info",
                     message: "app became active"
                 )
+                async let homeTask: Void = homeMetrics.refresh()
+                async let diskTask: Void = diskStatus.refresh()
+                _ = await (homeTask, diskTask)
+            }
+        }
+        .onChange(of: hostSettings.baseURL) { _ in
+            homeMetrics.resetForEndpointChange()
+            diskStatus.resetForEndpointChange()
+            Task {
                 async let homeTask: Void = homeMetrics.refresh()
                 async let diskTask: Void = diskStatus.refresh()
                 _ = await (homeTask, diskTask)
@@ -1901,9 +1911,11 @@ private struct SettingsView: View {
     let feedback: (String) -> Void
     @StateObject private var updateVM = UpdateViewModel()
     @ObservedObject private var logStore = AppLogStore.shared
+    @ObservedObject private var hostSettings = HostMonitorSettingsStore.shared
     @ObservedObject private var nezhaSettings = NezhaSettingsStore.shared
     @ObservedObject private var quickFillStore = QuickFillStore.shared
     @State private var showingLogs = false
+    @State private var showingHostSettings = false
     @State private var showingNezhaSettings = false
     @State private var showingKeyboardGuide = false
     @State private var showingQuickFillSettings = false
@@ -1934,8 +1946,21 @@ private struct SettingsView: View {
             .padding(.top, 48)
 
             ScrollView(showsIndicators: false) {
-                VStack(alignment: .leading, spacing: 28) {
-                    settingsSection(title: "通用") {
+                VStack(alignment: .leading, spacing: 22) {
+                    settingsSection(title: "监控") {
+                        Button {
+                            showingHostSettings = true
+                        } label: {
+                            settingsRow(
+                                icon: "desktopcomputer",
+                                title: "主机监控",
+                                subtitle: hostSettings.displayHost
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        settingsDivider
+
                         Button {
                             showingNezhaSettings = true
                         } label: {
@@ -1947,9 +1972,9 @@ private struct SettingsView: View {
                             )
                         }
                         .buttonStyle(.plain)
+                    }
 
-                        settingsDivider
-
+                    settingsSection(title: "键盘") {
                         Button {
                             showingKeyboardGuide = true
                         } label: {
@@ -1974,9 +1999,9 @@ private struct SettingsView: View {
                             )
                         }
                         .buttonStyle(.plain)
+                    }
 
-                        settingsDivider
-
+                    settingsSection(title: "系统") {
                         Button {
                             logStore.reloadChunks(selectCurrentIfNeeded: true)
                             showingLogs = true
@@ -2024,29 +2049,20 @@ private struct SettingsView: View {
                         }
                         .padding(.horizontal, 18)
                     }
-
-                    settingsSection(title: "关于") {
-                        Button {
-                            feedback("Version \(AppVersionInfo.current.displayText)")
-                        } label: {
-                            settingsRow(
-                                icon: "info.circle",
-                                title: "关于 aTool",
-                                trailingText: AppVersionInfo.current.displayText
-                            )
-                        }
-                        .buttonStyle(.plain)
-                    }
                 }
-                .padding(.horizontal, 14)
+                .padding(.horizontal, 25)
                 .padding(.top, 22)
                 .padding(.bottom, 120)
             }
         }
-        .background(Color(hex: 0xF1F1F1))
+        .background(FitnexColor.background)
         .sheet(isPresented: $showingLogs) {
             AppLogSheet(store: logStore)
                 .presentationDetents([.medium, .large])
+        }
+        .sheet(isPresented: $showingHostSettings) {
+            HostMonitorSettingsSheet(settings: hostSettings)
+                .presentationDetents([.medium])
         }
         .sheet(isPresented: $showingNezhaSettings) {
             NezhaSettingsSheet(settings: nezhaSettings)
@@ -2111,7 +2127,11 @@ private struct SettingsView: View {
             VStack(spacing: 0) {
                 content()
             }
-            .background(FitnexColor.card, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .background(FitnexColor.card, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 16, style: .continuous)
+                    .stroke(FitnexColor.border, lineWidth: 1)
+            }
         }
     }
 
@@ -2583,6 +2603,64 @@ private extension AppLogEntry {
             .sorted { $0.key < $1.key }
             .map { "\($0.key): \($0.value)" }
             .joined(separator: "\n")
+    }
+}
+
+private struct HostMonitorSettingsSheet: View {
+    @ObservedObject var settings: HostMonitorSettingsStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var draftBaseURL = ""
+
+    var body: some View {
+        NavigationView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("主机地址")
+                        .font(.fitnexTitle(size: 13))
+                        .foregroundColor(FitnexColor.black)
+                    TextField(HostMonitorSettingsStore.defaultHost, text: $draftBaseURL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                        .font(.fitnexBody(size: 13, weight: .regular))
+                        .padding(.horizontal, 12)
+                        .frame(height: 44)
+                        .background(FitnexColor.pale, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+
+                Text("用于主机指标和磁盘状态接口。可以输入 host:port，也可以输入完整 http/https 地址。")
+                    .font(.fitnexBody(size: 11, weight: .regular))
+                    .foregroundColor(FitnexColor.grayText)
+
+                Spacer()
+            }
+            .padding(20)
+            .background(FitnexColor.background)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("主机监控")
+                        .font(.fitnexTitle(size: 16))
+                        .foregroundColor(FitnexColor.black)
+                }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") {
+                        dismiss()
+                    }
+                    .foregroundColor(FitnexColor.grayText)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") {
+                        settings.save(baseURL: draftBaseURL)
+                        dismiss()
+                    }
+                    .foregroundColor(FitnexColor.orange)
+                }
+            }
+        }
+        .onAppear {
+            draftBaseURL = settings.baseURL
+        }
     }
 }
 
@@ -4173,8 +4251,68 @@ private struct MonitorServerRowContent: Identifiable {
 }
 
 @MainActor
+private final class HostMonitorSettingsStore: ObservableObject {
+    static let shared = HostMonitorSettingsStore()
+    static let defaultHost = "192.168.2.202:12225"
+    private static let defaultIPAddress = "192.168.2.202"
+    static let defaultBaseURL = "http://192.168.2.202:12225"
+
+    @Published private(set) var baseURL: String
+
+    private let defaults = UserDefaults.standard
+    private let baseURLKey = "hostMonitor.baseURL"
+
+    private init() {
+        let stored = defaults.string(forKey: baseURLKey) ?? ""
+        baseURL = Self.normalizedHTTPBaseURL(stored, fallback: Self.defaultBaseURL)
+    }
+
+    var displayHost: String {
+        Self.displayHost(for: baseURL)
+    }
+
+    var endpointIPAddress: String {
+        URL(string: baseURL)?.host ?? Self.defaultIPAddress
+    }
+
+    func endpointURL(path: String) -> URL {
+        endpointURL(baseURL: baseURL, path: path)
+    }
+
+    func endpointURL(baseURL: String, path: String) -> URL {
+        let trimmedPath = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        return URL(string: "\(baseURL)/\(trimmedPath)") ?? URL(string: "\(Self.defaultBaseURL)/\(trimmedPath)")!
+    }
+
+    func save(baseURL: String) {
+        let normalizedBaseURL = Self.normalizedHTTPBaseURL(baseURL, fallback: Self.defaultBaseURL)
+        self.baseURL = normalizedBaseURL
+        defaults.set(normalizedBaseURL, forKey: baseURLKey)
+    }
+
+    private static func normalizedHTTPBaseURL(_ value: String, fallback: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        guard !trimmed.isEmpty else { return fallback }
+        if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
+            return URL(string: trimmed)?.host == nil ? fallback : trimmed
+        }
+        let normalized = "http://\(trimmed)"
+        return URL(string: normalized)?.host == nil ? fallback : normalized
+    }
+
+    private static func displayHost(for baseURL: String) -> String {
+        guard let url = URL(string: baseURL), let host = url.host else { return Self.defaultHost }
+        if let port = url.port {
+            return "\(host):\(port)"
+        }
+        return host
+    }
+}
+
+@MainActor
 private final class NezhaSettingsStore: ObservableObject {
     static let shared = NezhaSettingsStore()
+    private static let defaultBaseURL = "http://nz.geff.top"
 
     @Published private(set) var baseURL: String
     @Published private(set) var authToken: String
@@ -4184,7 +4322,7 @@ private final class NezhaSettingsStore: ObservableObject {
     private let authTokenKey = "nezha.authToken"
 
     private init() {
-        baseURL = defaults.string(forKey: baseURLKey) ?? ""
+        baseURL = normalizedHTTPBaseURL(defaults.string(forKey: baseURLKey) ?? "")
         authToken = defaults.string(forKey: authTokenKey) ?? ""
     }
 
@@ -4209,17 +4347,20 @@ private final class NezhaSettingsStore: ObservableObject {
 
     private func normalizedHTTPBaseURL(_ value: String) -> String {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        guard !trimmed.isEmpty else { return "" }
+        guard !trimmed.isEmpty else { return Self.defaultBaseURL }
         if trimmed.hasPrefix("http://") || trimmed.hasPrefix("https://") {
-            return trimmed
+            return URL(string: trimmed)?.host == nil ? Self.defaultBaseURL : trimmed
         }
         if trimmed.hasPrefix("ws://") {
-            return "http://" + String(trimmed.dropFirst(5))
+            let normalized = "http://" + String(trimmed.dropFirst(5))
+            return URL(string: normalized)?.host == nil ? Self.defaultBaseURL : normalized
         }
         if trimmed.hasPrefix("wss://") {
-            return "https://" + String(trimmed.dropFirst(6))
+            let normalized = "https://" + String(trimmed.dropFirst(6))
+            return URL(string: normalized)?.host == nil ? Self.defaultBaseURL : normalized
         }
-        return "http://\(trimmed)"
+        let normalized = "http://\(trimmed)"
+        return URL(string: normalized)?.host == nil ? Self.defaultBaseURL : normalized
     }
 }
 
@@ -4570,10 +4711,6 @@ private enum NezhaConnectionState: Equatable {
 
 @MainActor
 private final class DiskStatusViewModel: ObservableObject {
-    private static let disksURL = URL(string: "http://192.168.2.202:12225/api/public/system/disks")!
-    private static let partitionsURL = URL(string: "http://192.168.2.202:12225/api/public/system/partitions")!
-    private static let historyBaseURL = "http://192.168.2.202:12225/api/public/system/disk-temperatures/history"
-
     @Published private(set) var disks: PhysicalDisksResponse?
     @Published private(set) var partitions: PartitionsResponse?
     @Published private(set) var history: DiskTemperatureHistoryResponse?
@@ -4583,6 +4720,7 @@ private final class DiskStatusViewModel: ObservableObject {
     @Published private(set) var isRefreshing = false
     @Published private(set) var selectedTemperatureTime: Date?
     @Published var toastMessage: String?
+    private let settings = HostMonitorSettingsStore.shared
     private var didShowRefreshError = false
 
     var diskCards: [DiskInfoCardContent] {
@@ -4836,29 +4974,48 @@ private final class DiskStatusViewModel: ObservableObject {
         await refresh()
     }
 
+    func resetForEndpointChange() {
+        disks = nil
+        partitions = nil
+        history = nil
+        smartDetail = nil
+        isRefreshing = false
+        isLoadingSmart = false
+        selectedTemperatureTime = nil
+        hasLoadedOnce = false
+        didShowRefreshError = false
+    }
+
     func refresh() async {
         guard !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }
 
+        let requestBaseURL = settings.baseURL
         let from = Date().addingTimeInterval(-24 * 60 * 60)
-        let historyURL = makeHistoryURL(from: from, to: Date(), limit: 2000)
+        let historyURL = makeHistoryURL(baseURL: requestBaseURL, from: from, to: Date(), limit: 2000)
         var hadSuccess = false
 
         do {
-            disks = try await fetch(PhysicalDisksResponse.self, from: Self.disksURL)
+            let response = try await fetch(PhysicalDisksResponse.self, from: settings.endpointURL(baseURL: requestBaseURL, path: "api/public/system/disks"))
+            guard requestBaseURL == settings.baseURL else { return }
+            disks = response
             hadSuccess = true
         } catch {
         }
 
         do {
-            partitions = try await fetch(PartitionsResponse.self, from: Self.partitionsURL)
+            let response = try await fetch(PartitionsResponse.self, from: settings.endpointURL(baseURL: requestBaseURL, path: "api/public/system/partitions"))
+            guard requestBaseURL == settings.baseURL else { return }
+            partitions = response
             hadSuccess = true
         } catch {
         }
 
         do {
-            history = try await fetch(DiskTemperatureHistoryResponse.self, from: historyURL)
+            let response = try await fetch(DiskTemperatureHistoryResponse.self, from: historyURL)
+            guard requestBaseURL == settings.baseURL else { return }
+            history = response
             normalizeSelectedTemperatureTime()
             hadSuccess = true
         } catch {
@@ -4881,19 +5038,22 @@ private final class DiskStatusViewModel: ObservableObject {
         smartDetail = nil
         defer { isLoadingSmart = false }
 
+        let requestBaseURL = settings.baseURL
         let encoded = serialNumber.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? serialNumber
-        let url = URL(string: "http://192.168.2.202:12225/api/public/system/disks/smart/\(encoded)")!
+        let url = settings.endpointURL(baseURL: requestBaseURL, path: "api/public/system/disks/smart/\(encoded)")
 
         do {
-            smartDetail = try await fetch(DiskSmartResponse.self, from: url)
+            let response = try await fetch(DiskSmartResponse.self, from: url)
+            guard requestBaseURL == settings.baseURL else { return }
+            smartDetail = response
         } catch {
             smartDetail = nil
             toastMessage = "SMART data unavailable"
         }
     }
 
-    private func makeHistoryURL(from: Date, to: Date, limit: Int) -> URL {
-        var components = URLComponents(string: Self.historyBaseURL)!
+    private func makeHistoryURL(baseURL: String, from: Date, to: Date, limit: Int) -> URL {
+        var components = URLComponents(url: settings.endpointURL(baseURL: baseURL, path: "api/public/system/disk-temperatures/history"), resolvingAgainstBaseURL: false)!
         components.queryItems = [
             URLQueryItem(name: "from", value: Self.historyDateFormatter.string(from: from)),
             URLQueryItem(name: "to", value: Self.historyDateFormatter.string(from: to)),
@@ -5006,9 +5166,10 @@ private final class DiskStatusViewModel: ObservableObject {
 
 @MainActor
 private final class HomeMetricsViewModel: ObservableObject {
-    static let endpointHost = "192.168.2.202:12225"
-    private static let endpointURL = URL(string: "http://192.168.2.202:12225/api/public/system/metrics")!
-    private static let endpointIPAddress = endpointURL.host ?? "192.168.2.202"
+    static var endpointHost: String {
+        HostMonitorSettingsStore.shared.displayHost
+    }
+
     private static let historyLimit = 20
 
     @Published private(set) var response: SystemMetricsResponse?
@@ -5016,6 +5177,7 @@ private final class HomeMetricsViewModel: ObservableObject {
     @Published private(set) var isRefreshing = false
     @Published var toastMessage: String?
 
+    private let settings = HostMonitorSettingsStore.shared
     private var didShowRefreshError = false
     private var cpuHistory: [Double] = []
     private var memoryHistory: [Double] = []
@@ -5037,7 +5199,7 @@ private final class HomeMetricsViewModel: ObservableObject {
 
     var statusText: String {
         if isInitialLoading {
-            return "Loading metrics from \(Self.endpointHost)"
+            return "Loading metrics from \(settings.displayHost)"
         }
         if isRefreshing, let response, let date = parseTimestamp(response.timestamp) {
             return "Refreshing | last update \(Self.timeFormatter.string(from: date))"
@@ -5054,7 +5216,7 @@ private final class HomeMetricsViewModel: ObservableObject {
                 title: "",
                 primaryText: isInitialLoading ? "Connecting..." : "Host unavailable",
                 secondaryText: isInitialLoading ? "Reading public system metrics" : "Check the DownGo host and local network",
-                tertiaryText: isInitialLoading ? "IP \(Self.endpointIPAddress)" : "IP unavailable",
+                tertiaryText: isInitialLoading ? "IP \(settings.endpointIPAddress)" : "IP unavailable",
                 trailingLabel: "Endpoint",
                 trailingValue: "HTTP",
                 icon: "desktopcomputer"
@@ -5065,7 +5227,7 @@ private final class HomeMetricsViewModel: ObservableObject {
             title: "",
             primaryText: host.hostname,
             secondaryText: "\(host.platform) | \(host.os)",
-            tertiaryText: "IP \(Self.endpointIPAddress)",
+            tertiaryText: "IP \(settings.endpointIPAddress)",
             trailingLabel: "Uptime",
             trailingValue: formatDuration(host.uptimeSeconds),
             icon: "desktopcomputer"
@@ -5199,13 +5361,28 @@ private final class HomeMetricsViewModel: ObservableObject {
         await refresh()
     }
 
+    func resetForEndpointChange() {
+        response = nil
+        isRefreshing = false
+        hasLoadedOnce = false
+        didShowRefreshError = false
+        cpuHistory.removeAll()
+        memoryHistory.removeAll()
+        networkRxHistory.removeAll()
+        networkTxHistory.removeAll()
+        latestNetworkRate = nil
+        previousNetworkCounter = nil
+    }
+
     func refresh() async {
         guard !isRefreshing else { return }
         isRefreshing = true
         defer { isRefreshing = false }
 
+        let requestBaseURL = settings.baseURL
         do {
-            let decoded = try await fetch(SystemMetricsResponse.self, from: Self.endpointURL)
+            let decoded = try await fetch(SystemMetricsResponse.self, from: settings.endpointURL(baseURL: requestBaseURL, path: "api/public/system/metrics"))
+            guard requestBaseURL == settings.baseURL else { return }
             response = decoded
             hasLoadedOnce = true
             recordSample(decoded)
@@ -5225,7 +5402,7 @@ private final class HomeMetricsViewModel: ObservableObject {
         guard let interfaces = response?.network.interfaces else { return nil }
 
         if let matched = interfaces.first(where: { interface in
-            interface.ipAddresses.contains(where: { $0.address == Self.endpointIPAddress })
+            interface.ipAddresses.contains(where: { $0.address == settings.endpointIPAddress })
         }) {
             return matched
         }
@@ -5279,7 +5456,7 @@ private final class HomeMetricsViewModel: ObservableObject {
 
     private func matchingInterface(in interfaces: [SystemMetricsResponse.NetworkInterface]) -> SystemMetricsResponse.NetworkInterface? {
         if let matched = interfaces.first(where: { interface in
-            interface.ipAddresses.contains(where: { $0.address == Self.endpointIPAddress })
+            interface.ipAddresses.contains(where: { $0.address == settings.endpointIPAddress })
         }) {
             return matched
         }
