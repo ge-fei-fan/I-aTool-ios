@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import bisect
+import os
 import re
 import struct
 import sys
@@ -15,6 +16,29 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_RESOURCE_DIR = REPO_ROOT / "SimpaninKeyboard"
+
+
+def configure_stdio() -> None:
+    """Keep candidate output stable on Windows consoles and redirected pipes."""
+    if sys.platform != "win32":
+        return
+
+    os.environ.setdefault("PYTHONUTF8", "1")
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is None:
+            continue
+        try:
+            reconfigure(encoding="utf-8", errors="replace")
+        except (OSError, ValueError):
+            pass
+
+
+def resolve_resource_dir(resource_dir: Path) -> Path:
+    path = resource_dir.expanduser()
+    if path.is_absolute():
+        return path.resolve()
+    return (Path.cwd() / path).resolve()
 
 
 @dataclass(frozen=True)
@@ -44,6 +68,12 @@ class PinyinCorrection:
     syllables: tuple[str, ...]
     cost: int
     corrected_syllables: int
+
+
+@dataclass(frozen=True)
+class InitialShorthandChunk:
+    key: str
+    is_shorthand: bool
 
 
 @dataclass(frozen=True)
@@ -104,7 +134,9 @@ class PinyinSegmenter:
         "za", "zai", "zan", "zang", "zao", "ze", "zei", "zen", "zeng", "zha", "zhai", "zhan", "zhang", "zhao", "zhe", "zhen", "zheng", "zhi", "zhong", "zhou", "zhu", "zhua", "zhuai", "zhuan", "zhuang", "zhui", "zhun", "zhuo", "zi", "zong", "zou", "zu", "zuan", "zui", "zun", "zuo",
     }
     COMPLETION_PRIORITY = {
+        "h": ["hua", "huan", "han", "hao", "he", "hui", "huang", "hong", "huo", "hai", "hang", "heng", "hen", "ha", "hu"],
         "k": ["kan", "kao", "kai", "kuai", "ke", "kong", "kou", "ku", "kang", "ken", "keng", "ka", "kuan", "kuang", "kui", "kun", "kuo", "kua"],
+        "s": ["shi", "shuo", "shang", "she", "shu", "shen", "sheng", "shou", "suo", "song", "si", "san", "sai", "su", "sa"],
         "x": ["xiang", "xin", "xing", "xian", "xiao", "xue", "xi", "xia", "xie", "xiu", "xu", "xuan", "xun", "xiong"],
     }
     ORDERED_SYLLABLES = sorted(SYLLABLES, key=lambda value: (len(value), value))
@@ -183,6 +215,87 @@ class PinyinSegmenter:
         return results
 
     @classmethod
+    def initial_shorthand_keys(cls, key: str, limit: int) -> list[str]:
+        chunks = cls._initial_shorthand_chunks(key)
+        if (
+            limit <= 0
+            or chunks is None
+            or not any(chunk.is_shorthand for chunk in chunks)
+            or not any(not chunk.is_shorthand for chunk in chunks)
+        ):
+            return []
+
+        expansions = [
+            cls._completion_syllables(chunk.key) if chunk.is_shorthand else [chunk.key]
+            for chunk in chunks
+        ]
+        if any(not values for values in expansions):
+            return []
+
+        original_key = "".join(chunk.key for chunk in chunks)
+        results: list[str] = []
+        seen: set[str] = set()
+
+        def build(index: int, candidate_key: str) -> None:
+            if len(results) >= limit:
+                return
+            if index == len(expansions):
+                if candidate_key and candidate_key != original_key and candidate_key not in seen:
+                    seen.add(candidate_key)
+                    results.append(candidate_key)
+                return
+            for syllable in expansions[index]:
+                build(index + 1, candidate_key + syllable)
+                if len(results) >= limit:
+                    break
+
+        build(0, "")
+        return results
+
+    @classmethod
+    def acronym_key_sequences(
+        cls,
+        key: str,
+        syllables_per_letter_limit: int,
+        sequence_limit: int,
+    ) -> list[tuple[str, ...]]:
+        if (
+            len(key) < 2
+            or len(key) > 6
+            or syllables_per_letter_limit <= 0
+            or sequence_limit <= 0
+            or "".join(cls.segment(key)) == key
+        ):
+            return []
+
+        letters = list(key)
+        if not all(cls._is_initial_shorthand(letter) for letter in letters):
+            return []
+
+        expansions = [
+            cls._completion_syllables(letter)[:syllables_per_letter_limit]
+            for letter in letters
+        ]
+        if any(not values for values in expansions):
+            return []
+
+        results: list[tuple[str, ...]] = []
+
+        def build(index: int, sequence: tuple[str, ...]) -> None:
+            if len(results) >= sequence_limit:
+                return
+            if index == len(expansions):
+                results.append(sequence)
+                return
+            for syllable in expansions[index]:
+                build(index + 1, sequence + (syllable,))
+                if len(results) >= sequence_limit:
+                    break
+
+        build(0, ())
+        return results
+
+    @classmethod
     def correction_keys(cls, key: str, limit: int) -> list[PinyinCorrection]:
         if len(key) < 4 or len(key) > cls.MAX_CORRECTION_INPUT_LENGTH:
             return []
@@ -242,6 +355,36 @@ class PinyinSegmenter:
         return result, ""
 
     @classmethod
+    def _initial_shorthand_chunks(cls, key: str) -> list[InitialShorthandChunk] | None:
+        if len(key) < 4:
+            return None
+
+        index = 0
+        result: list[InitialShorthandChunk] = []
+        while index < len(key):
+            best = None
+            end = index + min(6, len(key) - index)
+            while end > index:
+                piece = key[index:end]
+                if piece in cls.SYLLABLES:
+                    best = piece
+                    break
+                end -= 1
+
+            if best is not None:
+                result.append(InitialShorthandChunk(best, False))
+                index += len(best)
+                continue
+
+            piece = key[index:index + 1]
+            if not cls._is_initial_shorthand(piece):
+                return None
+            result.append(InitialShorthandChunk(piece, True))
+            index += 1
+
+        return result
+
+    @classmethod
     def _prefix_chunks(cls, remainder: str) -> list[str]:
         chunks: list[str] = []
         index = 0
@@ -275,6 +418,10 @@ class PinyinSegmenter:
     @classmethod
     def _has_syllable_with_prefix(cls, prefix: str) -> bool:
         return any(syllable.startswith(prefix) for syllable in cls.ORDERED_SYLLABLES)
+
+    @classmethod
+    def _is_initial_shorthand(cls, key: str) -> bool:
+        return len(key) == 1 and key not in cls.SYLLABLES and cls._has_syllable_with_prefix(key)
 
     @classmethod
     def _correction_matches(cls, piece: str) -> list[tuple[str, int]]:
@@ -413,6 +560,12 @@ class PinyinCandidateProvider:
     MAX_BEAM_WIDTH = 8
     MAX_COMPLETION_KEYS = 32
     COMPLETION_RANK_PENALTY = 120_000
+    INITIAL_SHORTHAND_PHRASE_BONUS = 350_000
+    MAX_ACRONYM_SYLLABLES_PER_LETTER = 16
+    MAX_ACRONYM_KEY_SEQUENCES = 4_096
+    MAX_ACRONYM_FALLBACK_SEQUENCES = 24
+    ACRONYM_PHRASE_BONUS = 600_000
+    ACRONYM_FALLBACK_BASE_SCORE = 8_600_000
     MAX_FUZZY_CORRECTION_KEYS = 24
     FUZZY_RANK_PENALTY = 10_000
     FUZZY_CORRECTION_PENALTY = 220_000
@@ -522,6 +675,8 @@ class PinyinCandidateProvider:
         candidates += self._scored_candidates(key, MatchKind.EXACT, len(key), cache)
         completion_candidates = self._completion_candidates(key, cache)
         candidates += completion_candidates
+        candidates += self._initial_shorthand_candidates(key, cache)
+        candidates += self._acronym_candidates(key, cache)
         candidates += self._fuzzy_correction_candidates(key, cache)
 
         segments = PinyinSegmenter.segment(key)
@@ -584,6 +739,50 @@ class PinyinCandidateProvider:
                     source="completion",
                 ))
         return results
+
+    def _initial_shorthand_candidates(self, key: str, cache: dict[str, list[PinyinCandidate]]) -> list[PinyinCandidate]:
+        results: list[PinyinCandidate] = []
+        for shorthand_key in PinyinSegmenter.initial_shorthand_keys(key, self.MAX_COMPLETION_KEYS):
+            results += [
+                replace(
+                    candidate,
+                    weight=candidate.weight + self.INITIAL_SHORTHAND_PHRASE_BONUS,
+                    source="initial-shorthand",
+                )
+                for candidate in self._scored_candidates(shorthand_key, MatchKind.COMPLETION, len(key), cache)[:4]
+            ]
+        return results
+
+    def _acronym_candidates(self, key: str, cache: dict[str, list[PinyinCandidate]]) -> list[PinyinCandidate]:
+        sequences = PinyinSegmenter.acronym_key_sequences(
+            key,
+            self.MAX_ACRONYM_SYLLABLES_PER_LETTER,
+            self.MAX_ACRONYM_KEY_SEQUENCES,
+        )
+        results: list[PinyinCandidate] = []
+
+        for sequence in sequences:
+            lookup_key = "".join(sequence)
+            results += [
+                replace(
+                    candidate,
+                    weight=candidate.weight + self.ACRONYM_PHRASE_BONUS,
+                    source="acronym",
+                )
+                for candidate in self._scored_candidates(lookup_key, MatchKind.COMPLETION, len(key), cache)[:3]
+            ]
+
+        for sequence in sequences[:self.MAX_ACRONYM_FALLBACK_SEQUENCES]:
+            results += [
+                replace(
+                    candidate,
+                    weight=candidate.weight + self.ACRONYM_FALLBACK_BASE_SCORE,
+                    source="acronym-fallback",
+                )
+                for candidate in self._phrase_candidates(sequence, len(key), cache)[:2]
+            ]
+
+        return self._merge(results)
 
     def _fuzzy_correction_candidates(self, key: str, cache: dict[str, list[PinyinCandidate]]) -> list[PinyinCandidate]:
         results: list[PinyinCandidate] = []
@@ -1038,13 +1237,15 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    configure_stdio()
     args = build_parser().parse_args(argv)
     if args.limit < 1:
         print("--limit must be >= 1", file=sys.stderr)
         return 2
 
+    resource_dir = resolve_resource_dir(args.resource_dir)
     try:
-        provider = PinyinCandidateProvider(args.resource_dir)
+        provider = PinyinCandidateProvider(resource_dir)
     except FileNotFoundError as error:
         print(str(error), file=sys.stderr)
         return 1

@@ -2469,6 +2469,11 @@ private struct PinyinCorrection {
 }
 
 private struct PinyinSegmenter {
+    private struct InitialShorthandChunk {
+        let key: String
+        let isShorthand: Bool
+    }
+
     private struct CorrectionPath {
         let key: String
         let syllables: [String]
@@ -2504,7 +2509,9 @@ private struct PinyinSegmenter {
     ]
 
     private static let completionPriority: [String: [String]] = [
+        "h": ["hua", "huan", "han", "hao", "he", "hui", "huang", "hong", "huo", "hai", "hang", "heng", "hen", "ha", "hu"],
         "k": ["kan", "kao", "kai", "kuai", "ke", "kong", "kou", "ku", "kang", "ken", "keng", "ka", "kuan", "kuang", "kui", "kun", "kuo", "kua"],
+        "s": ["shi", "shuo", "shang", "she", "shu", "shen", "sheng", "shou", "suo", "song", "si", "san", "sai", "su", "sa"],
         "x": ["xiang", "xin", "xing", "xian", "xiao", "xue", "xi", "xia", "xie", "xiu", "xu", "xuan", "xun", "xiong"]
     ]
 
@@ -2599,6 +2606,87 @@ private struct PinyinSegmenter {
         return results
     }
 
+    static func initialShorthandKeys(for key: String, limit: Int) -> [String] {
+        guard limit > 0,
+              let chunks = initialShorthandChunks(for: key),
+              chunks.contains(where: \.isShorthand),
+              chunks.contains(where: { !$0.isShorthand }) else {
+            return []
+        }
+
+        let expansions = chunks.map { chunk in
+            chunk.isShorthand ? completionSyllables(for: chunk.key) : [chunk.key]
+        }
+        guard expansions.allSatisfy({ !$0.isEmpty }) else { return [] }
+
+        var results: [String] = []
+        var seen: Set<String> = []
+
+        func build(index: Int, key: String) {
+            guard results.count < limit else { return }
+            if index == expansions.count {
+                guard key != "" && key != chunks.map(\.key).joined(separator: ""),
+                      seen.insert(key).inserted else {
+                    return
+                }
+                results.append(key)
+                return
+            }
+
+            for syllable in expansions[index] {
+                build(index: index + 1, key: key + syllable)
+                if results.count >= limit {
+                    break
+                }
+            }
+        }
+
+        build(index: 0, key: "")
+        return results
+    }
+
+    static func acronymKeySequences(
+        for key: String,
+        syllablesPerLetterLimit: Int,
+        sequenceLimit: Int
+    ) -> [[String]] {
+        guard key.count >= 2,
+              key.count <= 6,
+              syllablesPerLetterLimit > 0,
+              sequenceLimit > 0,
+              segment(key).joined(separator: "") != key else {
+            return []
+        }
+
+        let letters = key.map { String($0) }
+        guard letters.allSatisfy({ isInitialShorthand($0) }) else { return [] }
+
+        let expansions = letters.map {
+            Array(completionSyllables(for: $0).prefix(syllablesPerLetterLimit))
+        }
+        guard expansions.allSatisfy({ !$0.isEmpty }) else { return [] }
+
+        var results: [[String]] = []
+
+        func build(index: Int, sequence: [String]) {
+            guard results.count < sequenceLimit else { return }
+            if index == expansions.count {
+                results.append(sequence)
+                return
+            }
+
+            for syllable in expansions[index] {
+                build(index: index + 1, sequence: sequence + [syllable])
+                if results.count >= sequenceLimit {
+                    break
+                }
+            }
+        }
+
+        build(index: 0, sequence: [])
+        return results
+    }
+
     static func correctionKeys(for key: String, limit: Int) -> [PinyinCorrection] {
         guard key.count >= 4, key.count <= maxCorrectionInputLength else { return [] }
         guard segment(key).joined(separator: "") != key else { return [] }
@@ -2678,6 +2766,39 @@ private struct PinyinSegmenter {
         return (result, "")
     }
 
+    private static func initialShorthandChunks(for key: String) -> [InitialShorthandChunk]? {
+        guard key.count >= 4 else { return nil }
+
+        let indices = Array(key.indices) + [key.endIndex]
+        var index = 0
+        var result: [InitialShorthandChunk] = []
+
+        while index < key.count {
+            var best: String?
+            let maxEnd = min(key.count, index + 6)
+            for end in stride(from: maxEnd, through: index + 1, by: -1) {
+                let piece = String(key[indices[index]..<indices[end]])
+                if syllables.contains(piece) {
+                    best = piece
+                    break
+                }
+            }
+
+            if let best {
+                result.append(InitialShorthandChunk(key: best, isShorthand: false))
+                index += best.count
+                continue
+            }
+
+            let piece = String(key[indices[index]..<indices[index + 1]])
+            guard isInitialShorthand(piece) else { return nil }
+            result.append(InitialShorthandChunk(key: piece, isShorthand: true))
+            index += 1
+        }
+
+        return result
+    }
+
     private static func prefixChunks(for remainder: String) -> [String] {
         var chunks: [String] = []
         var index = remainder.startIndex
@@ -2714,6 +2835,10 @@ private struct PinyinSegmenter {
 
     private static func hasSyllable(withPrefix prefix: String) -> Bool {
         orderedSyllables.contains { $0.hasPrefix(prefix) }
+    }
+
+    private static func isInitialShorthand(_ key: String) -> Bool {
+        key.count == 1 && !syllables.contains(key) && hasSyllable(withPrefix: key)
     }
 
     private static func correctionMatches(for piece: String) -> [(syllable: String, cost: Int)] {
@@ -3125,6 +3250,12 @@ private final class PinyinCandidateProvider {
     private static let maxBeamWidth = 8
     private static let maxCompletionKeys = 32
     private static let completionRankPenalty = 120_000
+    private static let initialShorthandPhraseBonus = 350_000
+    private static let maxAcronymSyllablesPerLetter = 16
+    private static let maxAcronymKeySequences = 4_096
+    private static let maxAcronymFallbackSequences = 24
+    private static let acronymPhraseBonus = 600_000
+    private static let acronymFallbackBaseScore = 8_600_000
     private static let maxFuzzyCorrectionKeys = 24
     private static let fuzzyRankPenalty = 10_000
     private static let fuzzyCorrectionPenalty = 220_000
@@ -3162,6 +3293,8 @@ private final class PinyinCandidateProvider {
         candidates += scoredCandidates(for: key, match: .exact, consumeLength: key.count, cache: &lookupCache)
         let completionCandidates = completionCandidates(for: key, cache: &lookupCache)
         candidates += completionCandidates
+        candidates += initialShorthandCandidates(for: key, cache: &lookupCache)
+        candidates += acronymCandidates(for: key, cache: &lookupCache)
         candidates += fuzzyCorrectionCandidates(for: key, cache: &lookupCache)
 
         let segments = PinyinSegmenter.segment(key)
@@ -3259,6 +3392,61 @@ private final class PinyinCandidateProvider {
                 )
             }
         }
+    }
+
+    private func initialShorthandCandidates(for key: String, cache: inout [String: [PinyinCandidate]]) -> [PinyinCandidate] {
+        PinyinSegmenter.initialShorthandKeys(for: key, limit: Self.maxCompletionKeys).flatMap { shorthandKey in
+            scoredCandidates(for: shorthandKey, match: .completion, consumeLength: key.count, cache: &cache).prefix(4).map { candidate in
+                PinyinCandidate(
+                    text: candidate.text,
+                    weight: candidate.weight + Self.initialShorthandPhraseBonus,
+                    tier: candidate.tier,
+                    wordLength: candidate.wordLength,
+                    syllableCount: candidate.syllableCount,
+                    consumeLength: candidate.consumeLength
+                )
+            }
+        }
+    }
+
+    private func acronymCandidates(for key: String, cache: inout [String: [PinyinCandidate]]) -> [PinyinCandidate] {
+        let sequences = PinyinSegmenter.acronymKeySequences(
+            for: key,
+            syllablesPerLetterLimit: Self.maxAcronymSyllablesPerLetter,
+            sequenceLimit: Self.maxAcronymKeySequences
+        )
+        guard !sequences.isEmpty else { return [] }
+
+        var results: [PinyinCandidate] = []
+
+        for sequence in sequences {
+            let lookupKey = sequence.joined(separator: "")
+            results += scoredCandidates(for: lookupKey, match: .completion, consumeLength: key.count, cache: &cache).prefix(3).map { candidate in
+                PinyinCandidate(
+                    text: candidate.text,
+                    weight: candidate.weight + Self.acronymPhraseBonus,
+                    tier: candidate.tier,
+                    wordLength: candidate.wordLength,
+                    syllableCount: candidate.syllableCount,
+                    consumeLength: candidate.consumeLength
+                )
+            }
+        }
+
+        for sequence in sequences.prefix(Self.maxAcronymFallbackSequences) {
+            results += phraseCandidates(for: sequence, consumeLength: key.count, cache: &cache).prefix(2).map { candidate in
+                PinyinCandidate(
+                    text: candidate.text,
+                    weight: candidate.weight + Self.acronymFallbackBaseScore,
+                    tier: candidate.tier,
+                    wordLength: candidate.wordLength,
+                    syllableCount: candidate.syllableCount,
+                    consumeLength: candidate.consumeLength
+                )
+            }
+        }
+
+        return merge(results)
     }
 
     private func fuzzyCorrectionCandidates(for key: String, cache: inout [String: [PinyinCandidate]]) -> [PinyinCandidate] {
