@@ -23,7 +23,8 @@ jobs:
       - name: Build unsigned app
         run: |
           set -euo pipefail
-          xcodebuild \
+          mkdir -p build/logs
+          if ! xcodebuild \
             -project Simpanin.xcodeproj \
             -scheme Simpanin \
             -configuration Release \
@@ -34,7 +35,11 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGN_IDENTITY="" \
-            clean build
+            clean build 2>&1 | tee build/logs/xcodebuild.log; then
+            echo "::error title=xcodebuild failed::xcodebuild failed. Showing the last 200 log lines below."
+            tail -n 200 build/logs/xcodebuild.log
+            exit 1
+          fi
 
       - name: Inject entitlements
         run: |
