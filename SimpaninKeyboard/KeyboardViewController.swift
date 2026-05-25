@@ -1942,7 +1942,7 @@ private final class KeyboardRowStack: UIStackView {
     }
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
-        guard !isHidden, alpha >= 0.01, isUserInteractionEnabled, point(inside: point, with: event) else {
+        guard !isHidden, alpha >= 0.01, isUserInteractionEnabled, self.point(inside: point, with: event) else {
             return nil
         }
 

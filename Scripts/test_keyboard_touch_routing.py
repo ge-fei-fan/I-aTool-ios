@@ -17,6 +17,7 @@ def main() -> int:
         "row stack used for keyboard rows": "let rowStack = KeyboardRowStack()" in source,
         "nearest control routing": "nearestTouchTarget(at point: CGPoint)" in source,
         "expanded key hit testing": "override func point(inside point: CGPoint, with event: UIEvent?) -> Bool" in source,
+        "row hit testing avoids point parameter shadowing": "isUserInteractionEnabled, point(inside: point, with: event)" not in source,
         "key touch outset configured": "button.touchOutset = Self.keyTouchOutset" in source,
         "space long press keeps normal touches": "recognizer.cancelsTouchesInView = false" in source,
     }
