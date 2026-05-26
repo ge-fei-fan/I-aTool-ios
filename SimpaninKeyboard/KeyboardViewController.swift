@@ -71,6 +71,7 @@ final class KeyboardViewController: UIInputViewController {
     private var isCandidateRefreshPending = false
     private var associationContext: String?
     private var keyButtons: [UIButton] = []
+    private var letterEdgeCompensationButtons: [KeyboardLetterEdgeCompensationButton] = []
     private var selectedCompositionSegments: [SelectedCompositionSegment] = []
     private var compositionBuffer = ""
     private var compositionCursorOffset = 0
@@ -102,6 +103,7 @@ final class KeyboardViewController: UIInputViewController {
     private static let trackpadStepWidth: CGFloat = 10
     private static let keyPreviewHorizontalInset: CGFloat = 4
     private static let keyTouchOutset: CGFloat = 6
+    private static let letterEdgeCompensationVisibleWidth: CGFloat = 16
     private static let previewableLetterScalars = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
     private enum KeyboardIconAsset {
@@ -499,6 +501,7 @@ final class KeyboardViewController: UIInputViewController {
     private func renderKeyboard() {
         hideKeyPreview(animated: false)
         setCandidatePageVisible(false, animated: false)
+        removeLetterEdgeCompensationButtons()
         keyButtons.removeAll()
         keyboardRowsStack.arrangedSubviews.forEach { view in
             keyboardRowsStack.removeArrangedSubview(view)
@@ -515,7 +518,7 @@ final class KeyboardViewController: UIInputViewController {
             rows = symbolRows
         }
 
-        for row in rows {
+        for (rowIndex, row) in rows.enumerated() {
             let usesUniformLetterKeys = keyboardMode == .letters && row.contains { $0.kind.isPrimary }
             let alignsControlRow = row.contains { key in
                 if case .space = key.kind {
@@ -635,10 +638,75 @@ final class KeyboardViewController: UIInputViewController {
             }
 
             keyboardRowsStack.addArrangedSubview(rowStack)
+            if keyboardMode == .letters, rowIndex == 1 {
+                installLetterEdgeCompensationButtons(rowStack: rowStack, previewSourceButtonsByCharacter: previewSourceButtonsByCharacter)
+            }
         }
 
         updateCandidates()
         applyTheme()
+    }
+
+    private func removeLetterEdgeCompensationButtons() {
+        letterEdgeCompensationButtons.forEach { $0.removeFromSuperview() }
+        letterEdgeCompensationButtons.removeAll()
+    }
+
+    private func installLetterEdgeCompensationButtons(
+        rowStack: KeyboardRowStack,
+        previewSourceButtonsByCharacter: [String: KeyboardKeyButton]
+    ) {
+        guard let aButton = previewSourceButtonsByCharacter["a"],
+              let lButton = previewSourceButtonsByCharacter["l"] else { return }
+
+        let leftButton = KeyboardLetterEdgeCompensationButton(edge: .left)
+        let rightButton = KeyboardLetterEdgeCompensationButton(edge: .right)
+        configureLetterEdgeCompensationButton(leftButton, keyKind: .character("a"), previewSourceView: aButton)
+        configureLetterEdgeCompensationButton(rightButton, keyKind: .character("l"), previewSourceView: lButton)
+
+        view.addSubview(leftButton)
+        view.addSubview(rightButton)
+        NSLayoutConstraint.activate([
+            leftButton.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            leftButton.trailingAnchor.constraint(equalTo: aButton.leadingAnchor),
+            leftButton.topAnchor.constraint(equalTo: rowStack.topAnchor),
+            leftButton.bottomAnchor.constraint(equalTo: rowStack.bottomAnchor),
+            rightButton.leadingAnchor.constraint(equalTo: lButton.trailingAnchor),
+            rightButton.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            rightButton.topAnchor.constraint(equalTo: rowStack.topAnchor),
+            rightButton.bottomAnchor.constraint(equalTo: rowStack.bottomAnchor)
+        ])
+
+        letterEdgeCompensationButtons = [leftButton, rightButton]
+        applyLetterEdgeCompensationAppearance()
+        letterEdgeCompensationButtons.forEach { view.bringSubviewToFront($0) }
+        view.bringSubviewToFront(candidatePageView)
+        view.bringSubviewToFront(trackpadBlurView)
+        view.bringSubviewToFront(keyPreviewView)
+    }
+
+    private func configureLetterEdgeCompensationButton(
+        _ button: KeyboardLetterEdgeCompensationButton,
+        keyKind: KeyKind,
+        previewSourceView: UIView
+    ) {
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.visibleWidth = Self.letterEdgeCompensationVisibleWidth
+        button.accessibilityLabel = title(for: KeySpec(keyKind))
+        button.addAction(UIAction { [weak self] _ in
+            self?.handle(keyKind)
+        }, for: .touchUpInside)
+        if shouldPreviewKey(keyKind) {
+            bindKeyPreviewEvents(to: button, previewText: title(for: KeySpec(keyKind))) { [weak previewSourceView] in
+                previewSourceView
+            }
+        }
+    }
+
+    private func applyLetterEdgeCompensationAppearance() {
+        for button in letterEdgeCompensationButtons {
+            button.applyAppearance(backgroundColor: keyBackground, shadowColor: shadowColor)
+        }
     }
 
     private func applyControlRowAlignment(
@@ -1486,6 +1554,7 @@ final class KeyboardViewController: UIInputViewController {
             button.tintColor = primaryText
             button.layer.shadowColor = shadowColor.cgColor
         }
+        applyLetterEdgeCompensationAppearance()
         for button in utilityOverlayIconButtons {
             button.setTitleColor(secondaryText, for: .normal)
             button.tintColor = secondaryText
@@ -2342,6 +2411,60 @@ private final class KeyboardProxySpacerButton: UIButton {
         guard isPreviewActive else { return }
         isPreviewActive = false
         onPreviewEnded?()
+    }
+}
+
+private final class KeyboardLetterEdgeCompensationButton: UIButton {
+    enum Edge {
+        case left
+        case right
+    }
+
+    var visibleWidth: CGFloat = 16
+
+    private let edge: Edge
+    private let backgroundPlate = UIView()
+
+    init(edge: Edge) {
+        self.edge = edge
+        super.init(frame: .zero)
+        isOpaque = false
+        backgroundColor = .clear
+        adjustsImageWhenHighlighted = false
+
+        backgroundPlate.isUserInteractionEnabled = false
+        backgroundPlate.layer.cornerRadius = 6
+        backgroundPlate.layer.shadowOpacity = 0.22
+        backgroundPlate.layer.shadowRadius = 0
+        backgroundPlate.layer.shadowOffset = CGSize(width: 0, height: 1)
+        addSubview(backgroundPlate)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override var isHighlighted: Bool {
+        didSet {
+            backgroundPlate.alpha = isHighlighted ? 0.72 : 1
+        }
+    }
+
+    func applyAppearance(backgroundColor: UIColor, shadowColor: UIColor) {
+        backgroundPlate.backgroundColor = backgroundColor
+        backgroundPlate.layer.shadowColor = shadowColor.cgColor
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+
+        let stripWidth = min(visibleWidth, bounds.width)
+        switch edge {
+        case .left:
+            backgroundPlate.frame = CGRect(x: bounds.width - stripWidth, y: 0, width: stripWidth, height: bounds.height)
+        case .right:
+            backgroundPlate.frame = CGRect(x: 0, y: 0, width: stripWidth, height: bounds.height)
+        }
     }
 }
 
