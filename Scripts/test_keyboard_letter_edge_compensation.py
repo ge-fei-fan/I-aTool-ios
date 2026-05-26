@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Regression checks for letter-row edge compensation buttons."""
+"""Regression checks for transparent letter-row edge compensation."""
 
 from __future__ import annotations
 
@@ -13,28 +13,27 @@ KEYBOARD_SOURCE = REPO_ROOT / "SimpaninKeyboard" / "KeyboardViewController.swift
 def main() -> int:
     source = KEYBOARD_SOURCE.read_text(encoding="utf-8")
     checks = {
-        "edge compensation buttons are stored separately": "private var letterEdgeCompensationButtons: [KeyboardLetterEdgeCompensationButton] = []" in source,
-        "edge compensation buttons are removed before rerender": "removeLetterEdgeCompensationButtons()" in source,
-        "edge compensation buttons install from preview source map": "installLetterEdgeCompensationButtons(rowStack: rowStack, previewSourceButtonsByCharacter: previewSourceButtonsByCharacter)" in source,
-        "left edge compensation stretches to screen edge": "leftButton.leadingAnchor.constraint(equalTo: view.leadingAnchor)" in source and "leftButton.trailingAnchor.constraint(equalTo: aButton.leadingAnchor)" in source,
-        "right edge compensation stretches to screen edge": "rightButton.leadingAnchor.constraint(equalTo: lButton.trailingAnchor)" in source and "rightButton.trailingAnchor.constraint(equalTo: view.trailingAnchor)" in source,
-        "preview still anchors to the real a key": 'configureLetterEdgeCompensationButton(leftButton, keyKind: .character("a"), previewSourceView: aButton)' in source,
-        "preview still anchors to the real l key": 'configureLetterEdgeCompensationButton(rightButton, keyKind: .character("l"), previewSourceView: lButton)' in source,
-        "dedicated edge compensation button class exists": "private final class KeyboardLetterEdgeCompensationButton: UIButton" in source,
-        "edge compensation uses a dedicated 16pt visible strip": "private static let letterEdgeCompensationVisibleWidth: CGFloat = 16" in source,
-        "left edge strip hugs the inner edge": "backgroundPlate.frame = CGRect(x: bounds.width - stripWidth, y: 0, width: stripWidth, height: bounds.height)" in source,
-        "right edge strip hugs the inner edge": "backgroundPlate.frame = CGRect(x: 0, y: 0, width: stripWidth, height: bounds.height)" in source,
-        "edge compensation appearance is themed": "button.applyAppearance(backgroundColor: keyBackground, shadowColor: shadowColor)" in source,
+        "letter row keeps proxy spacers for a and l": '[KeySpec(.spacer, widthUnit: 0.5, proxyKind: .character("a"))]' in source and '[KeySpec(.spacer, widthUnit: 0.5, proxyKind: .character("l"))]' in source,
+        "proxy spacer stores forwarded real key button": "weak var forwardedKeyButton: KeyboardKeyButton?" in source,
+        "pending spacers resolve both preview source and forwarded key button": "pending.button.forwardedKeyButton = button" in source,
+        "resolved spacers capture forwarded real key button immediately": "proxySpacer.forwardedKeyButton = previewSourceView" in source,
+        "proxy spacer remains visually transparent": "backgroundColor = .clear" in source and "private final class KeyboardProxySpacerButton: UIButton" in source,
+        "dedicated edge compensation overlay is removed": "KeyboardLetterEdgeCompensationButton" not in source,
+        "dedicated edge compensation button state is removed": "letterEdgeCompensationButtons" not in source,
+        "proxy spacer highlights forwarded real key on press": "forwardedKeyButton?.isHighlighted = true" in source,
+        "proxy spacer removes forwarded real key highlight on release": "forwardedKeyButton?.isHighlighted = false" in source,
+        "proxy spacer preview anchors to the forwarded real key": "onPreviewBegan?(previewSourceView ?? forwardedKeyButton ?? self, previewText)" in source,
+        "proxy spacer tracking still handles drag exit": "override func continueTracking(_ touch: UITouch, with event: UIEvent?)" in source,
     }
 
     failed = [name for name, passed in checks.items() if not passed]
     if failed:
-        print("Missing letter edge compensation behavior:")
+        print("Missing transparent letter edge compensation behavior:")
         for name in failed:
             print(f"- {name}")
         return 1
 
-    print("Keyboard letter edge compensation checks passed.")
+    print("Keyboard transparent letter edge compensation checks passed.")
     return 0
 
 

@@ -33,7 +33,7 @@ def main() -> int:
         "key preview tail tracks pressed key center": "keyPreviewView.tailCenterX = min(max(buttonFrame.midX - originX, minTailCenterX), maxTailCenterX)" in source,
         "key preview letter is raised 5pt": "label.frame = bubbleRect.insetBy(dx: 0, dy: 0).offsetBy(dx: 0, dy: -5)" in source,
         "proxy spacer has dedicated preview configuration": "func configurePreview(" in source and "text: String," in source,
-        "proxy spacer begins preview from real key source": "onPreviewBegan?(previewSourceView ?? self, previewText)" in source,
+        "proxy spacer begins preview from forwarded real key source": "onPreviewBegan?(previewSourceView ?? forwardedKeyButton ?? self, previewText)" in source,
         "proxy spacer ends preview on cancelled tracking": "override func cancelTracking(with event: UIEvent?)" in source,
         "row proxy spacer uses dedicated preview tracking": "proxySpacer.configurePreview(text: title(for: KeySpec(proxyKind)))" in source,
     }
