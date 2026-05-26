@@ -87,6 +87,7 @@ def main() -> int:
         "backspace uses clear-symbol asset": 'return "icons8-clear-symbol-48"' in source,
         "shift primary path uses keyboard key asset": 'button.setImage(keyboardKeyIcon(.shift' in source,
         "backspace primary path uses keyboard key asset": 'button.setImage(keyboardKeyIcon(.backspace' in source,
+        "keyboard key icon helper avoids Self in default arguments": "pointSize: CGFloat = Self.keyboardIconPointSize" not in source,
         "shift uses templated square-fill image": "keyboardKeyIcon(.shift, fallbackSystemName: \"shift\", fallbackWeight: .light, pointSize: 42, renderingMode: .alwaysTemplate, aspectFill: true)" in source,
         "backspace stays templated": "keyboardKeyIcon(.backspace, fallbackSystemName: \"delete.left\", fallbackWeight: .light)" in source,
         "keyboard image resizer supports aspect fill": "aspectFill: Bool = false" in source and "let scale = max(size.width / image.size.width, size.height / image.size.height)" in source,

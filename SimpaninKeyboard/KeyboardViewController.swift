@@ -439,7 +439,7 @@ final class KeyboardViewController: UIInputViewController {
         _ asset: KeyboardKeyIconAsset,
         fallbackSystemName: String,
         fallbackWeight: UIImage.SymbolWeight,
-        pointSize: CGFloat = Self.keyboardIconPointSize,
+        pointSize: CGFloat = KeyboardViewController.keyboardIconPointSize,
         renderingMode: UIImage.RenderingMode = .alwaysTemplate,
         aspectFill: Bool = false
     ) -> UIImage? {
