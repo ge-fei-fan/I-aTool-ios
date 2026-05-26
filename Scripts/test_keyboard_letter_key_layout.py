@@ -36,9 +36,35 @@ def row3_definition(source: str) -> str:
     return match.group(1).strip() if match else ""
 
 
+def number_third_row_definition(source: str) -> str:
+    match = re.search(
+        r"private var numberRows: \[\[KeySpec\]\] \{\s*\[\s*"
+        r'"1234567890".*?,\s*'
+        r'punctuationKeys\(\["-", "/", ":", ";", "\(", "\)", "\$", "&", "@", "\\""\]\),\s*'
+        r"(.*?),\s*\[",
+        source,
+        re.S,
+    )
+    return match.group(1).strip() if match else ""
+
+
+def symbol_third_row_definition(source: str) -> str:
+    match = re.search(
+        r"private var symbolRows: \[\[KeySpec\]\] \{\s*\[\s*"
+        r'punctuationKeys\(\["\[", "\]", "\{", "\}", "#", "%", "\^", "\*", "\+", "="\]\),\s*'
+        r'punctuationKeys\(\["_", "\\\\", "\|", "~", "<", ">", ".*?"\]\),\s*'
+        r"(.*?),\s*\[",
+        source,
+        re.S,
+    )
+    return match.group(1).strip() if match else ""
+
+
 def main() -> int:
     source = KEYBOARD_SOURCE.read_text(encoding="utf-8")
     row3 = row3_definition(source)
+    number_row3 = number_third_row_definition(source)
+    symbol_row3 = symbol_third_row_definition(source)
     width_helper = function_body(source, "private func usesLetterKeyWidth(for kind: KeyKind) -> Bool")
 
     checks = {
@@ -47,10 +73,15 @@ def main() -> int:
         "letter third row keeps seven middle letters": '"zxcvbnm".map { KeySpec(.character(String($0))) }' in row3,
         "shift and backspace no longer use wide key units": "KeySpec(.shift, widthUnit: 1.5)" not in row3 and "KeySpec(.backspace, widthUnit: 1.5)" not in row3,
         "letter key width helper exists": bool(width_helper),
-        "letter key width helper includes characters": "case .character(_), .shift, .backspace:" in width_helper,
-        "letter row width constraint applies through helper": "usesUniformLetterKeys, usesLetterKeyWidth(for: key.kind)" in source,
+        "letter key width helper includes only characters": "case .character(_):" in width_helper and ".shift" not in width_helper and ".backspace" not in width_helper,
+        "letter row width constraint applies through helper": "if usesUniformLetterKeys, usesLetterKeyWidth(for: key.kind)" in source,
+        "third-row edge controls use square key width": "isThirdRowEdgeControlKey(key.kind)" in source and "button.widthAnchor.constraint(equalToConstant: 42).isActive = true" in source,
+        "number third row edge keys are not wide": 'KeySpec(.modeSwitch(.symbols), title: "#+=", widthUnit: 1.35)' not in number_row3 and "KeySpec(.backspace, widthUnit: 1.35)" not in number_row3,
+        "symbol third row edge keys are not wide": 'KeySpec(.modeSwitch(.numbers), title: "123", widthUnit: 1.35)' not in symbol_row3 and "KeySpec(.backspace, widthUnit: 1.35)" not in symbol_row3,
+        "third-row edge helper includes mode switches": "case .modeSwitch(.numbers), .modeSwitch(.symbols), .shift, .backspace:" in source,
+        "square edge rows equalize middle keys": "squareEdgeRowFlexibleButtons" in source and "button.widthAnchor.constraint(equalTo: squareEdgeRowFlexibleButtons[0].widthAnchor)" in source,
         "letter row side-key expansion was removed": "var sideKeys: [UIButton]" not in source and "sideKeys.append(button)" not in source,
-        "keyboard symbol icon size matches lowercase letters": "UIImage.SymbolConfiguration(pointSize: 26, weight: .light)" in source,
+        "keyboard symbol icon size is 24pt": "UIImage.SymbolConfiguration(pointSize: 24, weight: .light)" in source,
         "shift uses an SF Symbol icon": 'UIImage(systemName: "shift", withConfiguration: configuration)' in source,
         "backspace keeps delete SF Symbol icon": 'UIImage(systemName: "delete.left", withConfiguration: configuration)' in source,
     }

@@ -25,7 +25,7 @@ def main() -> int:
     items = utility_items_block(source)
 
     checks = {
-        "candidate icon size is 22pt": "private static let keyboardIconPointSize: CGFloat = 22" in source,
+        "candidate icon size is 24pt": "private static let keyboardIconPointSize: CGFloat = 24" in source,
         "leading function icon uses diversity icon": 'configureUtilityIconButton(utilityOverlayButton, asset: .diversity, fallbackSystemName: "person.2", accessibilityLabel: "Function")' in source,
         "leading function icon is disabled": "utilityOverlayButton.isUserInteractionEnabled = false" in source,
         "leading function icon does not open quick fill": "utilityOverlayButton.addAction" not in source,

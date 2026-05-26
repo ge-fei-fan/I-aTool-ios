@@ -96,7 +96,7 @@ final class KeyboardViewController: UIInputViewController {
     private static let candidateRefreshDelay: TimeInterval = 0.012
     private static let candidateToggleButtonWidth: CGFloat = 34
     private static let candidateToggleButtonHeight: CGFloat = 30
-    private static let keyboardIconPointSize: CGFloat = 22
+    private static let keyboardIconPointSize: CGFloat = 24
     private static let trackpadStepWidth: CGFloat = 10
     private static let keyPreviewHorizontalInset: CGFloat = 4
     private static let keyTouchOutset: CGFloat = 6
@@ -459,13 +459,17 @@ final class KeyboardViewController: UIInputViewController {
                 }
                 return false
             }
+            let usesSquareEdgeControlRow = !alignsControlRow && row.contains { key in
+                isThirdRowEdgeControlKey(key.kind)
+            }
             let rowStack = KeyboardRowStack()
             rowStack.touchTargetOutset = Self.keyTouchOutset
             rowStack.axis = .horizontal
             rowStack.spacing = 6
             rowStack.alignment = .fill
-            rowStack.distribution = usesUniformLetterKeys || alignsControlRow ? .fill : .fillProportionally
+            rowStack.distribution = usesUniformLetterKeys || alignsControlRow || usesSquareEdgeControlRow ? .fill : .fillProportionally
             var rowSpacers: [UIView] = []
+            var squareEdgeRowFlexibleButtons: [KeyboardKeyButton] = []
             var modeSwitchButton: KeyboardKeyButton?
             var spaceButton: KeyboardKeyButton?
             var languageButton: KeyboardKeyButton?
@@ -517,6 +521,13 @@ final class KeyboardViewController: UIInputViewController {
                 }
                 rowStack.addArrangedSubview(button)
                 button.heightAnchor.constraint(equalToConstant: 42).isActive = true
+                if usesSquareEdgeControlRow {
+                    if isThirdRowEdgeControlKey(key.kind) {
+                        button.widthAnchor.constraint(equalToConstant: 42).isActive = true
+                    } else if !usesUniformLetterKeys, key.kind.isPrimary {
+                        squareEdgeRowFlexibleButtons.append(button)
+                    }
+                }
                 if usesUniformLetterKeys, usesLetterKeyWidth(for: key.kind) {
                     button.widthAnchor.constraint(equalTo: rowStack.widthAnchor, multiplier: 0.1, constant: -5.4).isActive = true
                 }
@@ -539,6 +550,11 @@ final class KeyboardViewController: UIInputViewController {
 
             if rowSpacers.count == 2 {
                 rowSpacers[0].widthAnchor.constraint(equalTo: rowSpacers[1].widthAnchor).isActive = true
+            }
+            if squareEdgeRowFlexibleButtons.count > 1 {
+                for button in squareEdgeRowFlexibleButtons.dropFirst() {
+                    button.widthAnchor.constraint(equalTo: squareEdgeRowFlexibleButtons[0].widthAnchor).isActive = true
+                }
             }
             if alignsControlRow,
                let modeSwitchButton = modeSwitchButton,
@@ -579,7 +595,16 @@ final class KeyboardViewController: UIInputViewController {
 
     private func usesLetterKeyWidth(for kind: KeyKind) -> Bool {
         switch kind {
-        case .character(_), .shift, .backspace:
+        case .character(_):
+            return true
+        default:
+            return false
+        }
+    }
+
+    private func isThirdRowEdgeControlKey(_ kind: KeyKind) -> Bool {
+        switch kind {
+        case .modeSwitch(.numbers), .modeSwitch(.symbols), .shift, .backspace:
             return true
         default:
             return false
@@ -603,7 +628,7 @@ final class KeyboardViewController: UIInputViewController {
         [
             "1234567890".map { KeySpec(.character(String($0))) },
             punctuationKeys(["-", "/", ":", ";", "(", ")", "$", "&", "@", "\""]),
-            [KeySpec(.modeSwitch(.symbols), title: "#+=", widthUnit: 1.35)] + punctuationKeys([".", ",", "?", "!", "'"]) + [KeySpec(.backspace, widthUnit: 1.35)],
+            [KeySpec(.modeSwitch(.symbols), title: "#+=")] + punctuationKeys([".", ",", "?", "!", "'"]) + [KeySpec(.backspace)],
             [
                 KeySpec(.modeSwitch(.letters), title: "ABC", widthUnit: 1.35),
                 KeySpec(.space, title: "空格", widthUnit: 3.55),
@@ -617,7 +642,7 @@ final class KeyboardViewController: UIInputViewController {
         [
             punctuationKeys(["[", "]", "{", "}", "#", "%", "^", "*", "+", "="]),
             punctuationKeys(["_", "\\", "|", "~", "<", ">", "€", "£", "¥", "·"]),
-            [KeySpec(.modeSwitch(.numbers), title: "123", widthUnit: 1.35)] + punctuationKeys([".", ",", "?", "!", "'"]) + [KeySpec(.backspace, widthUnit: 1.35)],
+            [KeySpec(.modeSwitch(.numbers), title: "123")] + punctuationKeys([".", ",", "?", "!", "'"]) + [KeySpec(.backspace)],
             [
                 KeySpec(.modeSwitch(.letters), title: "ABC", widthUnit: 1.35),
                 KeySpec(.space, title: "空格", widthUnit: 3.55),
@@ -700,12 +725,12 @@ final class KeyboardViewController: UIInputViewController {
         button.titleLabel?.minimumScaleFactor = 0.75
         button.titleLabel?.baselineAdjustment = .alignCenters
         if case .shift = spec.kind {
-            let configuration = UIImage.SymbolConfiguration(pointSize: 26, weight: .light)
+            let configuration = UIImage.SymbolConfiguration(pointSize: 24, weight: .light)
             button.setImage(UIImage(systemName: "shift", withConfiguration: configuration), for: .normal)
             button.tintColor = primaryText
             button.accessibilityLabel = "Shift"
         } else if case .backspace = spec.kind {
-            let configuration = UIImage.SymbolConfiguration(pointSize: 26, weight: .light)
+            let configuration = UIImage.SymbolConfiguration(pointSize: 24, weight: .light)
             button.setImage(UIImage(systemName: "delete.left", withConfiguration: configuration), for: .normal)
             button.tintColor = primaryText
             button.accessibilityLabel = "删除"
