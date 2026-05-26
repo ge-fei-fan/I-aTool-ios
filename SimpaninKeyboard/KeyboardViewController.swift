@@ -72,6 +72,7 @@ final class KeyboardViewController: UIInputViewController {
     private var associationContext: String?
     private var keyButtons: [UIButton] = []
     private var proxySpacerButtons: [KeyboardProxySpacerButton] = []
+    private var edgeProxyButtons: [KeyboardProxySpacerButton] = []
     private var selectedCompositionSegments: [SelectedCompositionSegment] = []
     private var compositionBuffer = ""
     private var compositionCursorOffset = 0
@@ -503,6 +504,8 @@ final class KeyboardViewController: UIInputViewController {
     private func renderKeyboard() {
         hideKeyPreview(animated: false)
         setCandidatePageVisible(false, animated: false)
+        edgeProxyButtons.forEach { $0.removeFromSuperview() }
+        edgeProxyButtons.removeAll()
         keyButtons.removeAll()
         proxySpacerButtons.removeAll()
         keyboardRowsStack.arrangedSubviews.forEach { view in
@@ -520,7 +523,7 @@ final class KeyboardViewController: UIInputViewController {
             rows = symbolRows
         }
 
-        for row in rows {
+        for (rowIndex, row) in rows.enumerated() {
             let usesUniformLetterKeys = keyboardMode == .letters && row.contains { $0.kind.isPrimary }
             let alignsControlRow = row.contains { key in
                 if case .space = key.kind {
@@ -650,10 +653,68 @@ final class KeyboardViewController: UIInputViewController {
             }
 
             keyboardRowsStack.addArrangedSubview(rowStack)
+            if keyboardMode == .letters, rowIndex == 0 {
+                installTopRowEdgeProxyButtons(rowStack: rowStack, previewSourceButtonsByCharacter: previewSourceButtonsByCharacter)
+            }
         }
 
         updateCandidates()
         applyTheme()
+    }
+
+    private func installTopRowEdgeProxyButtons(
+        rowStack: KeyboardRowStack,
+        previewSourceButtonsByCharacter: [String: KeyboardKeyButton]
+    ) {
+        guard let qButton = previewSourceButtonsByCharacter["q"],
+              let pButton = previewSourceButtonsByCharacter["p"] else { return }
+
+        let leftButton = makeEdgeProxyButton(for: .character("q"), previewSourceView: qButton)
+        let rightButton = makeEdgeProxyButton(for: .character("p"), previewSourceView: pButton)
+
+        view.addSubview(leftButton)
+        view.addSubview(rightButton)
+        NSLayoutConstraint.activate([
+            leftButton.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            leftButton.trailingAnchor.constraint(equalTo: qButton.centerXAnchor),
+            leftButton.topAnchor.constraint(equalTo: rowStack.topAnchor),
+            leftButton.bottomAnchor.constraint(equalTo: rowStack.bottomAnchor),
+            rightButton.leadingAnchor.constraint(equalTo: pButton.centerXAnchor),
+            rightButton.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            rightButton.topAnchor.constraint(equalTo: rowStack.topAnchor),
+            rightButton.bottomAnchor.constraint(equalTo: rowStack.bottomAnchor)
+        ])
+
+        edgeProxyButtons = [leftButton, rightButton]
+        proxySpacerButtons.append(contentsOf: edgeProxyButtons)
+        view.bringSubviewToFront(candidatePageView)
+        view.bringSubviewToFront(trackpadBlurView)
+        view.bringSubviewToFront(keyPreviewView)
+    }
+
+    private func makeEdgeProxyButton(for proxyKind: KeyKind, previewSourceView: KeyboardKeyButton) -> KeyboardProxySpacerButton {
+        let button = KeyboardProxySpacerButton(type: .custom)
+        button.translatesAutoresizingMaskIntoConstraints = false
+        button.accessibilityLabel = title(for: KeySpec(proxyKind))
+        button.previewSourceView = previewSourceView
+        button.forwardedKeyButton = previewSourceView
+        button.addAction(UIAction { [weak self] _ in
+            self?.handle(proxyKind)
+        }, for: .touchUpInside)
+        if shouldPreviewKey(proxyKind) {
+            bindKeyPreviewEvents(
+                to: button,
+                previewText: title(for: KeySpec(proxyKind)),
+                sourceViewProvider: { [weak button] in
+                    button?.previewSourceView ?? button?.forwardedKeyButton
+                },
+                highlightedControlProvider: { [weak button] in
+                    button?.forwardedKeyButton
+                },
+                minimumVisibleDuration: Self.proxySpacerPreviewMinimumVisibleDuration
+            )
+        }
+        return button
     }
 
     private func applyControlRowAlignment(
@@ -1528,7 +1589,7 @@ final class KeyboardViewController: UIInputViewController {
             button.layer.shadowColor = shadowColor.cgColor
         }
         for button in proxySpacerButtons {
-            button.applyAppearance(backgroundColor: proxySpacerBackground, shadowColor: shadowColor)
+            button.applyAppearance(backgroundColor: proxySpacerBackground, shadowColor: shadowColor, showsShadow: false)
         }
         for button in utilityOverlayIconButtons {
             button.setTitleColor(secondaryText, for: .normal)
@@ -1611,7 +1672,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private var proxySpacerBackground: UIColor {
-        .systemRed
+        .clear
     }
 
     private var candidateBackground: UIColor {
@@ -2337,8 +2398,10 @@ private final class KeyboardProxySpacerButton: UIButton {
 
     override init(frame: CGRect) {
         super.init(frame: frame)
+        isOpaque = false
+        backgroundColor = .clear
         layer.cornerRadius = 6
-        layer.shadowOpacity = 0.22
+        layer.shadowOpacity = 0
         layer.shadowRadius = 0
         layer.shadowOffset = CGSize(width: 0, height: 1)
     }
@@ -2351,9 +2414,10 @@ private final class KeyboardProxySpacerButton: UIButton {
         CGSize(width: 32 * widthUnit, height: 42)
     }
 
-    func applyAppearance(backgroundColor: UIColor, shadowColor: UIColor) {
+    func applyAppearance(backgroundColor: UIColor, shadowColor: UIColor, showsShadow: Bool = true) {
         self.backgroundColor = backgroundColor
         layer.shadowColor = shadowColor.cgColor
+        layer.shadowOpacity = showsShadow ? 0.22 : 0
     }
 }
 

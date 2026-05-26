@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>A/L Red Spacer Preview</title>
+  <title>Transparent Edge Spacer Preview</title>
   <style>
     :root {
       color-scheme: light;
@@ -95,13 +95,31 @@
     }
 
     .gap {
-      background: #ff3b30;
-      box-shadow: 0 1px 0 rgba(31, 36, 48, 0.32);
+      background: transparent;
+      box-shadow: none;
       cursor: pointer;
     }
 
     .gap.is-active {
-      filter: brightness(0.92);
+      background: rgba(31, 36, 48, 0.05);
+      filter: none;
+    }
+
+    .gap--top-left,
+    .gap--top-right {
+      position: absolute;
+      top: 12px;
+      width: 28px;
+      height: 42px;
+      z-index: 1;
+    }
+
+    .gap--top-left {
+      left: 4px;
+    }
+
+    .gap--top-right {
+      right: 4px;
     }
 
     .preview {
@@ -151,7 +169,7 @@
   </style>
 </head>
 <body>
-  <main class="phone" aria-label="Keyboard a l red spacer preview">
+  <main class="phone" aria-label="Keyboard transparent edge spacer preview">
     <div class="input" aria-live="polite">
       <span id="inputText" class="placeholder">Tap keys</span>
     </div>
@@ -163,8 +181,11 @@
         <div class="preview-text" id="previewText"></div>
       </div>
 
+      <button class="gap gap--top-left" data-key="q" data-source="[data-top-key='q']" aria-label="q left edge"></button>
+      <button class="gap gap--top-right" data-key="p" data-source="[data-top-key='p']" aria-label="p right edge"></button>
+
       <div class="row top">
-        <button class="key" data-key="q">q</button>
+        <button class="key" data-key="q" data-top-key="q">q</button>
         <button class="key" data-key="w">w</button>
         <button class="key" data-key="e">e</button>
         <button class="key" data-key="r">r</button>
@@ -173,7 +194,7 @@
         <button class="key" data-key="u">u</button>
         <button class="key" data-key="i">i</button>
         <button class="key" data-key="o">o</button>
-        <button class="key" data-key="p">p</button>
+        <button class="key" data-key="p" data-top-key="p">p</button>
       </div>
 
       <div class="row home">
