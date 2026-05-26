@@ -13,6 +13,13 @@ KEYBOARD_SOURCE = REPO_ROOT / "SimpaninKeyboard" / "KeyboardViewController.swift
 def main() -> int:
     source = KEYBOARD_SOURCE.read_text(encoding="utf-8")
     checks = {
+        "root touch router class": "private final class KeyboardRootStack" in source,
+        "root stack uses keyboard touch router": "private let rootStack = KeyboardRootStack()" in source,
+        "root stack touch outset configured": "rootStack.touchTargetOutset = Self.keyTouchOutset" in source,
+        "root stack routes screen-edge touches to rows": "nearestKeyboardRow(at point: CGPoint)" in source,
+        "root stack searches nested keyboard rows": "collectKeyboardRows(from view: UIView)" in source,
+        "root stack converts nested row frames before distance checks": "convert(row.bounds, from: row)" in source,
+        "root stack forwards edge hits into row hit testing": "return row.hitTest(convert(point, to: row), with: event)" in source,
         "row touch router class": "private final class KeyboardRowStack" in source,
         "row stack used for keyboard rows": "let rowStack = KeyboardRowStack()" in source,
         "nearest control routing": "nearestTouchTarget(at point: CGPoint)" in source,

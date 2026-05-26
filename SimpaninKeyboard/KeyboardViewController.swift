@@ -44,7 +44,7 @@ final class KeyboardViewController: UIInputViewController {
     private let candidateProvider = PinyinCandidateProvider()
     private let associationProvider = PinyinAssociationProvider()
     private let keyboardBackdropView = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
-    private let rootStack = UIStackView()
+    private let rootStack = KeyboardRootStack()
     private let trackpadBlurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
     private let keyPreviewView = KeyPreviewView()
     private let compositionBar = CompositionBarView()
@@ -68,6 +68,7 @@ final class KeyboardViewController: UIInputViewController {
     private var candidateMode: CandidateMode = .composition
     private var candidateRefreshWorkItem: DispatchWorkItem?
     private var candidateRefreshGeneration = 0
+    private var isCandidateRefreshPending = false
     private var associationContext: String?
     private var keyButtons: [UIButton] = []
     private var selectedCompositionSegments: [SelectedCompositionSegment] = []
@@ -176,6 +177,7 @@ final class KeyboardViewController: UIInputViewController {
 
         rootStack.axis = .vertical
         rootStack.spacing = 7
+        rootStack.touchTargetOutset = Self.keyTouchOutset
         rootStack.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(rootStack)
 
@@ -464,7 +466,6 @@ final class KeyboardViewController: UIInputViewController {
             rowStack.alignment = .fill
             rowStack.distribution = usesUniformLetterKeys || alignsControlRow ? .fill : .fillProportionally
             var rowSpacers: [UIView] = []
-            var sideKeys: [UIButton] = []
             var modeSwitchButton: KeyboardKeyButton?
             var spaceButton: KeyboardKeyButton?
             var languageButton: KeyboardKeyButton?
@@ -516,14 +517,8 @@ final class KeyboardViewController: UIInputViewController {
                 }
                 rowStack.addArrangedSubview(button)
                 button.heightAnchor.constraint(equalToConstant: 42).isActive = true
-                if usesUniformLetterKeys, key.kind.isPrimary {
+                if usesUniformLetterKeys, usesLetterKeyWidth(for: key.kind) {
                     button.widthAnchor.constraint(equalTo: rowStack.widthAnchor, multiplier: 0.1, constant: -5.4).isActive = true
-                }
-                if usesUniformLetterKeys, case .shift = key.kind {
-                    sideKeys.append(button)
-                }
-                if usesUniformLetterKeys, case .backspace = key.kind {
-                    sideKeys.append(button)
                 }
                 if alignsControlRow {
                     switch key.kind {
@@ -544,9 +539,6 @@ final class KeyboardViewController: UIInputViewController {
 
             if rowSpacers.count == 2 {
                 rowSpacers[0].widthAnchor.constraint(equalTo: rowSpacers[1].widthAnchor).isActive = true
-            }
-            if sideKeys.count == 2 {
-                sideKeys[0].widthAnchor.constraint(equalTo: sideKeys[1].widthAnchor).isActive = true
             }
             if alignsControlRow,
                let modeSwitchButton = modeSwitchButton,
@@ -585,10 +577,19 @@ final class KeyboardViewController: UIInputViewController {
         ])
     }
 
+    private func usesLetterKeyWidth(for kind: KeyKind) -> Bool {
+        switch kind {
+        case .character(_), .shift, .backspace:
+            return true
+        default:
+            return false
+        }
+    }
+
     private var letterRows: [[KeySpec]] {
         let row1 = "qwertyuiop".map { KeySpec(.character(String($0))) }
         let row2 = [KeySpec(.spacer, widthUnit: 0.5, proxyKind: .character("a"))] + "asdfghjkl".map { KeySpec(.character(String($0))) } + [KeySpec(.spacer, widthUnit: 0.5, proxyKind: .character("l"))]
-        let row3 = [KeySpec(.shift, widthUnit: 1.5)] + "zxcvbnm".map { KeySpec(.character(String($0))) } + [KeySpec(.backspace, widthUnit: 1.5)]
+        let row3 = [KeySpec(.shift), KeySpec(.spacer, widthUnit: 0.5)] + "zxcvbnm".map { KeySpec(.character(String($0))) } + [KeySpec(.spacer, widthUnit: 0.5), KeySpec(.backspace)]
         let row4 = [
             KeySpec(.modeSwitch(.numbers), title: "123", widthUnit: 1.35),
             KeySpec(.space, title: "空格", widthUnit: 3.55),
@@ -698,8 +699,13 @@ final class KeyboardViewController: UIInputViewController {
         button.titleLabel?.adjustsFontSizeToFitWidth = true
         button.titleLabel?.minimumScaleFactor = 0.75
         button.titleLabel?.baselineAdjustment = .alignCenters
-        if case .backspace = spec.kind {
-            let configuration = UIImage.SymbolConfiguration(pointSize: 20, weight: .regular)
+        if case .shift = spec.kind {
+            let configuration = UIImage.SymbolConfiguration(pointSize: 26, weight: .light)
+            button.setImage(UIImage(systemName: "shift", withConfiguration: configuration), for: .normal)
+            button.tintColor = primaryText
+            button.accessibilityLabel = "Shift"
+        } else if case .backspace = spec.kind {
+            let configuration = UIImage.SymbolConfiguration(pointSize: 26, weight: .light)
             button.setImage(UIImage(systemName: "delete.left", withConfiguration: configuration), for: .normal)
             button.tintColor = primaryText
             button.accessibilityLabel = "删除"
@@ -1098,7 +1104,16 @@ final class KeyboardViewController: UIInputViewController {
             associationQuery = nil
         }
 
-        applyCandidateRefreshResult([], mode: queryMode, resetScroll: resetScroll)
+        isCandidateRefreshPending = true
+        candidateMode = queryMode
+        updateCandidateControlsEnabled()
+        if isCandidatePageVisible {
+            setCandidatePageVisible(false)
+        }
+        if resetScroll {
+            candidateScrollView.setContentOffset(.zero, animated: false)
+        }
+        updateReturnKeyAppearance()
 
         var workItem: DispatchWorkItem!
         workItem = DispatchWorkItem { [weak self] in
@@ -1134,6 +1149,7 @@ final class KeyboardViewController: UIInputViewController {
         mode: CandidateMode,
         resetScroll: Bool
     ) {
+        isCandidateRefreshPending = false
         candidateMode = mode
         allCandidates = candidates
         visibleCandidateCount = min(Self.candidateBatchSize, allCandidates.count)
@@ -1151,6 +1167,15 @@ final class KeyboardViewController: UIInputViewController {
         updateReturnKeyAppearance()
     }
 
+    private func updateCandidateControlsEnabled() {
+        candidateExpandButton.isUserInteractionEnabled = !isCandidateRefreshPending
+        candidateStack.arrangedSubviews.forEach { view in
+            if let button = view as? UIButton {
+                button.isUserInteractionEnabled = !isCandidateRefreshPending
+            }
+        }
+    }
+
     private func renderVisibleCandidates() {
         candidateStack.arrangedSubviews.forEach { view in
             candidateStack.removeArrangedSubview(view)
@@ -1165,6 +1190,7 @@ final class KeyboardViewController: UIInputViewController {
 
         for (index, candidate) in allCandidates.prefix(visibleCandidateCount).enumerated() {
             let button = makeCandidateButton(candidate: candidate, index: index)
+            button.isUserInteractionEnabled = !isCandidateRefreshPending
             candidateStack.addArrangedSubview(button)
             button.widthAnchor.constraint(greaterThanOrEqualToConstant: 48).isActive = true
         }
@@ -1221,6 +1247,7 @@ final class KeyboardViewController: UIInputViewController {
     private func updateCandidateExpandButtonVisibility() {
         let canExpand = keyboardMode == .letters && inputLanguage == .chinese && !allCandidates.isEmpty
         candidateExpandButton.isHidden = !canExpand
+        candidateExpandButton.isUserInteractionEnabled = !isCandidateRefreshPending
         if !canExpand {
             setCandidatePageVisible(false)
         }
@@ -1978,6 +2005,68 @@ private final class KeyboardKeyButton: UIButton {
             return 0
         }
         return -1
+    }
+}
+
+private final class KeyboardRootStack: UIStackView {
+    var touchTargetOutset: CGFloat = 0
+
+    override func point(inside point: CGPoint, with event: UIEvent?) -> Bool {
+        super.point(inside: point, with: event) || nearestKeyboardRow(at: point) != nil
+    }
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard !isHidden, alpha >= 0.01, isUserInteractionEnabled, self.point(inside: point, with: event) else {
+            return nil
+        }
+
+        let hitView = super.hitTest(point, with: event)
+        if let hitView, hitView !== self {
+            return hitView
+        }
+
+        guard let row = nearestKeyboardRow(at: point) else { return nil }
+        return row.hitTest(convert(point, to: row), with: event)
+    }
+
+    private func nearestKeyboardRow(at point: CGPoint) -> KeyboardRowStack? {
+        collectKeyboardRows(from: self)
+            .compactMap { row -> (row: KeyboardRowStack, frame: CGRect)? in
+                guard !row.isHidden,
+                      row.alpha >= 0.01,
+                      row.isUserInteractionEnabled else {
+                    return nil
+                }
+
+                let frame = convert(row.bounds, from: row)
+                guard frame.insetBy(dx: -touchTargetOutset, dy: -touchTargetOutset).contains(point) else {
+                    return nil
+                }
+                return (row, frame)
+            }
+            .min { left, right in
+                squaredDistance(from: point, to: left.frame) < squaredDistance(from: point, to: right.frame)
+            }?
+            .row
+    }
+
+    private func collectKeyboardRows(from view: UIView) -> [KeyboardRowStack] {
+        var rows: [KeyboardRowStack] = []
+        for subview in view.subviews {
+            if let row = subview as? KeyboardRowStack {
+                rows.append(row)
+            }
+            rows.append(contentsOf: collectKeyboardRows(from: subview))
+        }
+        return rows
+    }
+
+    private func squaredDistance(from point: CGPoint, to rect: CGRect) -> CGFloat {
+        let clampedX = min(max(point.x, rect.minX), rect.maxX)
+        let clampedY = min(max(point.y, rect.minY), rect.maxY)
+        let dx = point.x - clampedX
+        let dy = point.y - clampedY
+        return dx * dx + dy * dy
     }
 }
 
