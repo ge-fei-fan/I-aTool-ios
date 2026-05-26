@@ -2039,6 +2039,31 @@ private final class KeyboardKeyButton: UIButton {
         return bounds.insetBy(dx: -touchOutset, dy: -touchOutset).contains(point)
     }
 
+    override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+        let location = touch.location(in: self)
+        guard bounds.insetBy(dx: -touchOutset, dy: -touchOutset).contains(location) else {
+            return false
+        }
+        isHighlighted = bounds.contains(location)
+        return true
+    }
+
+    override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+        let location = touch.location(in: self)
+        isHighlighted = bounds.contains(location)
+        return true
+    }
+
+    override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
+        isHighlighted = false
+        super.endTracking(touch, with: event)
+    }
+
+    override func cancelTracking(with event: UIEvent?) {
+        isHighlighted = false
+        super.cancelTracking(with: event)
+    }
+
     override func layoutSubviews() {
         super.layoutSubviews()
 
@@ -2304,22 +2329,25 @@ private final class KeyboardProxySpacerButton: UIButton {
         onPreviewEnded = onEnded
     }
 
+    private var touchOutset: CGFloat = 6
+
     override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
-        let shouldTrack = super.beginTracking(touch, with: event)
-        if shouldTrack {
-            beginPreview()
+        let location = touch.location(in: self)
+        guard bounds.insetBy(dx: -touchOutset, dy: -touchOutset).contains(location) else {
+            return false
         }
-        return shouldTrack
+        beginPreview()
+        return true
     }
 
     override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
-        let isInside = bounds.contains(touch.location(in: self))
-        if isInside {
+        let location = touch.location(in: self)
+        if bounds.insetBy(dx: -touchOutset, dy: -touchOutset).contains(location) {
             beginPreview()
         } else {
             endPreview()
         }
-        return super.continueTracking(touch, with: event)
+        return true
     }
 
     override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
