@@ -439,17 +439,20 @@ final class KeyboardViewController: UIInputViewController {
         _ asset: KeyboardKeyIconAsset,
         fallbackSystemName: String,
         fallbackWeight: UIImage.SymbolWeight,
-        preservesOriginalColors: Bool
+        pointSize: CGFloat = Self.keyboardIconPointSize,
+        renderingMode: UIImage.RenderingMode = .alwaysTemplate,
+        aspectFill: Bool = false
     ) -> UIImage? {
         if let url = Bundle(for: Self.self).url(forResource: asset.fileName, withExtension: "png", subdirectory: "ios-icon"),
            let image = UIImage(contentsOfFile: url.path) {
             return resizedKeyboardImage(
                 image,
-                pointSize: Self.keyboardIconPointSize,
-                renderingMode: preservesOriginalColors ? .alwaysOriginal : .alwaysTemplate
+                pointSize: pointSize,
+                renderingMode: renderingMode,
+                aspectFill: aspectFill
             )
         }
-        let configuration = UIImage.SymbolConfiguration(pointSize: Self.keyboardIconPointSize, weight: fallbackWeight)
+        let configuration = UIImage.SymbolConfiguration(pointSize: pointSize, weight: fallbackWeight)
         return UIImage(systemName: fallbackSystemName, withConfiguration: configuration)
     }
 
@@ -460,14 +463,28 @@ final class KeyboardViewController: UIInputViewController {
     private func resizedKeyboardImage(
         _ image: UIImage,
         pointSize: CGFloat,
-        renderingMode: UIImage.RenderingMode
+        renderingMode: UIImage.RenderingMode,
+        aspectFill: Bool = false
     ) -> UIImage {
         let size = CGSize(width: pointSize, height: pointSize)
         let format = UIGraphicsImageRendererFormat.default()
         format.opaque = false
         format.scale = UIScreen.main.scale
         let resized = UIGraphicsImageRenderer(size: size, format: format).image { _ in
-            image.draw(in: CGRect(origin: .zero, size: size))
+            let drawRect: CGRect
+            if aspectFill {
+                let scale = max(size.width / image.size.width, size.height / image.size.height)
+                let scaledSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+                drawRect = CGRect(
+                    x: (size.width - scaledSize.width) / 2,
+                    y: (size.height - scaledSize.height) / 2,
+                    width: scaledSize.width,
+                    height: scaledSize.height
+                )
+            } else {
+                drawRect = CGRect(origin: .zero, size: size)
+            }
+            image.draw(in: drawRect)
         }
         return resized.withRenderingMode(renderingMode)
     }
@@ -765,11 +782,11 @@ final class KeyboardViewController: UIInputViewController {
         button.titleLabel?.minimumScaleFactor = 0.75
         button.titleLabel?.baselineAdjustment = .alignCenters
         if case .shift = spec.kind {
-            button.setImage(keyboardKeyIcon(.shift, fallbackSystemName: "shift", fallbackWeight: .light, preservesOriginalColors: true), for: .normal)
+            button.setImage(keyboardKeyIcon(.shift, fallbackSystemName: "shift", fallbackWeight: .light, pointSize: 42, renderingMode: .alwaysTemplate, aspectFill: true), for: .normal)
             button.tintColor = primaryText
             button.accessibilityLabel = "Shift"
         } else if case .backspace = spec.kind {
-            button.setImage(keyboardKeyIcon(.backspace, fallbackSystemName: "delete.left", fallbackWeight: .light, preservesOriginalColors: false), for: .normal)
+            button.setImage(keyboardKeyIcon(.backspace, fallbackSystemName: "delete.left", fallbackWeight: .light), for: .normal)
             button.tintColor = primaryText
             button.accessibilityLabel = "删除"
         } else {
