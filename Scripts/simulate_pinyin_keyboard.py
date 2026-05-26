@@ -673,24 +673,44 @@ class PinyinCandidateProvider:
 
         cache: dict[str, list[PinyinCandidate]] = {}
         candidates: list[PinyinCandidate] = []
-        candidates += self._scored_candidates(key, MatchKind.EXACT, len(key), cache)
+        exact_candidates = self._scored_candidates(key, MatchKind.EXACT, len(key), cache)
+        candidates += exact_candidates
         completion_candidates = self._completion_candidates(key, cache)
         candidates += completion_candidates
         candidates += self._initial_shorthand_candidates(key, cache)
         candidates += self._acronym_candidates(key, cache)
-        candidates += self._fuzzy_correction_candidates(key, cache)
+        if len(candidates) < 16:
+            candidates += self._fuzzy_correction_candidates(key, cache)
 
         segments = PinyinSegmenter.segment(key)
         if len(segments) > 1:
             candidates += self._beam_candidates(segments, key, cache)
 
-        candidates += self._segmented_phrase_candidates(key, cache)
+        if self._should_use_segmented_phrase_candidates(key, segments, bool(exact_candidates), len(candidates)):
+            candidates += self._segmented_phrase_candidates(key, cache)
 
         if completion_candidates or len(candidates) < 16:
             candidates += self._longest_prefix_candidates(key, cache)
         candidates += self._fallback_candidates(key)
 
         return self._merge(candidates)
+
+    def _should_use_segmented_phrase_candidates(
+        self,
+        key: str,
+        segments: list[str],
+        has_exact_candidates: bool,
+        current_candidate_count: int,
+    ) -> bool:
+        if len(key) < 4 or len(key) > self.MAX_SEGMENTED_PHRASE_INPUT_LENGTH:
+            return False
+        if (
+            len(segments) > 1
+            and "".join(segments) == key
+            and (has_exact_candidates or current_candidate_count >= 12)
+        ):
+            return False
+        return True
 
     def keyboard_candidates(self, pinyin: str) -> list[PinyinCandidate]:
         key = self.normalized_key(pinyin)

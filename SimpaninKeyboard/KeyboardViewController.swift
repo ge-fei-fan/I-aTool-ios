@@ -60,11 +60,14 @@ final class KeyboardViewController: UIInputViewController {
     private let utilityOverlayView = UIView()
     private let utilityOverlayStack = UIStackView()
     private let utilityOverlayButton = UIButton(type: .system)
+    private let candidateQueue = DispatchQueue(label: "com.local.fitnex.keyboard.candidates", qos: .userInitiated)
     private var utilityOverlayIconButtons: [UIButton] = []
     private var allCandidates: [KeyboardCandidate] = []
     private var visibleCandidateCount = 0
     private var highlightedCandidateIndex = 0
     private var candidateMode: CandidateMode = .composition
+    private var candidateRefreshWorkItem: DispatchWorkItem?
+    private var candidateRefreshGeneration = 0
     private var associationContext: String?
     private var keyButtons: [UIButton] = []
     private var selectedCompositionSegments: [SelectedCompositionSegment] = []
@@ -89,6 +92,7 @@ final class KeyboardViewController: UIInputViewController {
 
     private static let candidateBatchSize = 30
     private static let candidatePanelAnimationDuration: TimeInterval = 0.22
+    private static let candidateRefreshDelay: TimeInterval = 0.012
     private static let candidateToggleButtonWidth: CGFloat = 34
     private static let candidateToggleButtonHeight: CGFloat = 30
     private static let keyboardIconPointSize: CGFloat = 22
@@ -272,19 +276,17 @@ final class KeyboardViewController: UIInputViewController {
         utilityOverlayStack.spacing = 16
         utilityOverlayView.addSubview(utilityOverlayStack)
 
-        configureUtilityIconButton(utilityOverlayButton, asset: .diversity, fallbackSystemName: "person.2", accessibilityLabel: "Quick fill")
-        utilityOverlayButton.addAction(UIAction { [weak self] _ in
-            self?.handleUtilityFillButtonTap()
-        }, for: .touchUpInside)
+        configureUtilityIconButton(utilityOverlayButton, asset: .diversity, fallbackSystemName: "person.2", accessibilityLabel: "Function")
+        utilityOverlayButton.isUserInteractionEnabled = false
         utilityOverlayStack.addArrangedSubview(utilityOverlayButton)
         utilityOverlayIconButtons.append(utilityOverlayButton)
 
-        let utilityItems: [(asset: KeyboardIconAsset, fallbackSystemName: String, label: String, dismissesKeyboard: Bool)] = [
-            (asset: .heart, fallbackSystemName: "heart", label: "Messages", dismissesKeyboard: false),
-            (asset: .happy, fallbackSystemName: "face.smiling", label: "Dictation", dismissesKeyboard: false),
-            (asset: .happy, fallbackSystemName: "face.smiling", label: "Cursor", dismissesKeyboard: false),
-            (asset: .happy, fallbackSystemName: "face.smiling", label: "Emoji", dismissesKeyboard: false),
-            (asset: .arrowDown, fallbackSystemName: "chevron.down", label: "Dismiss keyboard", dismissesKeyboard: true)
+        let utilityItems: [(asset: KeyboardIconAsset, fallbackSystemName: String, label: String, dismissesKeyboard: Bool, opensQuickFill: Bool)] = [
+            (asset: .heart, fallbackSystemName: "heart", label: "Quick fill", dismissesKeyboard: false, opensQuickFill: true),
+            (asset: .happy, fallbackSystemName: "face.smiling", label: "Dictation", dismissesKeyboard: false, opensQuickFill: false),
+            (asset: .happy, fallbackSystemName: "face.smiling", label: "Cursor", dismissesKeyboard: false, opensQuickFill: false),
+            (asset: .happy, fallbackSystemName: "face.smiling", label: "Emoji", dismissesKeyboard: false, opensQuickFill: false),
+            (asset: .arrowDown, fallbackSystemName: "chevron.down", label: "Dismiss keyboard", dismissesKeyboard: true, opensQuickFill: false)
         ]
         utilityItems.forEach { item in
             let button = UIButton(type: .system)
@@ -294,7 +296,11 @@ final class KeyboardViewController: UIInputViewController {
                 fallbackSystemName: item.fallbackSystemName,
                 accessibilityLabel: item.label
             )
-            if item.dismissesKeyboard {
+            if item.opensQuickFill {
+                button.addAction(UIAction { [weak self] _ in
+                    self?.handleUtilityFillButtonTap()
+                }, for: .touchUpInside)
+            } else if item.dismissesKeyboard {
                 button.addAction(UIAction { [weak self] _ in
                     self?.dismissKeyboard()
                 }, for: .touchUpInside)
@@ -482,13 +488,11 @@ final class KeyboardViewController: UIInputViewController {
                             self?.handle(proxyKind)
                         }, for: .touchUpInside)
                         if shouldPreviewKey(proxyKind) {
-                            bindKeyPreviewEvents(
-                                to: proxySpacer,
-                                previewText: title(for: KeySpec(proxyKind)),
-                                sourceViewProvider: { [weak proxySpacer] in
-                                    proxySpacer?.previewSourceView
-                                }
-                            )
+                            proxySpacer.configurePreview(text: title(for: KeySpec(proxyKind))) { [weak self] sourceView, previewText in
+                                self?.showKeyPreview(from: sourceView, text: previewText)
+                            } onEnded: { [weak self] in
+                                self?.hideKeyPreview()
+                            }
                         }
                         spacer = proxySpacer
                     } else {
@@ -764,6 +768,9 @@ final class KeyboardViewController: UIInputViewController {
         let centeredX = buttonFrame.midX - previewSize.width / 2
         let originX = min(max(centeredX, minX), maxX)
         let originY = max(0, buttonFrame.minY - previewSize.height + 3)
+        let minTailCenterX: CGFloat = 14
+        let maxTailCenterX = previewSize.width - minTailCenterX
+        keyPreviewView.tailCenterX = min(max(buttonFrame.midX - originX, minTailCenterX), maxTailCenterX)
 
         keyPreviewView.frame = CGRect(origin: CGPoint(x: originX, y: originY), size: previewSize)
         keyPreviewView.isHidden = false
@@ -1066,30 +1073,69 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func updateCandidates(resetScroll: Bool = false) {
+        candidateRefreshGeneration += 1
+        candidateRefreshWorkItem?.cancel()
+        let generation = candidateRefreshGeneration
+
         guard keyboardMode == .letters, inputLanguage == .chinese else {
-            allCandidates = []
-            visibleCandidateCount = 0
-            candidateMode = .composition
-            setCandidatePageVisible(false)
-            renderVisibleCandidates()
-            updateReturnKeyAppearance()
+            applyCandidateRefreshResult([], mode: .composition, resetScroll: resetScroll)
             return
         }
+
         let pinyin = activeCandidatePinyin
+        let queryMode: CandidateMode
+        let associationQuery: String?
         if pinyin.isEmpty {
             if !hasActiveComposition, let associationContext {
-                candidateMode = .association
-                allCandidates = associationProvider.associations(for: associationContext).map { candidate in
-                    KeyboardCandidate(text: candidate, consumeLength: 0)
-                }
+                queryMode = .association
+                associationQuery = associationContext
             } else {
-                candidateMode = .composition
-                allCandidates = []
+                applyCandidateRefreshResult([], mode: .composition, resetScroll: resetScroll)
+                return
             }
         } else {
-            candidateMode = .composition
-            allCandidates = self.candidates(for: pinyin)
+            queryMode = .composition
+            associationQuery = nil
         }
+
+        applyCandidateRefreshResult([], mode: queryMode, resetScroll: resetScroll)
+
+        var workItem: DispatchWorkItem!
+        workItem = DispatchWorkItem { [weak self] in
+            guard !workItem.isCancelled else { return }
+            guard let self else { return }
+
+            let candidates: [KeyboardCandidate]
+            switch queryMode {
+            case .composition:
+                candidates = self.candidates(for: pinyin)
+            case .association:
+                candidates = self.associationProvider.associations(for: associationQuery ?? "").map { candidate in
+                    KeyboardCandidate(text: candidate, consumeLength: 0)
+                }
+            }
+
+            guard !workItem.isCancelled else { return }
+            DispatchQueue.main.async { [weak self] in
+                guard let self,
+                      self.candidateRefreshGeneration == generation,
+                      !workItem.isCancelled else {
+                    return
+                }
+                self.applyCandidateRefreshResult(candidates, mode: queryMode, resetScroll: resetScroll)
+            }
+        }
+        candidateRefreshWorkItem = workItem
+        candidateQueue.asyncAfter(deadline: .now() + Self.candidateRefreshDelay, execute: workItem)
+    }
+
+    private func applyCandidateRefreshResult(
+        _ candidates: [KeyboardCandidate],
+        mode: CandidateMode,
+        resetScroll: Bool
+    ) {
+        candidateMode = mode
+        allCandidates = candidates
         visibleCandidateCount = min(Self.candidateBatchSize, allCandidates.count)
         if resetScroll || highlightedCandidateIndex >= visibleCandidateCount {
             highlightedCandidateIndex = 0
@@ -1986,7 +2032,13 @@ private final class KeyboardRowStack: UIStackView {
 private final class KeyPreviewView: UIView {
     private let label = UILabel()
     private var fillColor = UIColor.white
-    private var tailHeight: CGFloat { 10 }
+    private var tailHeight: CGFloat { 12 }
+    var tailCenterX: CGFloat = 26 {
+        didSet {
+            setNeedsLayout()
+            setNeedsDisplay()
+        }
+    }
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -2016,13 +2068,13 @@ private final class KeyPreviewView: UIView {
     }
 
     func preferredSize(forButtonWidth buttonWidth: CGFloat) -> CGSize {
-        CGSize(width: max(54, min(72, buttonWidth + 24)), height: 68)
+        CGSize(width: 52, height: 84)
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
         let bubbleRect = bounds.inset(by: UIEdgeInsets(top: 0, left: 0, bottom: tailHeight, right: 0))
-        label.frame = bubbleRect.insetBy(dx: 0, dy: 4)
+        label.frame = bubbleRect.insetBy(dx: 0, dy: 0).offsetBy(dx: 0, dy: -5)
         layer.shadowPath = previewPath(in: bounds).cgPath
     }
 
@@ -2035,10 +2087,11 @@ private final class KeyPreviewView: UIView {
         let bubbleRect = rect.inset(by: UIEdgeInsets(top: 0, left: 0, bottom: tailHeight, right: 0))
         let path = UIBezierPath(roundedRect: bubbleRect, cornerRadius: 12)
         let tailWidth: CGFloat = 15
+        let tailX = min(max(tailCenterX, tailWidth / 2), rect.width - tailWidth / 2)
         let tail = UIBezierPath()
-        tail.move(to: CGPoint(x: rect.midX - tailWidth / 2, y: bubbleRect.maxY - 1))
-        tail.addLine(to: CGPoint(x: rect.midX, y: rect.maxY))
-        tail.addLine(to: CGPoint(x: rect.midX + tailWidth / 2, y: bubbleRect.maxY - 1))
+        tail.move(to: CGPoint(x: tailX - tailWidth / 2, y: bubbleRect.maxY - 1))
+        tail.addLine(to: CGPoint(x: tailX, y: rect.maxY))
+        tail.addLine(to: CGPoint(x: tailX + tailWidth / 2, y: bubbleRect.maxY - 1))
         tail.close()
         path.append(tail)
         return path
@@ -2056,9 +2109,63 @@ private final class KeyboardKeySpacer: UIView {
 private final class KeyboardProxySpacerButton: UIButton {
     var widthUnit: CGFloat = 1
     weak var previewSourceView: UIView?
+    private var previewText: String?
+    private var onPreviewBegan: ((UIView, String) -> Void)?
+    private var onPreviewEnded: (() -> Void)?
+    private var isPreviewActive = false
 
     override var intrinsicContentSize: CGSize {
         CGSize(width: 32 * widthUnit, height: 42)
+    }
+
+    func configurePreview(
+        text: String,
+        onBegan: @escaping (UIView, String) -> Void,
+        onEnded: @escaping () -> Void
+    ) {
+        previewText = text
+        onPreviewBegan = onBegan
+        onPreviewEnded = onEnded
+    }
+
+    override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+        let shouldTrack = super.beginTracking(touch, with: event)
+        if shouldTrack {
+            beginPreview()
+        }
+        return shouldTrack
+    }
+
+    override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
+        let isInside = bounds.contains(touch.location(in: self))
+        if isInside {
+            beginPreview()
+        } else {
+            endPreview()
+        }
+        return super.continueTracking(touch, with: event)
+    }
+
+    override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
+        endPreview()
+        super.endTracking(touch, with: event)
+    }
+
+    override func cancelTracking(with event: UIEvent?) {
+        endPreview()
+        super.cancelTracking(with: event)
+    }
+
+    private func beginPreview() {
+        guard !isPreviewActive, let previewText else { return }
+        isPreviewActive = true
+        onPreviewBegan?(previewSourceView ?? self, previewText)
+    }
+
+    private func endPreview() {
+        guard isPreviewActive else { return }
+        isPreviewActive = false
+        onPreviewEnded?()
     }
 }
 
@@ -3243,6 +3350,7 @@ private final class PinyinCandidateProvider {
     private static let maxMemoryCount = 100
     private static let memoryFrequencyStep = 160_000
     private static let maxMemoryBoost = 2_500_000
+    private static let maxBundledCandidateCacheEntries = 512
     private static let recordSize = 20
     private static let fnvOffsetBasis: UInt64 = 14_695_981_039_346_656_037
     private static let fnvPrime: UInt64 = 1_099_511_628_211
@@ -3275,6 +3383,8 @@ private final class PinyinCandidateProvider {
     private let lexiconURL = Bundle.main.url(forResource: "PinyinLexicon", withExtension: "tsv")
     private let indexURL = Bundle.main.url(forResource: "PinyinLexicon", withExtension: "idx")
     private let defaults = UserDefaults.standard
+    private let bundledCandidateCacheLock = NSLock()
+    private var bundledCandidateCache: [String: [PinyinCandidate]] = [:]
     private let recordCount: Int
 
     init() {
@@ -3292,19 +3402,29 @@ private final class PinyinCandidateProvider {
 
         var lookupCache: [String: [PinyinCandidate]] = [:]
         var candidates: [PinyinCandidate] = []
-        candidates += scoredCandidates(for: key, match: .exact, consumeLength: key.count, cache: &lookupCache)
+        let exactCandidates = scoredCandidates(for: key, match: .exact, consumeLength: key.count, cache: &lookupCache)
+        candidates += exactCandidates
         let completionCandidates = completionCandidates(for: key, cache: &lookupCache)
         candidates += completionCandidates
         candidates += initialShorthandCandidates(for: key, cache: &lookupCache)
         candidates += acronymCandidates(for: key, cache: &lookupCache)
-        candidates += fuzzyCorrectionCandidates(for: key, cache: &lookupCache)
+        if candidates.count < 16 {
+            candidates += fuzzyCorrectionCandidates(for: key, cache: &lookupCache)
+        }
 
         let segments = PinyinSegmenter.segment(key)
         if segments.count > 1 {
             candidates += beamCandidates(from: segments, fullKey: key, cache: &lookupCache)
         }
 
-        candidates += segmentedPhraseCandidates(for: key, cache: &lookupCache)
+        if shouldUseSegmentedPhraseCandidates(
+            for: key,
+            segments: segments,
+            hasExactCandidates: !exactCandidates.isEmpty,
+            currentCandidateCount: candidates.count
+        ) {
+            candidates += segmentedPhraseCandidates(for: key, cache: &lookupCache)
+        }
 
         if !completionCandidates.isEmpty || candidates.count < 16 {
             candidates += longestPrefixCandidates(for: key, cache: &lookupCache)
@@ -3312,6 +3432,21 @@ private final class PinyinCandidateProvider {
         candidates += fallbackCandidates(for: key)
 
         return applyUserMemory(to: merge(candidates), key: key)
+    }
+
+    private func shouldUseSegmentedPhraseCandidates(
+        for key: String,
+        segments: [String],
+        hasExactCandidates: Bool,
+        currentCandidateCount: Int
+    ) -> Bool {
+        guard key.count >= 4, key.count <= Self.maxSegmentedPhraseInputLength else { return false }
+        if segments.count > 1,
+           segments.joined(separator: "") == key,
+           (hasExactCandidates || currentCandidateCount >= 12) {
+            return false
+        }
+        return true
     }
 
     func recordSelection(_ text: String, for pinyin: String) {
@@ -3944,9 +4079,16 @@ private final class PinyinCandidateProvider {
     }
 
     private func bundledCandidates(for key: String) -> [PinyinCandidate]? {
+        if let cached = memoryCachedBundledCandidates(for: key) {
+            return cached.isEmpty ? nil : cached
+        }
+
         guard let lexiconURL, let indexURL, recordCount > 0 else { return nil }
         let records = findRecords(for: key, in: indexURL)
-        guard !records.isEmpty else { return nil }
+        guard !records.isEmpty else {
+            storeBundledCandidates([], for: key)
+            return nil
+        }
         guard let handle = try? FileHandle(forReadingFrom: lexiconURL) else { return nil }
         defer { try? handle.close() }
 
@@ -3959,18 +4101,37 @@ private final class PinyinCandidateProvider {
                     .trimmingCharacters(in: .newlines)
                     .split(separator: "\t", omittingEmptySubsequences: true)
                 guard fields.first.map(String.init) == key else { continue }
-                return fields
+                let candidates = fields
                     .dropFirst()
                     .enumerated()
                     .map { index, field in
                         Self.parseCandidateField(String(field), fallbackWeight: 120 - index)
                     }
+                storeBundledCandidates(candidates, for: key)
+                return candidates
             } catch {
                 continue
             }
         }
 
+        storeBundledCandidates([], for: key)
         return nil
+    }
+
+    private func memoryCachedBundledCandidates(for key: String) -> [PinyinCandidate]? {
+        bundledCandidateCacheLock.lock()
+        defer { bundledCandidateCacheLock.unlock() }
+        return bundledCandidateCache[key]
+    }
+
+    private func storeBundledCandidates(_ candidates: [PinyinCandidate], for key: String) {
+        bundledCandidateCacheLock.lock()
+        defer { bundledCandidateCacheLock.unlock() }
+        if bundledCandidateCache[key] == nil,
+           bundledCandidateCache.count >= Self.maxBundledCandidateCacheEntries {
+            bundledCandidateCache.removeAll(keepingCapacity: true)
+        }
+        bundledCandidateCache[key] = candidates
     }
 
     private func findRecords(for key: String, in indexURL: URL) -> [IndexRecord] {

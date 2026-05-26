@@ -20,6 +20,15 @@ def main() -> int:
         "row hit testing avoids point parameter shadowing": "isUserInteractionEnabled, point(inside: point, with: event)" not in source,
         "key touch outset configured": "button.touchOutset = Self.keyTouchOutset" in source,
         "space long press keeps normal touches": "recognizer.cancelsTouchesInView = false" in source,
+        "key preview uses approved 52 by 84 size": "CGSize(width: 52, height: 84)" in source,
+        "key preview body is 72pt tall": "private var tailHeight: CGFloat { 12 }" in source,
+        "key preview tail can track edge keys": "var tailCenterX: CGFloat = 26" in source,
+        "key preview tail tracks pressed key center": "keyPreviewView.tailCenterX = min(max(buttonFrame.midX - originX, minTailCenterX), maxTailCenterX)" in source,
+        "key preview letter is raised 5pt": "label.frame = bubbleRect.insetBy(dx: 0, dy: 0).offsetBy(dx: 0, dy: -5)" in source,
+        "proxy spacer has dedicated preview configuration": "func configurePreview(" in source and "text: String," in source,
+        "proxy spacer begins preview from real key source": "onPreviewBegan?(previewSourceView ?? self, previewText)" in source,
+        "proxy spacer ends preview on cancelled tracking": "override func cancelTracking(with event: UIEvent?)" in source,
+        "row proxy spacer uses dedicated preview tracking": "proxySpacer.configurePreview(text: title(for: KeySpec(proxyKind)))" in source,
     }
 
     failed = [name for name, passed in checks.items() if not passed]

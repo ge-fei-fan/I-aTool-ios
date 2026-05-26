@@ -13,7 +13,7 @@ KEYBOARD_SOURCE = REPO_ROOT / "SimpaninKeyboard" / "KeyboardViewController.swift
 
 def utility_items_block(source: str) -> str:
     match = re.search(
-        r"let utilityItems: \[\(asset: KeyboardIconAsset, fallbackSystemName: String, label: String, dismissesKeyboard: Bool\)\] = \[(.*?)\n\s*\]",
+        r"let utilityItems: \[\(.*?\)\] = \[(.*?)\n\s*\]",
         source,
         re.S,
     )
@@ -26,10 +26,14 @@ def main() -> int:
 
     checks = {
         "candidate icon size is 22pt": "private static let keyboardIconPointSize: CGFloat = 22" in source,
-        "quick fill uses diversity icon": 'configureUtilityIconButton(utilityOverlayButton, asset: .diversity, fallbackSystemName: "person.2", accessibilityLabel: "Quick fill")' in source,
-        "messages heart icon is first utility item": '(asset: .heart, fallbackSystemName: "heart", label: "Messages", dismissesKeyboard: false)' in items,
+        "leading function icon uses diversity icon": 'configureUtilityIconButton(utilityOverlayButton, asset: .diversity, fallbackSystemName: "person.2", accessibilityLabel: "Function")' in source,
+        "leading function icon is disabled": "utilityOverlayButton.isUserInteractionEnabled = false" in source,
+        "leading function icon does not open quick fill": "utilityOverlayButton.addAction" not in source,
+        "quick fill heart icon is first utility item": '(asset: .heart, fallbackSystemName: "heart", label: "Quick fill", dismissesKeyboard: false, opensQuickFill: true)' in items,
         "utility item list has five icons": items.count("(asset:") == 5,
-        "heart icon precedes dictation": items.find('label: "Messages"') != -1 and items.find('label: "Messages"') < items.find('label: "Dictation"'),
+        "total utility toolbar has six icons": source.count("utilityOverlayIconButtons.append(") == 2 and items.count("(asset:") == 5,
+        "heart icon precedes dictation": items.find('label: "Quick fill"') != -1 and items.find('label: "Quick fill"') < items.find('label: "Dictation"'),
+        "heart icon opens quick fill": "if item.opensQuickFill" in source and "self?.handleUtilityFillButtonTap()" in source,
     }
 
     failed = [name for name, passed in checks.items() if not passed]
