@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>A/L Gap Key Preview</title>
+  <title>A/L Red Spacer Preview</title>
   <style>
     :root {
       color-scheme: light;
@@ -95,22 +95,13 @@
     }
 
     .gap {
-      background: transparent;
+      background: #ff3b30;
+      box-shadow: 0 1px 0 rgba(31, 36, 48, 0.32);
       cursor: pointer;
     }
 
-    .gap::after {
-      content: "";
-      position: absolute;
-      inset: 8px 2px;
-      border-radius: 4px;
-      border: 1px dashed rgba(31, 36, 48, 0.18);
-      opacity: 0;
-      transition: opacity 120ms ease;
-    }
-
-    .gap.is-active::after {
-      opacity: 1;
+    .gap.is-active {
+      filter: brightness(0.92);
     }
 
     .preview {
@@ -160,7 +151,7 @@
   </style>
 </head>
 <body>
-  <main class="phone" aria-label="Keyboard a l gap preview">
+  <main class="phone" aria-label="Keyboard a l red spacer preview">
     <div class="input" aria-live="polite">
       <span id="inputText" class="placeholder">Tap keys</span>
     </div>
@@ -208,6 +199,7 @@
     const previewText = document.querySelector("#previewText");
     let typed = "";
     let activeElement = null;
+    let activePointers = new Map();
 
     function sourceFor(element) {
       const selector = element.dataset.source;
@@ -250,20 +242,52 @@
       inputText.classList.remove("placeholder");
     }
 
+    function pointInside(element, event) {
+      const rect = element.getBoundingClientRect();
+      return (
+        event.clientX >= rect.left &&
+        event.clientX <= rect.right &&
+        event.clientY >= rect.top &&
+        event.clientY <= rect.bottom
+      );
+    }
+
     document.querySelectorAll("[data-key]").forEach((element) => {
       element.addEventListener("pointerdown", (event) => {
         event.preventDefault();
         element.setPointerCapture(event.pointerId);
+        activePointers.set(event.pointerId, element);
         showPreview(element);
       });
 
-      element.addEventListener("pointerup", () => {
-        commitKey(element);
+      element.addEventListener("pointermove", (event) => {
+        if (activePointers.get(event.pointerId) !== element) {
+          return;
+        }
+
+        if (pointInside(element, event)) {
+          showPreview(element);
+        } else {
+          hidePreview();
+        }
+      });
+
+      element.addEventListener("pointerup", (event) => {
+        if (activePointers.get(event.pointerId) === element && pointInside(element, event)) {
+          commitKey(element);
+        }
+        activePointers.delete(event.pointerId);
         hidePreview();
       });
 
-      element.addEventListener("pointercancel", hidePreview);
-      element.addEventListener("lostpointercapture", hidePreview);
+      element.addEventListener("pointercancel", (event) => {
+        activePointers.delete(event.pointerId);
+        hidePreview();
+      });
+      element.addEventListener("lostpointercapture", (event) => {
+        activePointers.delete(event.pointerId);
+        hidePreview();
+      });
     });
   </script>
 </body>

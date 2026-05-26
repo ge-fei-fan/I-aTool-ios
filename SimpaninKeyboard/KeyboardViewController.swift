@@ -71,6 +71,7 @@ final class KeyboardViewController: UIInputViewController {
     private var isCandidateRefreshPending = false
     private var associationContext: String?
     private var keyButtons: [UIButton] = []
+    private var proxySpacerButtons: [KeyboardProxySpacerButton] = []
     private var selectedCompositionSegments: [SelectedCompositionSegment] = []
     private var compositionBuffer = ""
     private var compositionCursorOffset = 0
@@ -500,6 +501,7 @@ final class KeyboardViewController: UIInputViewController {
         hideKeyPreview(animated: false)
         setCandidatePageVisible(false, animated: false)
         keyButtons.removeAll()
+        proxySpacerButtons.removeAll()
         keyboardRowsStack.arrangedSubviews.forEach { view in
             keyboardRowsStack.removeArrangedSubview(view)
             view.removeFromSuperview()
@@ -547,6 +549,7 @@ final class KeyboardViewController: UIInputViewController {
                     if let proxyKind = key.proxyKind {
                         let proxySpacer = KeyboardProxySpacerButton(type: .custom)
                         proxySpacer.widthUnit = key.widthUnit
+                        proxySpacer.accessibilityLabel = title(for: KeySpec(proxyKind))
                         if let previewKey = previewLookupKey(for: proxyKind),
                            let previewSourceView = previewSourceButtonsByCharacter[previewKey] {
                             proxySpacer.previewSourceView = previewSourceView
@@ -558,12 +561,18 @@ final class KeyboardViewController: UIInputViewController {
                             self?.handle(proxyKind)
                         }, for: .touchUpInside)
                         if shouldPreviewKey(proxyKind) {
-                            proxySpacer.configurePreview(text: title(for: KeySpec(proxyKind))) { [weak self] sourceView, previewText in
-                                self?.showKeyPreview(from: sourceView, text: previewText)
-                            } onEnded: { [weak self] in
-                                self?.hideKeyPreview()
-                            }
+                            bindKeyPreviewEvents(
+                                to: proxySpacer,
+                                previewText: title(for: KeySpec(proxyKind)),
+                                sourceViewProvider: { [weak proxySpacer] in
+                                    proxySpacer?.previewSourceView ?? proxySpacer?.forwardedKeyButton
+                                },
+                                highlightedControlProvider: { [weak proxySpacer] in
+                                    proxySpacer?.forwardedKeyButton
+                                }
+                            )
                         }
+                        proxySpacerButtons.append(proxySpacer)
                         spacer = proxySpacer
                     } else {
                         let plainSpacer = KeyboardKeySpacer()
@@ -830,13 +839,16 @@ final class KeyboardViewController: UIInputViewController {
     private func bindKeyPreviewEvents(
         to control: UIControl,
         previewText: String,
-        sourceViewProvider: (() -> UIView?)? = nil
+        sourceViewProvider: (() -> UIView?)? = nil,
+        highlightedControlProvider: (() -> UIControl?)? = nil
     ) {
         control.addAction(UIAction { [weak self, weak control] _ in
             guard let control = control else { return }
+            highlightedControlProvider?()?.isHighlighted = true
             self?.showKeyPreview(from: sourceViewProvider?() ?? control, text: previewText)
         }, for: [.touchDown, .touchDragInside, .touchDragEnter])
         control.addAction(UIAction { [weak self] _ in
+            highlightedControlProvider?()?.isHighlighted = false
             self?.hideKeyPreview()
         }, for: [.touchDragExit, .touchUpInside, .touchUpOutside, .touchCancel])
     }
@@ -1488,6 +1500,9 @@ final class KeyboardViewController: UIInputViewController {
             button.tintColor = primaryText
             button.layer.shadowColor = shadowColor.cgColor
         }
+        for button in proxySpacerButtons {
+            button.applyAppearance(backgroundColor: proxySpacerBackground, shadowColor: shadowColor)
+        }
         for button in utilityOverlayIconButtons {
             button.setTitleColor(secondaryText, for: .normal)
             button.tintColor = secondaryText
@@ -1566,6 +1581,10 @@ final class KeyboardViewController: UIInputViewController {
 
     private var specialKeyBackground: UIColor {
         isDark ? UIColor(red: 0.28, green: 0.28, blue: 0.30, alpha: 1) : UIColor(red: 0.67, green: 0.70, blue: 0.74, alpha: 1)
+    }
+
+    private var proxySpacerBackground: UIColor {
+        .systemRed
     }
 
     private var candidateBackground: UIColor {
@@ -2288,65 +2307,26 @@ private final class KeyboardProxySpacerButton: UIButton {
     var widthUnit: CGFloat = 1
     weak var previewSourceView: UIView?
     weak var forwardedKeyButton: KeyboardKeyButton?
-    private var previewText: String?
-    private var onPreviewBegan: ((UIView, String) -> Void)?
-    private var onPreviewEnded: (() -> Void)?
-    private var isPreviewActive = false
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        layer.cornerRadius = 6
+        layer.shadowOpacity = 0.22
+        layer.shadowRadius = 0
+        layer.shadowOffset = CGSize(width: 0, height: 1)
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
 
     override var intrinsicContentSize: CGSize {
         CGSize(width: 32 * widthUnit, height: 42)
     }
 
-    func configurePreview(
-        text: String,
-        onBegan: @escaping (UIView, String) -> Void,
-        onEnded: @escaping () -> Void
-    ) {
-        previewText = text
-        onPreviewBegan = onBegan
-        onPreviewEnded = onEnded
-    }
-
-    override func beginTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
-        let shouldTrack = super.beginTracking(touch, with: event)
-        if shouldTrack {
-            beginPreview()
-        }
-        return shouldTrack
-    }
-
-    override func continueTracking(_ touch: UITouch, with event: UIEvent?) -> Bool {
-        let isInside = bounds.contains(touch.location(in: self))
-        if isInside {
-            beginPreview()
-        } else {
-            endPreview()
-        }
-        return super.continueTracking(touch, with: event)
-    }
-
-    override func endTracking(_ touch: UITouch?, with event: UIEvent?) {
-        endPreview()
-        super.endTracking(touch, with: event)
-    }
-
-    override func cancelTracking(with event: UIEvent?) {
-        endPreview()
-        super.cancelTracking(with: event)
-    }
-
-    private func beginPreview() {
-        guard !isPreviewActive, let previewText else { return }
-        isPreviewActive = true
-        forwardedKeyButton?.isHighlighted = true
-        onPreviewBegan?(previewSourceView ?? forwardedKeyButton ?? self, previewText)
-    }
-
-    private func endPreview() {
-        guard isPreviewActive else { return }
-        isPreviewActive = false
-        forwardedKeyButton?.isHighlighted = false
-        onPreviewEnded?()
+    func applyAppearance(backgroundColor: UIColor, shadowColor: UIColor) {
+        self.backgroundColor = backgroundColor
+        layer.shadowColor = shadowColor.cgColor
     }
 }
 

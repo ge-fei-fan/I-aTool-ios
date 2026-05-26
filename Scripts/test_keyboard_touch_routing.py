@@ -32,10 +32,10 @@ def main() -> int:
         "key preview tail can track edge keys": "var tailCenterX: CGFloat = 26" in source,
         "key preview tail tracks pressed key center": "keyPreviewView.tailCenterX = min(max(buttonFrame.midX - originX, minTailCenterX), maxTailCenterX)" in source,
         "key preview letter is raised 5pt": "label.frame = bubbleRect.insetBy(dx: 0, dy: 0).offsetBy(dx: 0, dy: -5)" in source,
-        "proxy spacer has dedicated preview configuration": "func configurePreview(" in source and "text: String," in source,
-        "proxy spacer begins preview from forwarded real key source": "onPreviewBegan?(previewSourceView ?? forwardedKeyButton ?? self, previewText)" in source,
-        "proxy spacer ends preview on cancelled tracking": "override func cancelTracking(with event: UIEvent?)" in source,
-        "row proxy spacer uses dedicated preview tracking": "proxySpacer.configurePreview(text: title(for: KeySpec(proxyKind)))" in source,
+        "proxy spacer stores preview and forwarded key sources": "weak var previewSourceView: UIView?" in source and "weak var forwardedKeyButton: KeyboardKeyButton?" in source,
+        "proxy spacer uses shared preview binding": "bindKeyPreviewEvents(" in source and "sourceViewProvider:" in source and "highlightedControlProvider:" in source,
+        "proxy spacer forwards preview anchor to real key source": "proxySpacer?.previewSourceView ?? proxySpacer?.forwardedKeyButton" in source,
+        "proxy spacer shares preview exit events through helper": "[.touchDragExit, .touchUpInside, .touchUpOutside, .touchCancel]" in source,
     }
 
     failed = [name for name, passed in checks.items() if not passed]
