@@ -80,6 +80,8 @@ final class KeyboardViewController: UIInputViewController {
     private var shiftState: ShiftState = .off
     private weak var previewedKeySourceView: UIView?
     private var previewedKeyText: String?
+    private var pendingKeyPreviewHideWorkItem: DispatchWorkItem?
+    private var keyPreviewShownAt: TimeInterval = 0
     private var isCandidatePageVisible = false
     private var candidatePageRenderedWidth: CGFloat = 0
     private var isTrackpadActive = false
@@ -103,6 +105,7 @@ final class KeyboardViewController: UIInputViewController {
     private static let trackpadStepWidth: CGFloat = 10
     private static let keyPreviewHorizontalInset: CGFloat = 4
     private static let keyTouchOutset: CGFloat = 6
+    private static let proxySpacerPreviewMinimumVisibleDuration: TimeInterval = 0.09
     private static let previewableLetterScalars = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
     private enum KeyboardIconAsset {
@@ -569,7 +572,8 @@ final class KeyboardViewController: UIInputViewController {
                                 },
                                 highlightedControlProvider: { [weak proxySpacer] in
                                     proxySpacer?.forwardedKeyButton
-                                }
+                                },
+                                minimumVisibleDuration: Self.proxySpacerPreviewMinimumVisibleDuration
                             )
                         }
                         proxySpacerButtons.append(proxySpacer)
@@ -840,7 +844,8 @@ final class KeyboardViewController: UIInputViewController {
         to control: UIControl,
         previewText: String,
         sourceViewProvider: (() -> UIView?)? = nil,
-        highlightedControlProvider: (() -> UIControl?)? = nil
+        highlightedControlProvider: (() -> UIControl?)? = nil,
+        minimumVisibleDuration: TimeInterval = 0
     ) {
         control.addAction(UIAction { [weak self, weak control] _ in
             guard let control = control else { return }
@@ -849,7 +854,7 @@ final class KeyboardViewController: UIInputViewController {
         }, for: [.touchDown, .touchDragInside, .touchDragEnter])
         control.addAction(UIAction { [weak self] _ in
             highlightedControlProvider?()?.isHighlighted = false
-            self?.hideKeyPreview()
+            self?.hideKeyPreview(minimumVisibleDuration: minimumVisibleDuration)
         }, for: [.touchDragExit, .touchUpInside, .touchUpOutside, .touchCancel])
     }
 
@@ -859,6 +864,9 @@ final class KeyboardViewController: UIInputViewController {
             return
         }
 
+        pendingKeyPreviewHideWorkItem?.cancel()
+        pendingKeyPreviewHideWorkItem = nil
+        keyPreviewShownAt = ProcessInfo.processInfo.systemUptime
         previewedKeySourceView = sourceView
         previewedKeyText = previewText
         keyPreviewView.configure(
@@ -887,7 +895,26 @@ final class KeyboardViewController: UIInputViewController {
         view.bringSubviewToFront(keyPreviewView)
     }
 
-    private func hideKeyPreview(animated: Bool = true) {
+    private func hideKeyPreview(animated: Bool = true, minimumVisibleDuration: TimeInterval = 0) {
+        pendingKeyPreviewHideWorkItem?.cancel()
+        pendingKeyPreviewHideWorkItem = nil
+
+        if minimumVisibleDuration > 0,
+           !keyPreviewView.isHidden {
+            let remainingDuration = minimumVisibleDuration - (ProcessInfo.processInfo.systemUptime - keyPreviewShownAt)
+            if remainingDuration > 0 {
+                previewedKeySourceView = nil
+                previewedKeyText = nil
+                let workItem = DispatchWorkItem { [weak self] in
+                    self?.pendingKeyPreviewHideWorkItem = nil
+                    self?.hideKeyPreview(animated: animated)
+                }
+                pendingKeyPreviewHideWorkItem = workItem
+                DispatchQueue.main.asyncAfter(deadline: .now() + remainingDuration, execute: workItem)
+                return
+            }
+        }
+
         previewedKeySourceView = nil
         previewedKeyText = nil
         guard !keyPreviewView.isHidden else { return }

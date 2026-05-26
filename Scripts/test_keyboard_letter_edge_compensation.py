@@ -27,6 +27,8 @@ def main() -> int:
         "dedicated edge compensation overlay is removed": "KeyboardLetterEdgeCompensationButton" not in source,
         "dedicated edge compensation button state is removed": "letterEdgeCompensationButtons" not in source,
         "proxy spacer preview binds through shared key-preview helper": "bindKeyPreviewEvents(" in source and "highlightedControlProvider:" in source,
+        "proxy spacer uses a minimum visible preview duration": "minimumVisibleDuration: Self.proxySpacerPreviewMinimumVisibleDuration" in source,
+        "preview hide can defer short-lived proxy previews": "minimumVisibleDuration: TimeInterval = 0" in source and "pendingKeyPreviewHideWorkItem" in source,
         "proxy spacer highlights forwarded real key on press": "highlightedControlProvider?()?.isHighlighted = true" in source,
         "proxy spacer removes forwarded real key highlight on release": "highlightedControlProvider?()?.isHighlighted = false" in source,
         "proxy spacer preview anchors to the forwarded real key": "proxySpacer?.previewSourceView ?? proxySpacer?.forwardedKeyButton" in source,
