@@ -3438,8 +3438,10 @@ private struct DiskTemperatureChart: View {
 
                             var path = Path()
                             path.move(to: first)
-                            for point in points.dropFirst() {
-                                path.addLine(to: point)
+                            if points.count == 2 {
+                                path.addLine(to: points[1])
+                            } else {
+                                path = Path.smoothCurve(through: points)
                             }
                             context.stroke(path, with: .color(series.color), lineWidth: 1.8)
                         }
@@ -3637,11 +3639,8 @@ private struct ProgressChart: View {
                         return CGPoint(x: x, y: y)
                     }
 
-                    var line = Path()
-                    line.move(to: point(0, points[0]))
-                    for index in points.indices.dropFirst() {
-                        line.addLine(to: point(index, points[index]))
-                    }
+                    let linePoints = points.enumerated().map { point($0, $1) }
+                    let line = Path.smoothCurve(through: linePoints)
 
                     var area = line
                     area.addLine(to: CGPoint(x: chart.maxX, y: chart.maxY))
@@ -3863,11 +3862,8 @@ private struct WeightSparkline: View {
                 return CGPoint(x: x, y: y)
             }
 
-            var path = Path()
-            path.move(to: point(0))
-            for index in values.indices.dropFirst() {
-                path.addLine(to: point(index))
-            }
+            let curvePoints = values.indices.map { point($0) }
+            let path = Path.smoothCurve(through: curvePoints)
             context.stroke(path, with: .color(FitnexColor.orange), lineWidth: 2)
         }
     }
@@ -3914,11 +3910,7 @@ private struct MetricSparkline: View {
     ) {
         let points = normalizedPoints(values, in: frame)
         guard points.count > 1 else { return }
-        var path = Path()
-        path.move(to: points[0])
-        for point in points.dropFirst() {
-            path.addLine(to: point)
-        }
+        let path = Path.smoothCurve(through: points)
         context.stroke(path, with: .color(color), lineWidth: lineWidth)
     }
 
@@ -3930,11 +3922,7 @@ private struct MetricSparkline: View {
     ) {
         let points = normalizedPoints(values, in: frame)
         guard points.count > 1 else { return }
-        var area = Path()
-        area.move(to: points[0])
-        for point in points.dropFirst() {
-            area.addLine(to: point)
-        }
+        var area = Path.smoothCurve(through: points)
         area.addLine(to: CGPoint(x: frame.maxX, y: frame.maxY))
         area.addLine(to: CGPoint(x: frame.minX, y: frame.maxY))
         area.closeSubpath()
@@ -6704,5 +6692,36 @@ private final class DownloadProgressDelegate: NSObject, URLSessionDownloadDelega
                 responseBodyLimit: 2 * 1024
             )
         }
+    }
+}
+
+private extension Path {
+    static func smoothCurve(through points: [CGPoint]) -> Path {
+        guard points.count > 1 else {
+            if let p = points.first { return Path(ellipseIn: CGRect(x: p.x - 0.5, y: p.y - 0.5, width: 1, height: 1)) }
+            return Path()
+        }
+        var path = Path()
+        path.move(to: points[0])
+        if points.count == 2 {
+            path.addLine(to: points[1])
+            return path
+        }
+        for i in 0 ..< points.count - 1 {
+            let p0 = i > 0 ? points[i - 1] : points[i]
+            let p1 = points[i]
+            let p2 = points[i + 1]
+            let p3 = i + 2 < points.count ? points[i + 2] : p2
+            let cp1 = CGPoint(
+                x: p1.x + (p2.x - p0.x) / 6,
+                y: p1.y + (p2.y - p0.y) / 6
+            )
+            let cp2 = CGPoint(
+                x: p2.x - (p3.x - p1.x) / 6,
+                y: p2.y - (p3.y - p1.y) / 6
+            )
+            path.addCurve(to: p2, control1: cp1, control2: cp2)
+        }
+        return path
     }
 }
