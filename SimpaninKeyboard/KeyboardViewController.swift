@@ -125,6 +125,20 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
+    private enum KeyboardKeyIconAsset {
+        case shift
+        case backspace
+
+        var fileName: String {
+            switch self {
+            case .shift:
+                return "cat1"
+            case .backspace:
+                return "icons8-clear-symbol-48"
+            }
+        }
+    }
+
     private var isDark: Bool {
         traitCollection.userInterfaceStyle == .dark
     }
@@ -421,7 +435,33 @@ final class KeyboardViewController: UIInputViewController {
         return UIImage(systemName: fallbackSystemName, withConfiguration: configuration)
     }
 
+    private func keyboardKeyIcon(
+        _ asset: KeyboardKeyIconAsset,
+        fallbackSystemName: String,
+        fallbackWeight: UIImage.SymbolWeight,
+        preservesOriginalColors: Bool
+    ) -> UIImage? {
+        if let url = Bundle(for: Self.self).url(forResource: asset.fileName, withExtension: "png", subdirectory: "ios-icon"),
+           let image = UIImage(contentsOfFile: url.path) {
+            return resizedKeyboardImage(
+                image,
+                pointSize: Self.keyboardIconPointSize,
+                renderingMode: preservesOriginalColors ? .alwaysOriginal : .alwaysTemplate
+            )
+        }
+        let configuration = UIImage.SymbolConfiguration(pointSize: Self.keyboardIconPointSize, weight: fallbackWeight)
+        return UIImage(systemName: fallbackSystemName, withConfiguration: configuration)
+    }
+
     private func resizedTemplateImage(_ image: UIImage, pointSize: CGFloat) -> UIImage {
+        resizedKeyboardImage(image, pointSize: pointSize, renderingMode: .alwaysTemplate)
+    }
+
+    private func resizedKeyboardImage(
+        _ image: UIImage,
+        pointSize: CGFloat,
+        renderingMode: UIImage.RenderingMode
+    ) -> UIImage {
         let size = CGSize(width: pointSize, height: pointSize)
         let format = UIGraphicsImageRendererFormat.default()
         format.opaque = false
@@ -429,7 +469,7 @@ final class KeyboardViewController: UIInputViewController {
         let resized = UIGraphicsImageRenderer(size: size, format: format).image { _ in
             image.draw(in: CGRect(origin: .zero, size: size))
         }
-        return resized.withRenderingMode(.alwaysTemplate)
+        return resized.withRenderingMode(renderingMode)
     }
 
     private func renderKeyboard() {
@@ -725,13 +765,11 @@ final class KeyboardViewController: UIInputViewController {
         button.titleLabel?.minimumScaleFactor = 0.75
         button.titleLabel?.baselineAdjustment = .alignCenters
         if case .shift = spec.kind {
-            let configuration = UIImage.SymbolConfiguration(pointSize: 24, weight: .light)
-            button.setImage(UIImage(systemName: "shift", withConfiguration: configuration), for: .normal)
+            button.setImage(keyboardKeyIcon(.shift, fallbackSystemName: "shift", fallbackWeight: .light, preservesOriginalColors: true), for: .normal)
             button.tintColor = primaryText
             button.accessibilityLabel = "Shift"
         } else if case .backspace = spec.kind {
-            let configuration = UIImage.SymbolConfiguration(pointSize: 24, weight: .light)
-            button.setImage(UIImage(systemName: "delete.left", withConfiguration: configuration), for: .normal)
+            button.setImage(keyboardKeyIcon(.backspace, fallbackSystemName: "delete.left", fallbackWeight: .light, preservesOriginalColors: false), for: .normal)
             button.tintColor = primaryText
             button.accessibilityLabel = "删除"
         } else {

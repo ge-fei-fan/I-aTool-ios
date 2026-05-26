@@ -81,9 +81,14 @@ def main() -> int:
         "third-row edge helper includes mode switches": "case .modeSwitch(.numbers), .modeSwitch(.symbols), .shift, .backspace:" in source,
         "square edge rows equalize middle keys": "squareEdgeRowFlexibleButtons" in source and "button.widthAnchor.constraint(equalTo: squareEdgeRowFlexibleButtons[0].widthAnchor)" in source,
         "letter row side-key expansion was removed": "var sideKeys: [UIButton]" not in source and "sideKeys.append(button)" not in source,
-        "keyboard symbol icon size is 24pt": "UIImage.SymbolConfiguration(pointSize: 24, weight: .light)" in source,
-        "shift uses an SF Symbol icon": 'UIImage(systemName: "shift", withConfiguration: configuration)' in source,
-        "backspace keeps delete SF Symbol icon": 'UIImage(systemName: "delete.left", withConfiguration: configuration)' in source,
+        "keyboard icon point size stays 24pt": "private static let keyboardIconPointSize: CGFloat = 24" in source,
+        "keyboard key icon asset enum exists": "private enum KeyboardKeyIconAsset" in source and "case shift" in source and "case backspace" in source,
+        "shift uses cat1 asset": 'return "cat1"' in source,
+        "backspace uses clear-symbol asset": 'return "icons8-clear-symbol-48"' in source,
+        "shift primary path uses keyboard key asset": 'button.setImage(keyboardKeyIcon(.shift' in source,
+        "backspace primary path uses keyboard key asset": 'button.setImage(keyboardKeyIcon(.backspace' in source,
+        "shift preserves original image colors": "keyboardKeyIcon(.shift, fallbackSystemName: \"shift\", fallbackWeight: .light, preservesOriginalColors: true)" in source,
+        "backspace stays templated": "keyboardKeyIcon(.backspace, fallbackSystemName: \"delete.left\", fallbackWeight: .light, preservesOriginalColors: false)" in source,
     }
 
     failed = [name for name, passed in checks.items() if not passed]
