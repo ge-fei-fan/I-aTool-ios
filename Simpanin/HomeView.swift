@@ -98,7 +98,7 @@ struct HomeView: View {
                 )
                 .transition(.move(edge: .trailing).combined(with: .opacity))
             case .journal:
-                JournalCaptureView(
+                CutoutCaptureView(
                     back: { self.detailScreen = nil },
                     feedback: feedback
                 )
@@ -1094,6 +1094,202 @@ private struct CameraPicker: UIViewControllerRepresentable {
         func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
             dismiss()
         }
+    }
+}
+
+private struct CutoutCaptureView: View {
+    let back: () -> Void
+    let feedback: (String) -> Void
+
+    @StateObject private var viewModel = CutoutGeneratorViewModel()
+    @State private var selectedPhoto: PhotosPickerItem?
+    @State private var showingCamera = false
+
+    var body: some View {
+        VStack(spacing: 0) {
+            DetailTopBar(title: "抠图", back: back, feedback: feedback)
+                .padding(.horizontal, 25)
+                .padding(.top, 44)
+
+            ScrollView(showsIndicators: false) {
+                VStack(alignment: .leading, spacing: 18) {
+                    previewSection
+
+                    HStack(spacing: 14) {
+                        Button {
+                            if UIImagePickerController.isSourceTypeAvailable(.camera) {
+                                showingCamera = true
+                            } else {
+                                feedback("当前设备不支持拍照")
+                            }
+                        } label: {
+                            JournalActionCard(icon: "camera.viewfinder", title: "拍照", subtitle: "拍一张照片")
+                        }
+                        .buttonStyle(.plain)
+
+                        PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                            JournalActionCard(icon: "photo.on.rectangle", title: "相册", subtitle: "选择图片")
+                        }
+                        .buttonStyle(.plain)
+                    }
+
+                    if viewModel.hasResult {
+                        Button {
+                            Task { await viewModel.saveResult() }
+                        } label: {
+                            HStack {
+                                Image(systemName: "square.and.arrow.down")
+                                    .font(.system(size: 15, weight: .semibold))
+                                Text(viewModel.isSaving ? "保存中..." : "保存到相册")
+                                    .font(.fitnexTitle(size: 14))
+                            }
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 48)
+                            .background(FitnexColor.orange, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(viewModel.isSaving)
+                    }
+
+                    if let errorMessage = viewModel.errorMessage {
+                        Text(errorMessage)
+                            .font(.fitnexBody(size: 11, weight: .regular))
+                            .foregroundColor(Color(hex: 0xE5484D))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                }
+                .padding(.horizontal, 25)
+                .padding(.top, 22)
+                .padding(.bottom, 18)
+            }
+        }
+        .background(FitnexColor.background)
+        .sheet(isPresented: $showingCamera) {
+            CameraPicker { image in
+                viewModel.generate(from: image)
+            }
+        }
+        .onChange(of: selectedPhoto) { item in
+            guard let item else { return }
+            Task { await loadPhoto(item) }
+        }
+        .onChange(of: viewModel.toastMessage) { message in
+            guard let message else { return }
+            feedback(message)
+            viewModel.toastMessage = nil
+        }
+    }
+
+    @ViewBuilder
+    private var previewSection: some View {
+        switch viewModel.state {
+        case .idle:
+            CutoutPlaceholderCard()
+        case .generating:
+            CutoutLoadingCard()
+        case .completed:
+            if let original = viewModel.originalImage, let result = viewModel.resultImage {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("生成结果")
+                        .font(.fitnexTitle(size: 15))
+                        .foregroundColor(FitnexColor.black)
+
+                    CutoutPreviewImage(image: result)
+
+                    HStack(spacing: 10) {
+                        JournalThumbnail(title: "原图", image: original)
+                        JournalThumbnail(title: "抠图", image: result)
+                    }
+                }
+            } else {
+                CutoutPlaceholderCard()
+            }
+        case .failed:
+            CutoutPlaceholderCard(title: "抠图失败", subtitle: "换一张主体更清晰的照片再试")
+        }
+    }
+
+    private func loadPhoto(_ item: PhotosPickerItem) async {
+        do {
+            guard let data = try await item.loadTransferable(type: Data.self),
+                  let image = UIImage(data: data) else {
+                viewModel.fail("图片加载失败")
+                return
+            }
+            viewModel.generate(from: image)
+            selectedPhoto = nil
+        } catch {
+            viewModel.fail("图片加载失败")
+        }
+    }
+}
+
+private struct CutoutPlaceholderCard: View {
+    var title = "拍照生成白底抠图"
+    var subtitle = "自动抠出主主体，并生成纯白背景成品"
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "person.crop.rectangle")
+                .font(.system(size: 34, weight: .semibold))
+                .foregroundColor(FitnexColor.orange)
+            Text(title)
+                .font(.fitnexTitle(size: 17))
+                .foregroundColor(FitnexColor.black)
+            Text(subtitle)
+                .font(.fitnexBody(size: 12, weight: .regular))
+                .foregroundColor(FitnexColor.grayText)
+                .multilineTextAlignment(.center)
+                .frame(maxWidth: 250)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 260)
+        .background(FitnexColor.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(FitnexColor.border, lineWidth: 1)
+        }
+    }
+}
+
+private struct CutoutLoadingCard: View {
+    var body: some View {
+        VStack(spacing: 14) {
+            ProgressView()
+                .tint(FitnexColor.orange)
+            Text("正在抠出主主体...")
+                .font(.fitnexTitle(size: 15))
+                .foregroundColor(FitnexColor.black)
+            Text("优先使用系统级前景分割，输出纯白背景成品")
+                .font(.fitnexBody(size: 11, weight: .regular))
+                .foregroundColor(FitnexColor.grayText)
+        }
+        .frame(maxWidth: .infinity)
+        .frame(height: 260)
+        .background(FitnexColor.card, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .stroke(FitnexColor.border, lineWidth: 1)
+        }
+    }
+}
+
+private struct CutoutPreviewImage: View {
+    let image: UIImage
+
+    var body: some View {
+        Image(uiImage: image)
+            .resizable()
+            .scaledToFit()
+            .frame(maxWidth: .infinity)
+            .padding(16)
+            .background(Color.white)
+            .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(FitnexColor.border, lineWidth: 1)
+            }
     }
 }
 
@@ -4203,6 +4399,374 @@ private enum JournalPhotoSaver {
 }
 
 private enum JournalPhotoSaveError: Error {
+    case notAuthorized
+    case writeFailed
+}
+
+private enum CutoutGenerationState {
+    case idle
+    case generating
+    case completed
+    case failed
+}
+
+@MainActor
+private final class CutoutGeneratorViewModel: ObservableObject {
+    @Published private(set) var state: CutoutGenerationState = .idle
+    @Published private(set) var originalImage: UIImage?
+    @Published private(set) var resultImage: UIImage?
+    @Published private(set) var isSaving = false
+    @Published var errorMessage: String?
+    @Published var toastMessage: String?
+
+    var hasResult: Bool {
+        resultImage != nil
+    }
+
+    func generate(from image: UIImage) {
+        originalImage = image
+        resultImage = nil
+        errorMessage = nil
+        state = .generating
+
+        Task {
+            do {
+                let generated = try await CutoutImageProcessor.generate(from: image)
+                resultImage = generated
+                state = .completed
+                toastMessage = "抠图完成"
+            } catch let error as CutoutImageError {
+                state = .failed
+                switch error {
+                case .objectNotFound:
+                    errorMessage = "未识别到主主体"
+                    toastMessage = "未识别到主主体"
+                case .invalidImage, .renderFailed:
+                    errorMessage = "抠图失败"
+                    toastMessage = "抠图失败"
+                }
+            } catch {
+                state = .failed
+                errorMessage = "抠图失败"
+                toastMessage = "抠图失败"
+            }
+        }
+    }
+
+    func saveResult() async {
+        guard let resultImage, !isSaving else { return }
+        isSaving = true
+        defer { isSaving = false }
+
+        do {
+            guard let pngData = resultImage.pngData() else {
+                throw CutoutPhotoSaveError.writeFailed
+            }
+            try await CutoutPhotoSaver.save(pngData)
+            toastMessage = "已保存到相册"
+        } catch {
+            toastMessage = "保存失败"
+            errorMessage = "无法保存到相册"
+        }
+    }
+
+    func fail(_ message: String) {
+        state = .failed
+        errorMessage = message
+        toastMessage = message
+    }
+}
+
+private enum CutoutImageProcessor {
+    static func generate(from image: UIImage) async throws -> UIImage {
+        try await Task.detached(priority: .userInitiated) {
+            let normalized = normalizedImage(image, maxDimension: 1536)
+            guard let cgImage = normalized.cgImage else {
+                throw CutoutImageError.invalidImage
+            }
+
+            let input = CIImage(cgImage: cgImage)
+            let extent = input.extent
+            let output: CIImage
+
+            // iOS 17 has system-grade foreground masks. Keep a saliency fallback so
+            // the feature still works without raising the app's iOS 16 deployment target.
+            if #available(iOS 17.0, *),
+               let foregroundCutout = try? foregroundInstanceCutout(for: cgImage, input: input, extent: extent) {
+                output = foregroundCutout
+            } else if let fallbackCutout = saliencyCutout(for: cgImage, input: input, extent: extent) {
+                output = fallbackCutout
+            } else {
+                throw CutoutImageError.objectNotFound
+            }
+
+            guard let cgOutput = context.createCGImage(output, from: extent) else {
+                throw CutoutImageError.renderFailed
+            }
+
+            return UIImage(cgImage: cgOutput, scale: normalized.scale, orientation: .up)
+        }.value
+    }
+
+    private static let context = CIContext(options: [.useSoftwareRenderer: false])
+
+    private struct SubjectDetection {
+        let boundingBox: CGRect
+        let mask: CIImage
+    }
+
+    private static func normalizedImage(_ image: UIImage, maxDimension: CGFloat) -> UIImage {
+        let size = image.size
+        let longest = max(size.width, size.height)
+        let scale = longest > maxDimension ? maxDimension / longest : 1
+        let targetSize = CGSize(width: size.width * scale, height: size.height * scale)
+        let format = UIGraphicsImageRendererFormat.default()
+        format.scale = 1
+        return UIGraphicsImageRenderer(size: targetSize, format: format).image { _ in
+            image.draw(in: CGRect(origin: .zero, size: targetSize))
+        }
+    }
+
+    @available(iOS 17.0, *)
+    private static func foregroundInstanceCutout(for cgImage: CGImage, input: CIImage, extent: CGRect) throws -> CIImage {
+        let request = VNGenerateForegroundInstanceMaskRequest()
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        try handler.perform([request])
+
+        guard let observation = request.results?.first else {
+            throw CutoutImageError.objectNotFound
+        }
+        guard let primaryInstance = primaryForegroundInstance(in: observation) else {
+            throw CutoutImageError.objectNotFound
+        }
+
+        let maskBuffer = try observation.generateScaledMaskForImage(
+            forInstances: IndexSet(integer: primaryInstance),
+            from: handler
+        )
+        let mask = CIImage(cvPixelBuffer: maskBuffer).cropped(to: extent)
+        return cutoutComposite(subject: input, mask: mask, extent: extent)
+    }
+
+    private static func saliencyCutout(for cgImage: CGImage, input: CIImage, extent: CGRect) -> CIImage? {
+        let detection = largestObjectDetection(for: cgImage, extent: extent) ?? fallbackDetection(for: cgImage, extent: extent)
+        guard let detection else { return nil }
+        let mask = cutoutMask(from: detection.mask, focusingOn: detection.boundingBox, extent: extent)
+        return cutoutComposite(subject: input, mask: mask, extent: extent)
+    }
+
+    private static func largestObjectDetection(for cgImage: CGImage, extent: CGRect) -> SubjectDetection? {
+        let request = VNGenerateObjectnessBasedSaliencyImageRequest()
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        try? handler.perform([request])
+        guard let observation = request.results?.first else { return nil }
+        let fullMask = scaledMask(from: observation, extent: extent)
+        let allRects: [CGRect] = observation.salientObjects?.map { rect(from: $0.boundingBox, extent: extent) } ?? []
+        let largeRects = allRects.filter { $0.width > 4 && $0.height > 4 }
+        guard let largestBox = largeRects.max(by: areaAscending) else { return nil }
+        return SubjectDetection(boundingBox: largestBox, mask: fullMask)
+    }
+
+    private static func fallbackDetection(for cgImage: CGImage, extent: CGRect) -> SubjectDetection? {
+        let request = VNGenerateAttentionBasedSaliencyImageRequest()
+        let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
+        try? handler.perform([request])
+        guard let observation = request.results?.first else { return nil }
+        let fullMask = scaledMask(from: observation, extent: extent)
+        let allRects: [CGRect] = observation.salientObjects?.map { rect(from: $0.boundingBox, extent: extent) } ?? []
+        let largeRects = allRects.filter { $0.width > 4 && $0.height > 4 }
+        let fallbackBox = largeRects.max(by: areaAscending) ?? centeredRect(in: extent)
+        return SubjectDetection(boundingBox: fallbackBox, mask: fullMask)
+    }
+
+    private static func scaledMask(from observation: VNSaliencyImageObservation, extent: CGRect) -> CIImage {
+        let mask = CIImage(cvPixelBuffer: observation.pixelBuffer)
+        let scaleX = extent.width / max(mask.extent.width, 1)
+        let scaleY = extent.height / max(mask.extent.height, 1)
+        if let filter = CIFilter(name: "CILanczosScaleTransform") {
+            filter.setValue(mask, forKey: kCIInputImageKey)
+            filter.setValue(scaleX, forKey: kCIInputScaleKey)
+            filter.setValue(scaleY / max(scaleX, 0.0001), forKey: "inputAspectRatio")
+            if let output = filter.outputImage {
+                return output.cropped(to: extent)
+            }
+        }
+
+        return mask.transformed(by: CGAffineTransform(scaleX: scaleX, y: scaleY)).cropped(to: extent)
+    }
+
+    @available(iOS 17.0, *)
+    private static func primaryForegroundInstance(in observation: VNInstanceMaskObservation) -> Int? {
+        var largestInstance: Int?
+        var largestArea = 0
+
+        for instance in observation.allInstances {
+            let area = maskArea(for: IndexSet(integer: instance), using: observation)
+            if area > largestArea {
+                largestArea = area
+                largestInstance = instance
+            }
+        }
+
+        return largestInstance
+    }
+
+    @available(iOS 17.0, *)
+    private static func maskArea(for instances: IndexSet, using observation: VNInstanceMaskObservation) -> Int {
+        guard let pixelBuffer = try? observation.generateMask(forInstances: instances) else { return 0 }
+        CVPixelBufferLockBaseAddress(pixelBuffer, .readOnly)
+        defer { CVPixelBufferUnlockBaseAddress(pixelBuffer, .readOnly) }
+
+        let usesPlanes = CVPixelBufferGetPlaneCount(pixelBuffer) > 0
+        let plane = 0
+        let width = usesPlanes ? CVPixelBufferGetWidthOfPlane(pixelBuffer, plane) : CVPixelBufferGetWidth(pixelBuffer)
+        let height = usesPlanes ? CVPixelBufferGetHeightOfPlane(pixelBuffer, plane) : CVPixelBufferGetHeight(pixelBuffer)
+        let bytesPerRow = usesPlanes ? CVPixelBufferGetBytesPerRowOfPlane(pixelBuffer, plane) : CVPixelBufferGetBytesPerRow(pixelBuffer)
+        let baseAddress = usesPlanes ? CVPixelBufferGetBaseAddressOfPlane(pixelBuffer, plane) : CVPixelBufferGetBaseAddress(pixelBuffer)
+
+        guard let baseAddress else { return 0 }
+
+        var area = 0
+        for rowIndex in 0..<height {
+            let row = baseAddress
+                .advanced(by: rowIndex * bytesPerRow)
+                .assumingMemoryBound(to: UInt8.self)
+            for columnIndex in 0..<width where row[columnIndex] > 0 {
+                area += 1
+            }
+        }
+
+        return area
+    }
+
+    private static func cutoutMask(from inputMask: CIImage, focusingOn boundingBox: CGRect, extent: CGRect) -> CIImage {
+        let focusRect = boundingBox.intersection(extent)
+        let croppedMask = inputMask.cropped(to: focusRect.isNull ? extent : focusRect)
+        var mask = sourceOver(croppedMask, over: clear(extent: extent)).cropped(to: extent)
+
+        if let filter = CIFilter(name: "CIColorControls") {
+            filter.setValue(mask, forKey: kCIInputImageKey)
+            filter.setValue(0.0, forKey: kCIInputSaturationKey)
+            filter.setValue(5.0, forKey: kCIInputContrastKey)
+            filter.setValue(0.18, forKey: kCIInputBrightnessKey)
+            mask = filter.outputImage?.cropped(to: extent) ?? mask
+        }
+
+        if let filter = CIFilter(name: "CIColorThreshold") {
+            filter.setValue(mask, forKey: kCIInputImageKey)
+            filter.setValue(0.4, forKey: "inputThreshold")
+            mask = filter.outputImage?.cropped(to: extent) ?? mask
+        }
+
+        mask = morphologyMaximum(mask, radius: max(min(extent.width, extent.height) * 0.004, 2))
+
+        if let filter = CIFilter(name: "CIGaussianBlur") {
+            filter.setValue(mask, forKey: kCIInputImageKey)
+            filter.setValue(1.2, forKey: kCIInputRadiusKey)
+            mask = filter.outputImage?.cropped(to: extent) ?? mask
+        }
+
+        if let filter = CIFilter(name: "CIColorControls") {
+            filter.setValue(mask, forKey: kCIInputImageKey)
+            filter.setValue(0.0, forKey: kCIInputSaturationKey)
+            filter.setValue(2.4, forKey: kCIInputContrastKey)
+            filter.setValue(0.02, forKey: kCIInputBrightnessKey)
+            mask = filter.outputImage?.cropped(to: extent) ?? mask
+        }
+
+        return mask.cropped(to: extent)
+    }
+
+    private static func cutoutComposite(subject: CIImage, mask: CIImage, extent: CGRect) -> CIImage {
+        blend(input: subject, background: whiteBackground(extent: extent), mask: mask).cropped(to: extent)
+    }
+
+    private static func morphologyMaximum(_ image: CIImage, radius: CGFloat) -> CIImage {
+        guard let filter = CIFilter(name: "CIMorphologyMaximum") else { return image }
+        filter.setValue(image, forKey: kCIInputImageKey)
+        filter.setValue(radius, forKey: kCIInputRadiusKey)
+        return filter.outputImage?.cropped(to: image.extent) ?? image
+    }
+
+    private static func blend(input: CIImage, background: CIImage, mask: CIImage) -> CIImage {
+        guard let filter = CIFilter(name: "CIBlendWithMask") else { return input }
+        filter.setValue(input, forKey: kCIInputImageKey)
+        filter.setValue(background, forKey: kCIInputBackgroundImageKey)
+        filter.setValue(mask, forKey: kCIInputMaskImageKey)
+        return filter.outputImage?.cropped(to: input.extent) ?? input
+    }
+
+    private static func sourceOver(_ input: CIImage, over background: CIImage) -> CIImage {
+        guard let filter = CIFilter(name: "CISourceOverCompositing") else { return input }
+        filter.setValue(input, forKey: kCIInputImageKey)
+        filter.setValue(background, forKey: kCIInputBackgroundImageKey)
+        return filter.outputImage?.cropped(to: background.extent) ?? input
+    }
+
+    private static func clear(extent: CGRect) -> CIImage {
+        CIImage(color: CIColor(red: 0, green: 0, blue: 0, alpha: 0)).cropped(to: extent)
+    }
+
+    private static func whiteBackground(extent: CGRect) -> CIImage {
+        CIImage(color: CIColor(red: 1, green: 1, blue: 1, alpha: 1)).cropped(to: extent)
+    }
+
+    private static func rect(from normalizedRect: CGRect, extent: CGRect) -> CGRect {
+        CGRect(
+            x: extent.minX + normalizedRect.minX * extent.width,
+            y: extent.minY + normalizedRect.minY * extent.height,
+            width: normalizedRect.width * extent.width,
+            height: normalizedRect.height * extent.height
+        ).intersection(extent)
+    }
+
+    private static func centeredRect(in extent: CGRect) -> CGRect {
+        let side = min(extent.width, extent.height) * 0.78
+        return CGRect(
+            x: extent.midX - side / 2,
+            y: extent.midY - side / 2,
+            width: side,
+            height: side
+        ).intersection(extent)
+    }
+
+    private static func areaAscending(_ lhs: CGRect, _ rhs: CGRect) -> Bool {
+        (lhs.width * lhs.height) < (rhs.width * rhs.height)
+    }
+}
+
+private enum CutoutImageError: Error {
+    case invalidImage
+    case objectNotFound
+    case renderFailed
+}
+
+private enum CutoutPhotoSaver {
+    static func save(_ pngData: Data) async throws {
+        let status = await PHPhotoLibrary.requestAuthorization(for: .addOnly)
+        guard status == .authorized || status == .limited else {
+            throw CutoutPhotoSaveError.notAuthorized
+        }
+
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+            PHPhotoLibrary.shared().performChanges {
+                let options = PHAssetResourceCreationOptions()
+                options.originalFilename = "cutout.png"
+                PHAssetCreationRequest.forAsset().addResource(with: .photo, data: pngData, options: options)
+            } completionHandler: { success, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                } else if success {
+                    continuation.resume()
+                } else {
+                    continuation.resume(throwing: CutoutPhotoSaveError.writeFailed)
+                }
+            }
+        }
+    }
+}
+
+private enum CutoutPhotoSaveError: Error {
     case notAuthorized
     case writeFailed
 }
