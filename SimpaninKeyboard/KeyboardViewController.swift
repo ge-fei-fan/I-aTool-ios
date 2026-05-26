@@ -97,6 +97,8 @@ final class KeyboardViewController: UIInputViewController {
     private static let candidateToggleButtonWidth: CGFloat = 34
     private static let candidateToggleButtonHeight: CGFloat = 30
     private static let keyboardIconPointSize: CGFloat = 24
+    private static let shiftKeyImagePointSize: CGFloat = 30
+    private static let shiftKeyImageVerticalAlignment: CGFloat = 0.18
     private static let trackpadStepWidth: CGFloat = 10
     private static let keyPreviewHorizontalInset: CGFloat = 4
     private static let keyTouchOutset: CGFloat = 6
@@ -441,7 +443,8 @@ final class KeyboardViewController: UIInputViewController {
         fallbackWeight: UIImage.SymbolWeight,
         pointSize: CGFloat = KeyboardViewController.keyboardIconPointSize,
         renderingMode: UIImage.RenderingMode = .alwaysTemplate,
-        aspectFill: Bool = false
+        aspectFill: Bool = false,
+        verticalAlignment: CGFloat = 0.5
     ) -> UIImage? {
         if let url = Bundle(for: Self.self).url(forResource: asset.fileName, withExtension: "png", subdirectory: "ios-icon"),
            let image = UIImage(contentsOfFile: url.path) {
@@ -449,7 +452,8 @@ final class KeyboardViewController: UIInputViewController {
                 image,
                 pointSize: pointSize,
                 renderingMode: renderingMode,
-                aspectFill: aspectFill
+                aspectFill: aspectFill,
+                verticalAlignment: verticalAlignment
             )
         }
         let configuration = UIImage.SymbolConfiguration(pointSize: pointSize, weight: fallbackWeight)
@@ -464,7 +468,8 @@ final class KeyboardViewController: UIInputViewController {
         _ image: UIImage,
         pointSize: CGFloat,
         renderingMode: UIImage.RenderingMode,
-        aspectFill: Bool = false
+        aspectFill: Bool = false,
+        verticalAlignment: CGFloat = 0.5
     ) -> UIImage {
         let size = CGSize(width: pointSize, height: pointSize)
         let format = UIGraphicsImageRendererFormat.default()
@@ -475,9 +480,11 @@ final class KeyboardViewController: UIInputViewController {
             if aspectFill {
                 let scale = max(size.width / image.size.width, size.height / image.size.height)
                 let scaledSize = CGSize(width: image.size.width * scale, height: image.size.height * scale)
+                let maxOffsetY = max(0, scaledSize.height - size.height)
+                let clampedVerticalAlignment = min(max(verticalAlignment, 0), 1)
                 drawRect = CGRect(
                     x: (size.width - scaledSize.width) / 2,
-                    y: (size.height - scaledSize.height) / 2,
+                    y: -maxOffsetY * clampedVerticalAlignment,
                     width: scaledSize.width,
                     height: scaledSize.height
                 )
@@ -782,7 +789,7 @@ final class KeyboardViewController: UIInputViewController {
         button.titleLabel?.minimumScaleFactor = 0.75
         button.titleLabel?.baselineAdjustment = .alignCenters
         if case .shift = spec.kind {
-            button.setImage(keyboardKeyIcon(.shift, fallbackSystemName: "shift", fallbackWeight: .light, pointSize: 42, renderingMode: .alwaysTemplate, aspectFill: true), for: .normal)
+            button.setImage(keyboardKeyIcon(.shift, fallbackSystemName: "shift", fallbackWeight: .light, pointSize: Self.shiftKeyImagePointSize, renderingMode: .alwaysOriginal, aspectFill: true, verticalAlignment: Self.shiftKeyImageVerticalAlignment), for: .normal)
             button.tintColor = primaryText
             button.accessibilityLabel = "Shift"
         } else if case .backspace = spec.kind {

@@ -4,11 +4,15 @@
 from __future__ import annotations
 
 import re
+import struct
+import zlib
 from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 KEYBOARD_SOURCE = REPO_ROOT / "SimpaninKeyboard" / "KeyboardViewController.swift"
+PREVIEW_SOURCE = REPO_ROOT / "docs" / "previews" / "keyboard-letter-layout-preview.html"
+SHIFT_IMAGE = REPO_ROOT / "ios-icon" / "cat1.png"
 
 
 def function_body(source: str, signature: str) -> str:
@@ -60,8 +64,98 @@ def symbol_third_row_definition(source: str) -> str:
     return match.group(1).strip() if match else ""
 
 
+def png_alpha_summary(path: Path) -> dict[str, object]:
+    with path.open("rb") as handle:
+        if handle.read(8) != b"\x89PNG\r\n\x1a\n":
+            return {"is_png": False}
+
+        width = height = bit_depth = color_type = None
+        idat_chunks: list[bytes] = []
+        while True:
+            header = handle.read(8)
+            if not header:
+                break
+            length, chunk_type = struct.unpack(">I4s", header)
+            data = handle.read(length)
+            handle.read(4)
+            if chunk_type == b"IHDR":
+                width, height, bit_depth, color_type, _, _, _ = struct.unpack(">IIBBBBB", data)
+            elif chunk_type == b"IDAT":
+                idat_chunks.append(data)
+            elif chunk_type == b"IEND":
+                break
+
+    if color_type not in (4, 6):
+        return {"is_png": True, "has_alpha": False, "color_type": color_type}
+
+    channels = {4: 2, 6: 4}[color_type]
+    bytes_per_pixel = channels * bit_depth // 8
+    stride = width * bytes_per_pixel
+    raw = zlib.decompress(b"".join(idat_chunks))
+    previous = bytearray(stride)
+    rows: list[bytearray] = []
+    position = 0
+
+    def paeth(left: int, up: int, up_left: int) -> int:
+        prediction = left + up - up_left
+        left_diff = abs(prediction - left)
+        up_diff = abs(prediction - up)
+        up_left_diff = abs(prediction - up_left)
+        if left_diff <= up_diff and left_diff <= up_left_diff:
+            return left
+        if up_diff <= up_left_diff:
+            return up
+        return up_left
+
+    for _ in range(height):
+        filter_type = raw[position]
+        position += 1
+        scanline = bytearray(raw[position:position + stride])
+        position += stride
+        if filter_type == 1:
+            for index in range(bytes_per_pixel, stride):
+                scanline[index] = (scanline[index] + scanline[index - bytes_per_pixel]) & 255
+        elif filter_type == 2:
+            for index in range(stride):
+                scanline[index] = (scanline[index] + previous[index]) & 255
+        elif filter_type == 3:
+            for index in range(stride):
+                left = scanline[index - bytes_per_pixel] if index >= bytes_per_pixel else 0
+                up = previous[index]
+                scanline[index] = (scanline[index] + ((left + up) // 2)) & 255
+        elif filter_type == 4:
+            for index in range(stride):
+                left = scanline[index - bytes_per_pixel] if index >= bytes_per_pixel else 0
+                up = previous[index]
+                up_left = previous[index - bytes_per_pixel] if index >= bytes_per_pixel else 0
+                scanline[index] = (scanline[index] + paeth(left, up, up_left)) & 255
+        previous = scanline
+        rows.append(scanline)
+
+    alpha_offset = 1 if color_type == 4 else 3
+
+    def alpha_at(x: int, y: int) -> int:
+        return rows[y][x * bytes_per_pixel + alpha_offset]
+
+    corners = [
+        alpha_at(0, 0),
+        alpha_at(width - 1, 0),
+        alpha_at(0, height - 1),
+        alpha_at(width - 1, height - 1),
+    ]
+
+    return {
+        "is_png": True,
+        "has_alpha": True,
+        "color_type": color_type,
+        "corner_alpha": corners,
+    }
+
+
 def main() -> int:
     source = KEYBOARD_SOURCE.read_text(encoding="utf-8")
+    preview = PREVIEW_SOURCE.read_text(encoding="utf-8")
+    shift_image = png_alpha_summary(SHIFT_IMAGE)
     row3 = row3_definition(source)
     number_row3 = number_third_row_definition(source)
     symbol_row3 = symbol_third_row_definition(source)
@@ -82,15 +176,23 @@ def main() -> int:
         "square edge rows equalize middle keys": "squareEdgeRowFlexibleButtons" in source and "button.widthAnchor.constraint(equalTo: squareEdgeRowFlexibleButtons[0].widthAnchor)" in source,
         "letter row side-key expansion was removed": "var sideKeys: [UIButton]" not in source and "sideKeys.append(button)" not in source,
         "keyboard icon point size stays 24pt": "private static let keyboardIconPointSize: CGFloat = 24" in source,
+        "shift key image point size constant exists": "private static let shiftKeyImagePointSize: CGFloat = 30" in source,
+        "shift key image alignment constant exists": "private static let shiftKeyImageVerticalAlignment: CGFloat = 0.18" in source,
         "keyboard key icon asset enum exists": "private enum KeyboardKeyIconAsset" in source and "case shift" in source and "case backspace" in source,
         "shift uses cat1 asset": 'return "cat1"' in source,
+        "shift image is a png": shift_image.get("is_png") is True,
+        "shift image has alpha channel": shift_image.get("has_alpha") is True,
+        "shift image corners are transparent": shift_image.get("corner_alpha") == [0, 0, 0, 0],
         "backspace uses clear-symbol asset": 'return "icons8-clear-symbol-48"' in source,
         "shift primary path uses keyboard key asset": 'button.setImage(keyboardKeyIcon(.shift' in source,
         "backspace primary path uses keyboard key asset": 'button.setImage(keyboardKeyIcon(.backspace' in source,
         "keyboard key icon helper avoids Self in default arguments": "pointSize: CGFloat = Self.keyboardIconPointSize" not in source,
-        "shift uses templated square-fill image": "keyboardKeyIcon(.shift, fallbackSystemName: \"shift\", fallbackWeight: .light, pointSize: 42, renderingMode: .alwaysTemplate, aspectFill: true)" in source,
+        "shift uses original-color inset image": "keyboardKeyIcon(.shift, fallbackSystemName: \"shift\", fallbackWeight: .light, pointSize: Self.shiftKeyImagePointSize, renderingMode: .alwaysOriginal, aspectFill: true, verticalAlignment: Self.shiftKeyImageVerticalAlignment)" in source,
         "backspace stays templated": "keyboardKeyIcon(.backspace, fallbackSystemName: \"delete.left\", fallbackWeight: .light)" in source,
-        "keyboard image resizer supports aspect fill": "aspectFill: Bool = false" in source and "let scale = max(size.width / image.size.width, size.height / image.size.height)" in source,
+        "keyboard image resizer supports aspect fill focus": "verticalAlignment: CGFloat = 0.5" in source and "let maxOffsetY = max(0, scaledSize.height - size.height)" in source and "let clampedVerticalAlignment = min(max(verticalAlignment, 0), 1)" in source and "y: -maxOffsetY * clampedVerticalAlignment" in source,
+        "preview shift image keeps key background visible": ".key__icon--shift {" in preview and "inset: 4px;" in preview,
+        "preview shift image keeps original colors": ".key__icon--shift .key__icon-image {" in preview and "filter: none;" in preview,
+        "preview shift image focuses cat face": ".key__icon--shift .key__icon-image {" in preview and "object-position: 50% 18%;" in preview,
     }
 
     failed = [name for name, passed in checks.items() if not passed]
