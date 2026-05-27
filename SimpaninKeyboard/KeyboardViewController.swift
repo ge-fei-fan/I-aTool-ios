@@ -60,6 +60,7 @@ final class KeyboardViewController: UIInputViewController {
     private let candidatePageView = UIView()
     private let candidatePageScrollView = UIScrollView()
     private let candidatePageStack = UIStackView()
+    private let quickFillTopBar = UIView()
     private let candidatePageCollapseButton = UIButton(type: .system)
     private let keyboardRowsStack = UIStackView()
     private let utilityOverlayView = UIView()
@@ -106,6 +107,7 @@ final class KeyboardViewController: UIInputViewController {
     private var candidatePageCollapseButtonTrailingConstraint: NSLayoutConstraint?
     private var candidatePageScrollTopToCollapseConstraint: NSLayoutConstraint?
     private var candidatePageScrollTopToPageConstraint: NSLayoutConstraint?
+    private var candidatePageScrollTopToQuickFillTopBarConstraint: NSLayoutConstraint?
 
     private static let candidateBatchSize = 30
     private static let candidatePanelAnimationDuration: TimeInterval = 0.22
@@ -374,6 +376,11 @@ final class KeyboardViewController: UIInputViewController {
         candidatePageView.layer.masksToBounds = true
         view.addSubview(candidatePageView)
 
+        quickFillTopBar.translatesAutoresizingMaskIntoConstraints = false
+        quickFillTopBar.isHidden = true
+        quickFillTopBar.backgroundColor = .clear
+        candidatePageView.addSubview(quickFillTopBar)
+
         candidatePageCollapseButton.translatesAutoresizingMaskIntoConstraints = false
         configureCandidateToggleButton(candidatePageCollapseButton, asset: .arrowUp, fallbackSystemName: "chevron.up")
         candidatePageCollapseButton.addAction(UIAction { [weak self] _ in
@@ -402,6 +409,7 @@ final class KeyboardViewController: UIInputViewController {
         candidatePageCollapseButtonTrailingConstraint = candidatePageCollapseButton.trailingAnchor.constraint(equalTo: candidatePageView.trailingAnchor, constant: -8)
         candidatePageScrollTopToCollapseConstraint = candidatePageScrollView.topAnchor.constraint(equalTo: candidatePageCollapseButton.bottomAnchor, constant: 4)
         candidatePageScrollTopToPageConstraint = candidatePageScrollView.topAnchor.constraint(equalTo: candidatePageView.topAnchor)
+        candidatePageScrollTopToQuickFillTopBarConstraint = candidatePageScrollView.topAnchor.constraint(equalTo: quickFillTopBar.bottomAnchor, constant: 4)
 
         NSLayoutConstraint.activate([
             candidatePageView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -413,6 +421,11 @@ final class KeyboardViewController: UIInputViewController {
             candidatePageCollapseButton.heightAnchor.constraint(equalToConstant: Self.candidateToggleButtonHeight),
             candidatePageCollapseButton.widthAnchor.constraint(equalToConstant: Self.candidateToggleButtonWidth),
             candidatePageCollapseButtonTrailingConstraint!,
+
+            quickFillTopBar.leadingAnchor.constraint(equalTo: candidatePageView.leadingAnchor),
+            quickFillTopBar.trailingAnchor.constraint(equalTo: candidatePageView.trailingAnchor),
+            quickFillTopBar.topAnchor.constraint(equalTo: candidatePageView.topAnchor, constant: 4),
+            quickFillTopBar.heightAnchor.constraint(equalToConstant: 42),
 
             candidatePageScrollView.leadingAnchor.constraint(equalTo: candidatePageView.leadingAnchor, constant: 6),
             candidatePageScrollView.trailingAnchor.constraint(equalTo: candidatePageView.trailingAnchor, constant: -6),
@@ -455,17 +468,21 @@ final class KeyboardViewController: UIInputViewController {
         candidatePageCollapseButtonTrailingConstraint?.isActive = false
         candidatePageScrollTopToCollapseConstraint?.isActive = false
         candidatePageScrollTopToPageConstraint?.isActive = false
+        candidatePageScrollTopToQuickFillTopBarConstraint?.isActive = false
         candidatePageTopToCandidateBarConstraint?.isActive = !visible
         candidatePageTopToViewConstraint?.isActive = visible
         candidatePageCollapseButtonLeadingConstraint?.isActive = visible
         candidatePageCollapseButtonTrailingConstraint?.isActive = !visible
         candidatePageScrollTopToCollapseConstraint?.isActive = !visible
-        candidatePageScrollTopToPageConstraint?.isActive = visible
+        candidatePageScrollTopToPageConstraint?.isActive = false
+        candidatePageScrollTopToQuickFillTopBarConstraint?.isActive = visible
         candidatePageScrollView.showsVerticalScrollIndicator = !visible
+        quickFillTopBar.isHidden = !visible
 
         if visible {
             configureQuickFillBackButton(candidatePageCollapseButton)
         } else {
+            quickFillTopBar.subviews.forEach { $0.removeFromSuperview() }
             configureCandidateToggleButton(candidatePageCollapseButton, asset: .arrowUp, fallbackSystemName: "chevron.up")
             candidatePageCollapseButton.tintColor = secondaryText
             candidatePageCollapseButton.backgroundColor = .clear
@@ -2101,8 +2118,7 @@ final class KeyboardViewController: UIInputViewController {
         candidatePageStack.spacing = 8
         candidatePageScrollView.setContentOffset(.zero, animated: false)
         candidatePageCollapseButton.isHidden = false
-
-        candidatePageStack.addArrangedSubview(makeQuickFillHeader())
+        renderQuickFillTopBar()
 
         let contentStack = UIStackView()
         contentStack.axis = .vertical
@@ -2125,6 +2141,19 @@ final class KeyboardViewController: UIInputViewController {
         }
 
         candidatePageView.bringSubviewToFront(candidatePageCollapseButton)
+    }
+
+    private func renderQuickFillTopBar() {
+        quickFillTopBar.subviews.forEach { $0.removeFromSuperview() }
+        let header = makeQuickFillHeader()
+        header.translatesAutoresizingMaskIntoConstraints = false
+        quickFillTopBar.addSubview(header)
+        NSLayoutConstraint.activate([
+            header.leadingAnchor.constraint(equalTo: quickFillTopBar.leadingAnchor),
+            header.trailingAnchor.constraint(equalTo: quickFillTopBar.trailingAnchor),
+            header.topAnchor.constraint(equalTo: quickFillTopBar.topAnchor),
+            header.bottomAnchor.constraint(equalTo: quickFillTopBar.bottomAnchor)
+        ])
     }
 
     private func makeQuickFillHeader() -> UIStackView {
