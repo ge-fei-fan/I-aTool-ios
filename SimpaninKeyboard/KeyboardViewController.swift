@@ -55,6 +55,7 @@ final class KeyboardViewController: UIInputViewController {
     private let compositionBar = CompositionBarView()
     private let candidateBarStack = UIStackView()
     private let candidateScrollView = UIScrollView()
+    private let candidateScrollContentView = CandidateScrollContentView()
     private let candidateStack = UIStackView()
     private let candidateExpandButton = UIButton(type: .system)
     private let candidatePageView = UIView()
@@ -274,6 +275,11 @@ final class KeyboardViewController: UIInputViewController {
         candidateScrollView.delegate = self
         candidateBarStack.addArrangedSubview(candidateScrollView)
 
+        candidateScrollContentView.translatesAutoresizingMaskIntoConstraints = false
+        candidateScrollContentView.forwardedScrollView = candidateScrollView
+        candidateScrollContentView.contentStackView = candidateStack
+        candidateScrollView.addSubview(candidateScrollContentView)
+
         candidateExpandButton.translatesAutoresizingMaskIntoConstraints = false
         configureCandidateToggleButton(candidateExpandButton, asset: .arrowDown, fallbackSystemName: "chevron.down")
         candidateExpandButton.isHidden = true
@@ -290,15 +296,20 @@ final class KeyboardViewController: UIInputViewController {
         candidateStack.isLayoutMarginsRelativeArrangement = true
         candidateStack.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 1, trailing: 0)
         candidateStack.translatesAutoresizingMaskIntoConstraints = false
-        candidateScrollView.addSubview(candidateStack)
+        candidateScrollContentView.addSubview(candidateStack)
 
         NSLayoutConstraint.activate([
-            candidateStack.leadingAnchor.constraint(equalTo: candidateScrollView.contentLayoutGuide.leadingAnchor),
-            candidateStack.trailingAnchor.constraint(equalTo: candidateScrollView.contentLayoutGuide.trailingAnchor),
-            candidateStack.topAnchor.constraint(equalTo: candidateScrollView.contentLayoutGuide.topAnchor),
-            candidateStack.bottomAnchor.constraint(equalTo: candidateScrollView.contentLayoutGuide.bottomAnchor),
-            candidateStack.heightAnchor.constraint(equalTo: candidateScrollView.frameLayoutGuide.heightAnchor),
-            candidateStack.widthAnchor.constraint(greaterThanOrEqualTo: candidateScrollView.frameLayoutGuide.widthAnchor)
+            candidateScrollContentView.leadingAnchor.constraint(equalTo: candidateScrollView.contentLayoutGuide.leadingAnchor),
+            candidateScrollContentView.trailingAnchor.constraint(equalTo: candidateScrollView.contentLayoutGuide.trailingAnchor),
+            candidateScrollContentView.topAnchor.constraint(equalTo: candidateScrollView.contentLayoutGuide.topAnchor),
+            candidateScrollContentView.bottomAnchor.constraint(equalTo: candidateScrollView.contentLayoutGuide.bottomAnchor),
+            candidateScrollContentView.heightAnchor.constraint(equalTo: candidateScrollView.frameLayoutGuide.heightAnchor),
+            candidateScrollContentView.widthAnchor.constraint(greaterThanOrEqualTo: candidateScrollView.frameLayoutGuide.widthAnchor),
+            candidateStack.leadingAnchor.constraint(equalTo: candidateScrollContentView.leadingAnchor),
+            candidateStack.trailingAnchor.constraint(equalTo: candidateScrollContentView.trailingAnchor),
+            candidateStack.topAnchor.constraint(equalTo: candidateScrollContentView.topAnchor),
+            candidateStack.bottomAnchor.constraint(equalTo: candidateScrollContentView.bottomAnchor),
+            candidateStack.heightAnchor.constraint(equalTo: candidateScrollContentView.heightAnchor)
         ])
 
         keyboardRowsStack.axis = .vertical
@@ -2480,6 +2491,23 @@ private final class KeyboardRootStack: UIStackView {
         let dx = point.x - clampedX
         let dy = point.y - clampedY
         return dx * dx + dy * dy
+    }
+}
+
+private final class CandidateScrollContentView: UIView {
+    weak var forwardedScrollView: UIScrollView?
+    weak var contentStackView: UIStackView?
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard !isHidden, alpha >= 0.01, isUserInteractionEnabled, self.point(inside: point, with: event) else {
+            return nil
+        }
+
+        let hitView = super.hitTest(point, with: event)
+        if hitView === self || hitView === contentStackView {
+            return forwardedScrollView
+        }
+        return hitView ?? forwardedScrollView
     }
 }
 
