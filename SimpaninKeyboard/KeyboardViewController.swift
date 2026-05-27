@@ -1676,7 +1676,7 @@ final class KeyboardViewController: UIInputViewController {
         candidateScrollView.backgroundColor = .clear
         candidateStack.backgroundColor = .clear
         candidateBarStack.backgroundColor = .clear
-        candidatePageView.backgroundColor = candidatePageBackground
+        candidatePageView.backgroundColor = isQuickFillPanelVisible ? keyboardBackground : candidatePageBackground
         candidatePageScrollView.backgroundColor = .clear
         candidatePageStack.backgroundColor = .clear
     }
@@ -2022,7 +2022,7 @@ final class KeyboardViewController: UIInputViewController {
             selectedQuickFillPanelTab = .commonPhrases
             applyQuickFillPanelChrome(true)
             renderQuickFillPanel()
-            candidatePageView.backgroundColor = candidatePageBackground
+            candidatePageView.backgroundColor = keyboardBackground
             candidatePageView.isHidden = false
             candidatePageView.alpha = 1
             view.bringSubviewToFront(candidatePageView)
@@ -2103,7 +2103,6 @@ final class KeyboardViewController: UIInputViewController {
             contentStack.addArrangedSubview(makeQuickFillEmptyStateView())
         }
 
-        contentStack.addArrangedSubview(makeQuickFillFooterButton())
     }
 
     private func makeQuickFillHeader() -> UIStackView {
@@ -2184,20 +2183,6 @@ final class KeyboardViewController: UIInputViewController {
             return UIImage(contentsOfFile: url.path)
         }
         return UIImage(named: "暂无数据")
-    }
-
-    private func makeQuickFillFooterButton() -> UIButton {
-        let button = UIButton(type: .system)
-        button.setTitle("+ 添加/编辑常用语", for: .normal)
-        button.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
-        button.setTitleColor(primaryText, for: .normal)
-        button.backgroundColor = candidateBackground
-        button.layer.cornerRadius = 7
-        button.layer.borderWidth = 0.5
-        button.layer.borderColor = candidateBorder.cgColor
-        button.heightAnchor.constraint(equalToConstant: 42).isActive = true
-        button.isUserInteractionEnabled = false
-        return button
     }
 
     private func makeQuickFillButton(text: String) -> UIButton {
