@@ -23,6 +23,11 @@ final class KeyboardViewController: UIInputViewController {
         case association
     }
 
+    private enum QuickFillPanelTab {
+        case commonPhrases
+        case clipboard
+    }
+
     private struct SelectedCompositionSegment {
         let pinyin: String
         let text: String
@@ -94,6 +99,11 @@ final class KeyboardViewController: UIInputViewController {
     private let trackpadMovementFeedback = UISelectionFeedbackGenerator()
     private var quickFillItems: [String] = []
     private var isQuickFillPanelVisible = false
+    private var selectedQuickFillPanelTab: QuickFillPanelTab = .commonPhrases
+    private var candidatePageCollapseButtonLeadingConstraint: NSLayoutConstraint?
+    private var candidatePageCollapseButtonTrailingConstraint: NSLayoutConstraint?
+    private var candidatePageScrollTopToCollapseConstraint: NSLayoutConstraint?
+    private var candidatePageScrollTopToPageConstraint: NSLayoutConstraint?
 
     private static let candidateBatchSize = 30
     private static let candidatePanelAnimationDuration: TimeInterval = 0.22
@@ -294,7 +304,7 @@ final class KeyboardViewController: UIInputViewController {
 
         utilityOverlayStack.translatesAutoresizingMaskIntoConstraints = false
         utilityOverlayStack.axis = .horizontal
-        utilityOverlayStack.alignment = .center
+        utilityOverlayStack.alignment = .top
         utilityOverlayStack.distribution = .equalSpacing
         utilityOverlayStack.spacing = 16
         utilityOverlayView.addSubview(utilityOverlayStack)
@@ -343,7 +353,7 @@ final class KeyboardViewController: UIInputViewController {
             utilityOverlayView.bottomAnchor.constraint(equalTo: candidateBarStack.bottomAnchor),
             utilityOverlayStack.leadingAnchor.constraint(equalTo: utilityOverlayView.leadingAnchor, constant: 14),
             utilityOverlayStack.trailingAnchor.constraint(equalTo: utilityOverlayView.trailingAnchor, constant: -14),
-            utilityOverlayStack.centerYAnchor.constraint(equalTo: utilityOverlayView.centerYAnchor),
+            utilityOverlayStack.topAnchor.constraint(equalTo: utilityOverlayView.topAnchor),
             utilityOverlayStack.heightAnchor.constraint(equalToConstant: 32)
         ])
         view.bringSubviewToFront(candidatePageView)
@@ -380,6 +390,11 @@ final class KeyboardViewController: UIInputViewController {
         candidatePageStack.translatesAutoresizingMaskIntoConstraints = false
         candidatePageScrollView.addSubview(candidatePageStack)
 
+        candidatePageCollapseButtonLeadingConstraint = candidatePageCollapseButton.leadingAnchor.constraint(equalTo: candidatePageView.leadingAnchor, constant: 8)
+        candidatePageCollapseButtonTrailingConstraint = candidatePageCollapseButton.trailingAnchor.constraint(equalTo: candidatePageView.trailingAnchor, constant: -8)
+        candidatePageScrollTopToCollapseConstraint = candidatePageScrollView.topAnchor.constraint(equalTo: candidatePageCollapseButton.bottomAnchor, constant: 4)
+        candidatePageScrollTopToPageConstraint = candidatePageScrollView.topAnchor.constraint(equalTo: candidatePageView.topAnchor)
+
         NSLayoutConstraint.activate([
             candidatePageView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             candidatePageView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
@@ -387,13 +402,13 @@ final class KeyboardViewController: UIInputViewController {
             candidatePageView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
             candidatePageCollapseButton.topAnchor.constraint(equalTo: candidatePageView.topAnchor, constant: 4),
-            candidatePageCollapseButton.trailingAnchor.constraint(equalTo: candidatePageView.trailingAnchor, constant: -8),
             candidatePageCollapseButton.heightAnchor.constraint(equalToConstant: Self.candidateToggleButtonHeight),
             candidatePageCollapseButton.widthAnchor.constraint(equalToConstant: Self.candidateToggleButtonWidth),
+            candidatePageCollapseButtonTrailingConstraint!,
 
             candidatePageScrollView.leadingAnchor.constraint(equalTo: candidatePageView.leadingAnchor, constant: 6),
             candidatePageScrollView.trailingAnchor.constraint(equalTo: candidatePageView.trailingAnchor, constant: -6),
-            candidatePageScrollView.topAnchor.constraint(equalTo: candidatePageCollapseButton.bottomAnchor, constant: 4),
+            candidatePageScrollTopToCollapseConstraint!,
             candidatePageScrollView.bottomAnchor.constraint(equalTo: candidatePageView.bottomAnchor, constant: -6),
 
             candidatePageStack.leadingAnchor.constraint(equalTo: candidatePageScrollView.contentLayoutGuide.leadingAnchor),
@@ -413,6 +428,40 @@ final class KeyboardViewController: UIInputViewController {
         button.contentVerticalAlignment = .center
     }
 
+    private func configureQuickFillBackButton(_ button: UIButton) {
+        let configuration = UIImage.SymbolConfiguration(pointSize: 20, weight: .regular)
+        button.setImage(UIImage(systemName: "chevron.left", withConfiguration: configuration), for: .normal)
+        button.contentEdgeInsets = UIEdgeInsets(top: 2, left: 8, bottom: 2, right: 8)
+        button.layer.cornerRadius = 7
+        button.layer.borderWidth = 0
+        button.contentHorizontalAlignment = .center
+        button.contentVerticalAlignment = .center
+        button.tintColor = primaryText
+        button.backgroundColor = .clear
+        button.layer.borderColor = UIColor.clear.cgColor
+    }
+
+    private func applyQuickFillPanelChrome(_ visible: Bool) {
+        candidatePageCollapseButtonLeadingConstraint?.isActive = false
+        candidatePageCollapseButtonTrailingConstraint?.isActive = false
+        candidatePageScrollTopToCollapseConstraint?.isActive = false
+        candidatePageScrollTopToPageConstraint?.isActive = false
+        candidatePageCollapseButtonLeadingConstraint?.isActive = visible
+        candidatePageCollapseButtonTrailingConstraint?.isActive = !visible
+        candidatePageScrollTopToCollapseConstraint?.isActive = !visible
+        candidatePageScrollTopToPageConstraint?.isActive = visible
+        candidatePageScrollView.showsVerticalScrollIndicator = !visible
+
+        if visible {
+            configureQuickFillBackButton(candidatePageCollapseButton)
+        } else {
+            configureCandidateToggleButton(candidatePageCollapseButton, asset: .arrowUp, fallbackSystemName: "chevron.up")
+            candidatePageCollapseButton.tintColor = secondaryText
+            candidatePageCollapseButton.backgroundColor = .clear
+            candidatePageCollapseButton.layer.borderColor = UIColor.clear.cgColor
+        }
+    }
+
     private func configureUtilityIconButton(
         _ button: UIButton,
         asset: KeyboardIconAsset,
@@ -425,7 +474,7 @@ final class KeyboardViewController: UIInputViewController {
         button.layer.shadowOpacity = 0
         button.contentEdgeInsets = .zero
         button.contentHorizontalAlignment = .center
-        button.contentVerticalAlignment = .center
+        button.contentVerticalAlignment = .top
         button.accessibilityLabel = accessibilityLabel
         button.setTitle(nil, for: .normal)
         button.setImage(keyboardIcon(asset, fallbackSystemName: fallbackSystemName), for: .normal)
@@ -1448,6 +1497,7 @@ final class KeyboardViewController: UIInputViewController {
 
         if shouldShow {
             setQuickFillPanelVisible(false, animated: false)
+            applyQuickFillPanelChrome(false)
         }
 
         isCandidatePageVisible = shouldShow
@@ -1526,6 +1576,7 @@ final class KeyboardViewController: UIInputViewController {
     private func renderCandidatePage() {
         clearCandidatePage()
         candidatePageRenderedWidth = candidatePageView.bounds.width
+        candidatePageStack.spacing = 6
         guard !allCandidates.isEmpty else { return }
 
         let spacing: CGFloat = 6
@@ -1947,10 +1998,11 @@ final class KeyboardViewController: UIInputViewController {
 
     private func handleUtilityFillButtonTap() {
         hideKeyPreview(animated: false)
-        guard !quickFillItems.isEmpty else { return }
+        reloadQuickFillItems()
         if isQuickFillPanelVisible {
             setQuickFillPanelVisible(false)
         } else {
+            selectedQuickFillPanelTab = .commonPhrases
             setCandidatePageVisible(false)
             setQuickFillPanelVisible(true)
         }
@@ -1962,11 +2014,13 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func setQuickFillPanelVisible(_ visible: Bool, animated: Bool = true) {
-        let shouldShow = visible && !quickFillItems.isEmpty
+        let shouldShow = visible
         guard isQuickFillPanelVisible != shouldShow else { return }
         isQuickFillPanelVisible = shouldShow
 
         if shouldShow {
+            selectedQuickFillPanelTab = .commonPhrases
+            applyQuickFillPanelChrome(true)
             renderQuickFillPanel()
             candidatePageView.backgroundColor = candidatePageBackground
             candidatePageView.isHidden = false
@@ -2003,6 +2057,7 @@ final class KeyboardViewController: UIInputViewController {
                 self.candidatePageView.isHidden = true
                 self.candidatePageView.transform = .identity
                 self.clearCandidatePage()
+                self.applyQuickFillPanelChrome(false)
             }
             if animated && !candidatePageView.isHidden {
                 UIView.animate(
@@ -2022,48 +2077,143 @@ final class KeyboardViewController: UIInputViewController {
     private func renderQuickFillPanel() {
         clearCandidatePage()
         candidatePageRenderedWidth = candidatePageView.bounds.width
-        guard !quickFillItems.isEmpty else { return }
+        candidatePageStack.spacing = 8
+        candidatePageScrollView.setContentOffset(.zero, animated: false)
         candidatePageCollapseButton.isHidden = false
 
-        let spacing: CGFloat = 6
-        let contentWidth = max(candidatePageView.bounds.width - 12, 56)
-        var rowStack: UIStackView?
-        var rowWidth: CGFloat = 0
+        candidatePageStack.addArrangedSubview(makeQuickFillHeader())
 
-        for text in quickFillItems {
-            let size = candidatePageButtonSize(for: text, maxWidth: contentWidth)
-            let needsNewRow = rowStack == nil || rowWidth + spacing + size.width > contentWidth
-            if needsNewRow {
-                let newRow = UIStackView()
-                newRow.axis = .horizontal
-                newRow.spacing = spacing
-                newRow.alignment = .top
-                newRow.distribution = .fill
-                candidatePageStack.addArrangedSubview(newRow)
-                rowStack = newRow
-                rowWidth = 0
+        let contentStack = UIStackView()
+        contentStack.axis = .vertical
+        contentStack.spacing = 8
+        contentStack.layoutMargins = UIEdgeInsets(top: 0, left: 8, bottom: 0, right: 8)
+        contentStack.isLayoutMarginsRelativeArrangement = true
+        candidatePageStack.addArrangedSubview(contentStack)
+
+        switch selectedQuickFillPanelTab {
+        case .commonPhrases:
+            if quickFillItems.isEmpty {
+                contentStack.addArrangedSubview(makeQuickFillEmptyStateView())
+            } else {
+                quickFillItems.forEach { text in
+                    contentStack.addArrangedSubview(makeQuickFillButton(text: text))
+                }
             }
-            let button = makeQuickFillButton(text: text)
-            rowStack?.addArrangedSubview(button)
-            button.widthAnchor.constraint(equalToConstant: size.width).isActive = true
-            button.heightAnchor.constraint(equalToConstant: size.height).isActive = true
-            rowWidth += (rowWidth == 0 ? 0 : spacing) + size.width
+        case .clipboard:
+            contentStack.addArrangedSubview(makeQuickFillEmptyStateView())
         }
+
+        contentStack.addArrangedSubview(makeQuickFillFooterButton())
+    }
+
+    private func makeQuickFillHeader() -> UIStackView {
+        let header = UIStackView()
+        header.axis = .horizontal
+        header.alignment = .fill
+        header.distribution = .fill
+        header.spacing = 14
+        header.layoutMargins = UIEdgeInsets(top: 0, left: 44, bottom: 0, right: 12)
+        header.isLayoutMarginsRelativeArrangement = true
+        header.heightAnchor.constraint(equalToConstant: 42).isActive = true
+
+        let tabStack = UIStackView()
+        tabStack.axis = .horizontal
+        tabStack.alignment = .fill
+        tabStack.distribution = .fillEqually
+        tabStack.spacing = 22
+        tabStack.addArrangedSubview(makeQuickFillTabControl(tab: .commonPhrases, title: "常用语"))
+        tabStack.addArrangedSubview(makeQuickFillTabControl(tab: .clipboard, title: "粘贴板"))
+        header.addArrangedSubview(tabStack)
+
+        let trailingSpacer = UIView()
+        trailingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        header.addArrangedSubview(trailingSpacer)
+        trailingSpacer.widthAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+        return header
+    }
+
+    private func makeQuickFillTabControl(tab: QuickFillPanelTab, title: String) -> UIStackView {
+        let isSelected = selectedQuickFillPanelTab == tab
+        let stack = UIStackView()
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 2
+
+        let button = UIButton(type: .system)
+        button.setTitle(title, for: .normal)
+        button.titleLabel?.font = .systemFont(ofSize: 16, weight: isSelected ? .semibold : .regular)
+        button.setTitleColor(isSelected ? primaryText : secondaryText.withAlphaComponent(0.62), for: .normal)
+        button.contentEdgeInsets = UIEdgeInsets(top: 0, left: 2, bottom: 0, right: 2)
+        button.addAction(UIAction { [weak self] _ in
+            guard let self, self.selectedQuickFillPanelTab != tab else { return }
+            self.selectedQuickFillPanelTab = tab
+            self.renderQuickFillPanel()
+        }, for: .touchUpInside)
+        stack.addArrangedSubview(button)
+
+        let indicator = UIView()
+        indicator.backgroundColor = isSelected ? UIColor.systemBlue : .clear
+        indicator.layer.cornerRadius = 1.5
+        indicator.heightAnchor.constraint(equalToConstant: 3).isActive = true
+        indicator.widthAnchor.constraint(equalToConstant: 22).isActive = true
+        stack.addArrangedSubview(indicator)
+        return stack
+    }
+
+    private func makeQuickFillEmptyStateView() -> UIView {
+        let container = UIView()
+        container.heightAnchor.constraint(equalToConstant: max(96, min(150, candidatePageView.bounds.height - 112))).isActive = true
+
+        if let image = quickFillEmptyImage() {
+            let imageView = UIImageView(image: image)
+            imageView.translatesAutoresizingMaskIntoConstraints = false
+            imageView.contentMode = .scaleAspectFit
+            container.addSubview(imageView)
+            NSLayoutConstraint.activate([
+                imageView.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+                imageView.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+                imageView.widthAnchor.constraint(equalToConstant: 112),
+                imageView.heightAnchor.constraint(equalToConstant: 112)
+            ])
+        }
+        return container
+    }
+
+    private func quickFillEmptyImage() -> UIImage? {
+        if let url = Bundle(for: Self.self).url(forResource: "暂无数据", withExtension: "png", subdirectory: "ios-icon") {
+            return UIImage(contentsOfFile: url.path)
+        }
+        return UIImage(named: "暂无数据")
+    }
+
+    private func makeQuickFillFooterButton() -> UIButton {
+        let button = UIButton(type: .system)
+        button.setTitle("+ 添加/编辑常用语", for: .normal)
+        button.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
+        button.setTitleColor(primaryText, for: .normal)
+        button.backgroundColor = candidateBackground
+        button.layer.cornerRadius = 7
+        button.layer.borderWidth = 0.5
+        button.layer.borderColor = candidateBorder.cgColor
+        button.heightAnchor.constraint(equalToConstant: 42).isActive = true
+        button.isUserInteractionEnabled = false
+        return button
     }
 
     private func makeQuickFillButton(text: String) -> UIButton {
         let button = UIButton(type: .system)
         button.setTitle(text, for: .normal)
-        button.titleLabel?.font = .systemFont(ofSize: 17, weight: .semibold)
-        button.titleLabel?.numberOfLines = 0
-        button.titleLabel?.lineBreakMode = .byCharWrapping
-        button.titleLabel?.textAlignment = .center
+        button.titleLabel?.font = .systemFont(ofSize: 16, weight: .regular)
+        button.titleLabel?.numberOfLines = 1
+        button.titleLabel?.lineBreakMode = .byTruncatingTail
+        button.contentHorizontalAlignment = .left
         button.setTitleColor(primaryText, for: .normal)
         button.backgroundColor = candidateBackground
-        button.contentEdgeInsets = UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12)
+        button.contentEdgeInsets = UIEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
         button.layer.cornerRadius = 7
         button.layer.borderWidth = 0.5
         button.layer.borderColor = candidateBorder.cgColor
+        button.heightAnchor.constraint(equalToConstant: 42).isActive = true
         button.addAction(UIAction { [weak self] _ in
             self?.handleQuickFillSelection(text)
         }, for: .touchUpInside)
@@ -2071,12 +2221,8 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func handleQuickFillSelection(_ text: String) {
-        setQuickFillPanelVisible(false)
-        finalizeComposition()
-        associationContext = nil
         textDocumentProxy.insertText(text)
         hasInsertedTextInCurrentContext = true
-        updateCandidates(resetScroll: true)
     }
 
     private func finalizeComposition() {
