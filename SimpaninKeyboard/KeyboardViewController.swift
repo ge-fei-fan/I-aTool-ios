@@ -116,7 +116,7 @@ final class KeyboardViewController: UIInputViewController {
     private static let candidatePanelAnimationDuration: TimeInterval = 0.22
     private static let candidateRefreshDelay: TimeInterval = 0.012
     private static let candidateToggleButtonWidth: CGFloat = 34
-    private static let candidateToggleButtonHeight: CGFloat = 30
+    private static let candidateToggleButtonHeight: CGFloat = 42
     private static let keyboardIconPointSize: CGFloat = 24
     private static let quickFillBackIconPointSize: CGFloat = 28
     private static let shiftKeyImagePointSize: CGFloat = 30
@@ -148,7 +148,7 @@ final class KeyboardViewController: UIInputViewController {
             case .arrowUp:
                 return "icons8-collapse-arrow-50"
             case .back:
-                return "icons8-返回-48"
+                return "icons8-back-50"
             }
         }
     }
@@ -434,7 +434,7 @@ final class KeyboardViewController: UIInputViewController {
         candidatePageCollapseButtonTrailingConstraint = candidatePageCollapseButton.trailingAnchor.constraint(equalTo: candidatePageView.trailingAnchor, constant: -8)
         candidatePageScrollTopToCollapseConstraint = candidatePageScrollView.topAnchor.constraint(equalTo: candidatePageCollapseButton.bottomAnchor, constant: 4)
         candidatePageScrollTopToPageConstraint = candidatePageScrollView.topAnchor.constraint(equalTo: candidatePageView.topAnchor)
-        candidatePageScrollTopToQuickFillTopBarConstraint = candidatePageScrollView.topAnchor.constraint(equalTo: quickFillTopBar.bottomAnchor, constant: 4)
+        candidatePageScrollTopToQuickFillTopBarConstraint = candidatePageScrollView.topAnchor.constraint(equalTo: quickFillTopBar.bottomAnchor, constant: 9)
 
         NSLayoutConstraint.activate([
             candidatePageView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
