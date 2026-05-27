@@ -32,6 +32,11 @@ def main() -> int:
         "quick fill heart icon is first utility item": '(asset: .heart, fallbackSystemName: "heart", label: "Quick fill", dismissesKeyboard: false, opensQuickFill: true)' in items,
         "utility item list has five icons": items.count("(asset:") == 5,
         "total utility toolbar has six icons": source.count("utilityOverlayIconButtons.append(") == 2 and items.count("(asset:") == 5,
+        "utility toolbar keeps equal spacing": "utilityOverlayStack.distribution = .equalSpacing" in source,
+        "utility toolbar uses 5pt horizontal insets": "utilityOverlayStack.leadingAnchor.constraint(equalTo: utilityOverlayView.leadingAnchor, constant: 5)" in source
+        and "utilityOverlayStack.trailingAnchor.constraint(equalTo: utilityOverlayView.trailingAnchor, constant: -5)" in source,
+        "utility icon button touch size stays 34 by 32": "button.widthAnchor.constraint(equalToConstant: 34).isActive = true" in source
+        and "button.heightAnchor.constraint(equalToConstant: 32).isActive = true" in source,
         "heart icon precedes dictation": items.find('label: "Quick fill"') != -1 and items.find('label: "Quick fill"') < items.find('label: "Dictation"'),
         "heart icon opens quick fill": "if item.opensQuickFill" in source and "self?.handleUtilityFillButtonTap()" in source,
     }

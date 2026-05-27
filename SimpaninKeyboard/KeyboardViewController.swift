@@ -382,8 +382,8 @@ final class KeyboardViewController: UIInputViewController {
             utilityOverlayView.trailingAnchor.constraint(equalTo: rootStack.trailingAnchor),
             utilityOverlayView.topAnchor.constraint(equalTo: candidateBarStack.topAnchor),
             utilityOverlayView.bottomAnchor.constraint(equalTo: candidateBarStack.bottomAnchor),
-            utilityOverlayStack.leadingAnchor.constraint(equalTo: utilityOverlayView.leadingAnchor, constant: 14),
-            utilityOverlayStack.trailingAnchor.constraint(equalTo: utilityOverlayView.trailingAnchor, constant: -14),
+            utilityOverlayStack.leadingAnchor.constraint(equalTo: utilityOverlayView.leadingAnchor, constant: 5),
+            utilityOverlayStack.trailingAnchor.constraint(equalTo: utilityOverlayView.trailingAnchor, constant: -5),
             utilityOverlayStack.topAnchor.constraint(equalTo: utilityOverlayView.topAnchor),
             utilityOverlayStack.heightAnchor.constraint(equalToConstant: 32)
         ])
