@@ -100,6 +100,8 @@ final class KeyboardViewController: UIInputViewController {
     private var quickFillItems: [String] = []
     private var isQuickFillPanelVisible = false
     private var selectedQuickFillPanelTab: QuickFillPanelTab = .commonPhrases
+    private var candidatePageTopToCandidateBarConstraint: NSLayoutConstraint?
+    private var candidatePageTopToCompositionBarConstraint: NSLayoutConstraint?
     private var candidatePageCollapseButtonLeadingConstraint: NSLayoutConstraint?
     private var candidatePageCollapseButtonTrailingConstraint: NSLayoutConstraint?
     private var candidatePageScrollTopToCollapseConstraint: NSLayoutConstraint?
@@ -390,6 +392,8 @@ final class KeyboardViewController: UIInputViewController {
         candidatePageStack.translatesAutoresizingMaskIntoConstraints = false
         candidatePageScrollView.addSubview(candidatePageStack)
 
+        candidatePageTopToCandidateBarConstraint = candidatePageView.topAnchor.constraint(equalTo: candidateBarStack.topAnchor)
+        candidatePageTopToCompositionBarConstraint = candidatePageView.topAnchor.constraint(equalTo: compositionBar.topAnchor)
         candidatePageCollapseButtonLeadingConstraint = candidatePageCollapseButton.leadingAnchor.constraint(equalTo: candidatePageView.leadingAnchor, constant: 8)
         candidatePageCollapseButtonTrailingConstraint = candidatePageCollapseButton.trailingAnchor.constraint(equalTo: candidatePageView.trailingAnchor, constant: -8)
         candidatePageScrollTopToCollapseConstraint = candidatePageScrollView.topAnchor.constraint(equalTo: candidatePageCollapseButton.bottomAnchor, constant: 4)
@@ -398,7 +402,7 @@ final class KeyboardViewController: UIInputViewController {
         NSLayoutConstraint.activate([
             candidatePageView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             candidatePageView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            candidatePageView.topAnchor.constraint(equalTo: candidateBarStack.topAnchor),
+            candidatePageTopToCandidateBarConstraint!,
             candidatePageView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
             candidatePageCollapseButton.topAnchor.constraint(equalTo: candidatePageView.topAnchor, constant: 4),
@@ -442,10 +446,14 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func applyQuickFillPanelChrome(_ visible: Bool) {
+        candidatePageTopToCandidateBarConstraint?.isActive = false
+        candidatePageTopToCompositionBarConstraint?.isActive = false
         candidatePageCollapseButtonLeadingConstraint?.isActive = false
         candidatePageCollapseButtonTrailingConstraint?.isActive = false
         candidatePageScrollTopToCollapseConstraint?.isActive = false
         candidatePageScrollTopToPageConstraint?.isActive = false
+        candidatePageTopToCandidateBarConstraint?.isActive = !visible
+        candidatePageTopToCompositionBarConstraint?.isActive = visible
         candidatePageCollapseButtonLeadingConstraint?.isActive = visible
         candidatePageCollapseButtonTrailingConstraint?.isActive = !visible
         candidatePageScrollTopToCollapseConstraint?.isActive = !visible
@@ -1676,7 +1684,7 @@ final class KeyboardViewController: UIInputViewController {
         candidateScrollView.backgroundColor = .clear
         candidateStack.backgroundColor = .clear
         candidateBarStack.backgroundColor = .clear
-        candidatePageView.backgroundColor = isQuickFillPanelVisible ? keyboardBackground : candidatePageBackground
+        candidatePageView.backgroundColor = isQuickFillPanelVisible ? quickFillPanelBackground : candidatePageBackground
         candidatePageScrollView.backgroundColor = .clear
         candidatePageStack.backgroundColor = .clear
     }
@@ -1700,6 +1708,10 @@ final class KeyboardViewController: UIInputViewController {
 
     private var keyboardBackground: UIColor {
         isDark ? UIColor(red: 0.13, green: 0.14, blue: 0.14, alpha: 0.72) : UIColor(red: 0.73, green: 0.75, blue: 0.78, alpha: 0.72)
+    }
+
+    private var quickFillPanelBackground: UIColor {
+        isDark ? UIColor(red: 0.13, green: 0.14, blue: 0.14, alpha: 1) : UIColor(red: 0.73, green: 0.75, blue: 0.78, alpha: 1)
     }
 
     private var candidatePageBackground: UIColor {
@@ -1727,7 +1739,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private var candidateBackground: UIColor {
-        isDark ? UIColor(red: 0.31, green: 0.31, blue: 0.33, alpha: 1) : UIColor(red: 0.98, green: 0.98, blue: 0.99, alpha: 1)
+        quickFillPanelBackground
     }
 
     private var highlightedCandidateBackground: UIColor {
@@ -2022,12 +2034,12 @@ final class KeyboardViewController: UIInputViewController {
             selectedQuickFillPanelTab = .commonPhrases
             applyQuickFillPanelChrome(true)
             renderQuickFillPanel()
-            candidatePageView.backgroundColor = keyboardBackground
+            candidatePageView.backgroundColor = quickFillPanelBackground
             candidatePageView.isHidden = false
             candidatePageView.alpha = 1
-            view.bringSubviewToFront(candidatePageView)
             view.bringSubviewToFront(trackpadBlurView)
             view.bringSubviewToFront(keyPreviewView)
+            view.bringSubviewToFront(candidatePageView)
             candidatePageCollapseButton.isHidden = false
 
             let keyboardOffset = keyboardRowsDismissOffset
