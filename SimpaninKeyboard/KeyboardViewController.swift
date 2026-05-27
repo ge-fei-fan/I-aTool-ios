@@ -1648,35 +1648,75 @@ final class KeyboardViewController: UIInputViewController {
         clearCandidatePage()
         candidatePageRenderedWidth = candidatePageView.bounds.width
         candidatePageStack.spacing = 6
+        candidatePageStack.alignment = .leading
         guard !allCandidates.isEmpty else { return }
 
         let spacing: CGFloat = 6
         let minButtonWidth: CGFloat = 56
         let contentWidth = max(candidatePageView.bounds.width - 12, minButtonWidth)
-        var rowStack: UIStackView?
+        let ellipsisSize = candidatePageEllipsisSize()
+        let rowStack = UIStackView()
+        rowStack.axis = .horizontal
+        rowStack.spacing = spacing
+        rowStack.alignment = .top
+        rowStack.distribution = .fill
+        candidatePageStack.addArrangedSubview(rowStack)
+
+        var visibleCandidates: [(index: Int, candidate: KeyboardCandidate, size: CGSize)] = []
         var rowWidth: CGFloat = 0
+        var shouldAppendEllipsis = false
 
         for (index, candidate) in allCandidates.enumerated() {
-            let size = candidatePageButtonSize(for: candidate.text, maxWidth: contentWidth)
-            let needsNewRow = rowStack == nil || rowWidth + spacing + size.width > contentWidth
-
-            if needsNewRow {
-                let newRow = UIStackView()
-                newRow.axis = .horizontal
-                newRow.spacing = spacing
-                newRow.alignment = .top
-                newRow.distribution = .fill
-                candidatePageStack.addArrangedSubview(newRow)
-                rowStack = newRow
-                rowWidth = 0
+            let hasMoreCandidates = index < allCandidates.count - 1
+            let availableCandidateWidth = hasMoreCandidates ? contentWidth - ellipsisSize.width - spacing : contentWidth
+            let maxCandidateWidth = max(minButtonWidth, min(contentWidth, availableCandidateWidth))
+            let size = candidatePageButtonSize(for: candidate.text, maxWidth: maxCandidateWidth)
+            let nextRowWidth = rowWidth + (rowWidth == 0 ? 0 : spacing) + size.width
+            if hasMoreCandidates && nextRowWidth > availableCandidateWidth {
+                shouldAppendEllipsis = true
+                break
+            }
+            if !hasMoreCandidates && nextRowWidth > availableCandidateWidth {
+                shouldAppendEllipsis = true
+                break
             }
 
+            visibleCandidates.append((index, candidate, size))
+            rowWidth = nextRowWidth
+        }
+
+        shouldAppendEllipsis = shouldAppendEllipsis || visibleCandidates.count < allCandidates.count
+
+        for (index, candidate, size) in visibleCandidates {
             let button = makeCandidateButton(candidate: candidate, index: index, expanded: true)
-            rowStack?.addArrangedSubview(button)
+            rowStack.addArrangedSubview(button)
             button.widthAnchor.constraint(equalToConstant: size.width).isActive = true
             button.heightAnchor.constraint(equalToConstant: size.height).isActive = true
-            rowWidth += (rowWidth == 0 ? 0 : spacing) + size.width
         }
+
+        if shouldAppendEllipsis {
+            let ellipsisButton = makeCandidatePageEllipsisView()
+            rowStack.addArrangedSubview(ellipsisButton)
+            ellipsisButton.widthAnchor.constraint(equalToConstant: ellipsisSize.width).isActive = true
+            ellipsisButton.heightAnchor.constraint(equalToConstant: ellipsisSize.height).isActive = true
+        }
+    }
+
+    private func candidatePageEllipsisSize() -> CGSize {
+        CGSize(width: 44, height: 34)
+    }
+
+    private func makeCandidatePageEllipsisView() -> UIButton {
+        let ellipsisButton = UIButton(type: .system)
+        ellipsisButton.setTitle("...", for: .normal)
+        ellipsisButton.titleLabel?.font = .systemFont(ofSize: 19, weight: .semibold)
+        ellipsisButton.titleLabel?.numberOfLines = 1
+        ellipsisButton.titleLabel?.textAlignment = .center
+        ellipsisButton.setTitleColor(secondaryText, for: .normal)
+        ellipsisButton.backgroundColor = .clear
+        ellipsisButton.contentEdgeInsets = UIEdgeInsets(top: 6, left: 10, bottom: 6, right: 10)
+        ellipsisButton.isUserInteractionEnabled = false
+        return ellipsisButton
     }
 
     private func clearCandidatePage() {
@@ -2156,6 +2196,7 @@ final class KeyboardViewController: UIInputViewController {
         clearCandidatePage()
         candidatePageRenderedWidth = candidatePageView.bounds.width
         candidatePageStack.spacing = 8
+        candidatePageStack.alignment = .fill
         candidatePageScrollView.setContentOffset(.zero, animated: false)
         candidatePageCollapseButton.isHidden = false
         renderQuickFillTopBar()
