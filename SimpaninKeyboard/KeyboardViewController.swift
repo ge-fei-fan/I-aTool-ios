@@ -53,8 +53,9 @@ final class KeyboardViewController: UIInputViewController {
     private let trackpadBlurView = UIVisualEffectView(effect: UIBlurEffect(style: .systemThinMaterial))
     private let keyPreviewView = KeyPreviewView()
     private let compositionBar = CompositionBarView()
-    private let candidateBarStack = UIStackView()
+    private let candidateBarStack = CandidateBarTouchStack()
     private let candidateScrollView = UIScrollView()
+    private let candidateScrollHitPlateView = UIView()
     private let candidateScrollContentView = CandidateScrollContentView()
     private let candidateStack = UIStackView()
     private let candidateExpandButton = UIButton(type: .system)
@@ -274,11 +275,15 @@ final class KeyboardViewController: UIInputViewController {
         candidateScrollView.clipsToBounds = true
         candidateScrollView.delegate = self
         candidateBarStack.addArrangedSubview(candidateScrollView)
+        candidateBarStack.candidateScrollView = candidateScrollView
+        candidateBarStack.candidateExpandButton = candidateExpandButton
 
+        candidateScrollHitPlateView.translatesAutoresizingMaskIntoConstraints = false
+        candidateScrollHitPlateView.isUserInteractionEnabled = false
         candidateScrollContentView.translatesAutoresizingMaskIntoConstraints = false
-        candidateScrollContentView.forwardedScrollView = candidateScrollView
         candidateScrollContentView.contentStackView = candidateStack
         candidateScrollView.addSubview(candidateScrollContentView)
+        candidateScrollView.insertSubview(candidateScrollHitPlateView, belowSubview: candidateScrollContentView)
 
         candidateExpandButton.translatesAutoresizingMaskIntoConstraints = false
         configureCandidateToggleButton(candidateExpandButton, asset: .arrowDown, fallbackSystemName: "chevron.down")
@@ -305,6 +310,10 @@ final class KeyboardViewController: UIInputViewController {
             candidateScrollContentView.bottomAnchor.constraint(equalTo: candidateScrollView.contentLayoutGuide.bottomAnchor),
             candidateScrollContentView.heightAnchor.constraint(equalTo: candidateScrollView.frameLayoutGuide.heightAnchor),
             candidateScrollContentView.widthAnchor.constraint(greaterThanOrEqualTo: candidateScrollView.frameLayoutGuide.widthAnchor),
+            candidateScrollHitPlateView.leadingAnchor.constraint(equalTo: candidateScrollView.frameLayoutGuide.leadingAnchor),
+            candidateScrollHitPlateView.trailingAnchor.constraint(equalTo: candidateScrollView.frameLayoutGuide.trailingAnchor),
+            candidateScrollHitPlateView.topAnchor.constraint(equalTo: candidateScrollView.frameLayoutGuide.topAnchor),
+            candidateScrollHitPlateView.bottomAnchor.constraint(equalTo: candidateScrollView.frameLayoutGuide.bottomAnchor),
             candidateStack.leadingAnchor.constraint(equalTo: candidateScrollContentView.leadingAnchor),
             candidateStack.trailingAnchor.constraint(equalTo: candidateScrollContentView.trailingAnchor),
             candidateStack.topAnchor.constraint(equalTo: candidateScrollContentView.topAnchor),
@@ -1734,6 +1743,7 @@ final class KeyboardViewController: UIInputViewController {
         }
         compositionBar.backgroundColor = .clear
         candidateScrollView.backgroundColor = .clear
+        candidateScrollHitPlateView.backgroundColor = usesTransparentSearchBackdrop ? UIColor(white: 0, alpha: 0.005) : .clear
         candidateStack.backgroundColor = .clear
         candidateBarStack.backgroundColor = .clear
         candidatePageView.backgroundColor = isQuickFillPanelVisible ? quickFillPanelBackground : candidatePageBackground
@@ -2494,8 +2504,40 @@ private final class KeyboardRootStack: UIStackView {
     }
 }
 
+private final class CandidateBarTouchStack: UIStackView {
+    weak var candidateScrollView: UIScrollView?
+    weak var candidateExpandButton: UIView?
+
+    override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
+        guard !isHidden, alpha >= 0.01, isUserInteractionEnabled, self.point(inside: point, with: event) else {
+            return nil
+        }
+
+        if let candidateExpandButton,
+           !candidateExpandButton.isHidden,
+           candidateExpandButton.alpha >= 0.01,
+           candidateExpandButton.isUserInteractionEnabled {
+            let buttonPoint = convert(point, to: candidateExpandButton)
+            if candidateExpandButton.point(inside: buttonPoint, with: event) {
+                return candidateExpandButton.hitTest(buttonPoint, with: event)
+            }
+        }
+
+        if let scrollView = candidateScrollView,
+           !scrollView.isHidden,
+           scrollView.alpha >= 0.01,
+           scrollView.isUserInteractionEnabled {
+            let scrollPoint = convert(point, to: scrollView)
+            if scrollView.point(inside: scrollPoint, with: event) {
+                return scrollView.hitTest(scrollPoint, with: event) ?? scrollView
+            }
+        }
+
+        return super.hitTest(point, with: event)
+    }
+}
+
 private final class CandidateScrollContentView: UIView {
-    weak var forwardedScrollView: UIScrollView?
     weak var contentStackView: UIStackView?
 
     override func hitTest(_ point: CGPoint, with event: UIEvent?) -> UIView? {
@@ -2505,9 +2547,9 @@ private final class CandidateScrollContentView: UIView {
 
         let hitView = super.hitTest(point, with: event)
         if hitView === self || hitView === contentStackView {
-            return forwardedScrollView
+            return self
         }
-        return hitView ?? forwardedScrollView
+        return hitView ?? self
     }
 }
 
