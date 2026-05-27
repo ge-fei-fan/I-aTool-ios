@@ -36,6 +36,12 @@ def main() -> int:
         "proxy spacer uses shared preview binding": "bindKeyPreviewEvents(" in source and "sourceViewProvider:" in source and "highlightedControlProvider:" in source,
         "proxy spacer forwards preview anchor to real key source": "proxySpacer?.previewSourceView ?? proxySpacer?.forwardedKeyButton" in source,
         "proxy spacer shares preview exit events through helper": "[.touchDragExit, .touchUpInside, .touchUpOutside, .touchCancel]" in source,
+        "candidate scroll content covers visible width": "candidateStack.widthAnchor.constraint(greaterThanOrEqualTo: candidateScrollView.frameLayoutGuide.widthAnchor)" in source,
+        "candidate scroll interaction is centralized": "private func updateCandidateScrollInteraction()" in source,
+        "candidate scroll disables dragging when content fits": "candidateScrollView.isScrollEnabled = canScroll" in source,
+        "candidate scroll bounce follows overflow": "candidateScrollView.alwaysBounceHorizontal = canScroll" in source,
+        "candidate scroll resets offset when content fits": "candidateScrollView.setContentOffset(.zero, animated: false)" in source,
+        "candidate pagination only runs while scrollable": "guard scrollView === candidateScrollView, isCandidateScrollInteractionEnabled else { return }" in source,
     }
 
     failed = [name for name, passed in checks.items() if not passed]

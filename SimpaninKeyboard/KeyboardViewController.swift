@@ -75,6 +75,7 @@ final class KeyboardViewController: UIInputViewController {
     private var candidateRefreshWorkItem: DispatchWorkItem?
     private var candidateRefreshGeneration = 0
     private var isCandidateRefreshPending = false
+    private var isCandidateScrollInteractionEnabled = false
     private var associationContext: String?
     private var keyButtons: [UIButton] = []
     private var proxySpacerButtons: [KeyboardProxySpacerButton] = []
@@ -196,6 +197,7 @@ final class KeyboardViewController: UIInputViewController {
 
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
+        updateCandidateScrollInteraction()
         guard isCandidatePageVisible || isQuickFillPanelVisible else { return }
         let width = candidatePageView.bounds.width
         if abs(width - candidatePageRenderedWidth) > 1 {
@@ -295,7 +297,8 @@ final class KeyboardViewController: UIInputViewController {
             candidateStack.trailingAnchor.constraint(equalTo: candidateScrollView.contentLayoutGuide.trailingAnchor),
             candidateStack.topAnchor.constraint(equalTo: candidateScrollView.contentLayoutGuide.topAnchor),
             candidateStack.bottomAnchor.constraint(equalTo: candidateScrollView.contentLayoutGuide.bottomAnchor),
-            candidateStack.heightAnchor.constraint(equalTo: candidateScrollView.frameLayoutGuide.heightAnchor)
+            candidateStack.heightAnchor.constraint(equalTo: candidateScrollView.frameLayoutGuide.heightAnchor),
+            candidateStack.widthAnchor.constraint(greaterThanOrEqualTo: candidateScrollView.frameLayoutGuide.widthAnchor)
         ])
 
         keyboardRowsStack.axis = .vertical
@@ -1451,6 +1454,9 @@ final class KeyboardViewController: UIInputViewController {
             candidateStack.removeArrangedSubview(view)
             view.removeFromSuperview()
         }
+        defer {
+            updateCandidateScrollInteraction()
+        }
         utilityOverlayView.isHidden = hasActiveComposition || !allCandidates.isEmpty || isQuickFillPanelVisible
         updateCandidateExpandButtonVisibility()
 
@@ -1463,6 +1469,17 @@ final class KeyboardViewController: UIInputViewController {
             button.isUserInteractionEnabled = !isCandidateRefreshPending
             candidateStack.addArrangedSubview(button)
             button.widthAnchor.constraint(greaterThanOrEqualToConstant: 48).isActive = true
+        }
+    }
+
+    private func updateCandidateScrollInteraction() {
+        candidateScrollView.layoutIfNeeded()
+        let canScroll = candidateScrollView.contentSize.width > candidateScrollView.bounds.width + 1
+        isCandidateScrollInteractionEnabled = canScroll
+        candidateScrollView.isScrollEnabled = canScroll
+        candidateScrollView.alwaysBounceHorizontal = canScroll
+        if !canScroll && candidateScrollView.contentOffset != .zero {
+            candidateScrollView.setContentOffset(.zero, animated: false)
         }
     }
 
@@ -2963,7 +2980,7 @@ private final class HeartParticleView: UIView {
 
 extension KeyboardViewController: UIScrollViewDelegate {
     func scrollViewDidScroll(_ scrollView: UIScrollView) {
-        guard scrollView === candidateScrollView else { return }
+        guard scrollView === candidateScrollView, isCandidateScrollInteractionEnabled else { return }
         let remaining = scrollView.contentSize.width - scrollView.bounds.width - scrollView.contentOffset.x
         if remaining < 120 {
             appendMoreCandidatesIfNeeded()
