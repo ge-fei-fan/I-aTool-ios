@@ -315,7 +315,7 @@ final class KeyboardViewController: UIInputViewController {
             candidateScrollHitPlateView.topAnchor.constraint(equalTo: candidateScrollView.frameLayoutGuide.topAnchor),
             candidateScrollHitPlateView.bottomAnchor.constraint(equalTo: candidateScrollView.frameLayoutGuide.bottomAnchor),
             candidateStack.leadingAnchor.constraint(equalTo: candidateScrollContentView.leadingAnchor),
-            candidateStack.trailingAnchor.constraint(equalTo: candidateScrollContentView.trailingAnchor),
+            candidateStack.trailingAnchor.constraint(lessThanOrEqualTo: candidateScrollContentView.trailingAnchor),
             candidateStack.topAnchor.constraint(equalTo: candidateScrollContentView.topAnchor),
             candidateStack.bottomAnchor.constraint(equalTo: candidateScrollContentView.bottomAnchor),
             candidateStack.heightAnchor.constraint(equalTo: candidateScrollContentView.heightAnchor)
@@ -1514,6 +1514,8 @@ final class KeyboardViewController: UIInputViewController {
         button.setTitleColor(primaryText, for: .normal)
         button.backgroundColor = .clear
         button.contentEdgeInsets = expanded ? UIEdgeInsets(top: 6, left: 12, bottom: 6, right: 12) : UIEdgeInsets(top: 2, left: 12, bottom: 2, right: 12)
+        button.setContentHuggingPriority(.required, for: .horizontal)
+        button.setContentCompressionResistancePriority(.required, for: .horizontal)
         button.layer.cornerRadius = 0
         button.layer.borderWidth = 0
         button.layer.borderColor = UIColor.clear.cgColor
