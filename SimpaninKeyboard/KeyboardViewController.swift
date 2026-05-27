@@ -267,6 +267,8 @@ final class KeyboardViewController: UIInputViewController {
         candidateBarStack.spacing = 6
         candidateBarStack.alignment = .fill
         candidateBarStack.distribution = .fill
+        candidateBarStack.isLayoutMarginsRelativeArrangement = true
+        candidateBarStack.directionalLayoutMargins = NSDirectionalEdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 5)
         rootStack.addArrangedSubview(candidateBarStack)
         candidateBarStack.heightAnchor.constraint(equalToConstant: 32).isActive = true
 
