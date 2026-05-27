@@ -1508,8 +1508,8 @@ final class KeyboardViewController: UIInputViewController {
         let button = UIButton(type: .system)
         button.setTitle(candidate.text, for: .normal)
         button.titleLabel?.font = .systemFont(ofSize: 19, weight: isHighlighted ? .semibold : .regular)
-        button.titleLabel?.numberOfLines = expanded ? 0 : 1
-        button.titleLabel?.lineBreakMode = expanded ? .byCharWrapping : .byTruncatingTail
+        button.titleLabel?.numberOfLines = 1
+        button.titleLabel?.lineBreakMode = .byTruncatingTail
         button.titleLabel?.textAlignment = .center
         button.setTitleColor(primaryText, for: .normal)
         button.backgroundColor = .clear
@@ -1529,11 +1529,9 @@ final class KeyboardViewController: UIInputViewController {
         return button
     }
 
-    private func candidatePageButtonSize(for text: String, maxWidth: CGFloat) -> CGSize {
+    private func candidatePageButtonPreferredWidth(for text: String) -> CGFloat {
         let horizontalInset: CGFloat = 24
-        let verticalInset: CGFloat = 12
         let minimumWidth: CGFloat = 56
-        let minimumHeight: CGFloat = 34
         let font = UIFont.systemFont(ofSize: 19, weight: .semibold)
         let unconstrainedSize = (text as NSString).boundingRect(
             with: CGSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude),
@@ -1541,16 +1539,17 @@ final class KeyboardViewController: UIInputViewController {
             attributes: [.font: font],
             context: nil
         ).size
-        let preferredWidth = ceil(unconstrainedSize.width) + horizontalInset
+        return max(minimumWidth, ceil(unconstrainedSize.width) + horizontalInset)
+    }
+
+    private func candidatePageButtonSize(for text: String, maxWidth: CGFloat) -> CGSize {
+        let verticalInset: CGFloat = 12
+        let minimumWidth: CGFloat = 56
+        let minimumHeight: CGFloat = 34
+        let font = UIFont.systemFont(ofSize: 19, weight: .semibold)
+        let preferredWidth = candidatePageButtonPreferredWidth(for: text)
         let width = min(max(minimumWidth, preferredWidth), maxWidth)
-        let textWidth = max(1, width - horizontalInset)
-        let wrappedSize = (text as NSString).boundingRect(
-            with: CGSize(width: textWidth, height: CGFloat.greatestFiniteMagnitude),
-            options: [.usesLineFragmentOrigin, .usesFontLeading],
-            attributes: [.font: font],
-            context: nil
-        ).size
-        return CGSize(width: width, height: max(minimumHeight, ceil(wrappedSize.height) + verticalInset))
+        return CGSize(width: width, height: max(minimumHeight, ceil(font.lineHeight) + verticalInset))
     }
 
     private func updateCandidateExpandButtonVisibility() {
@@ -1654,69 +1653,41 @@ final class KeyboardViewController: UIInputViewController {
         let spacing: CGFloat = 6
         let minButtonWidth: CGFloat = 56
         let contentWidth = max(candidatePageView.bounds.width - 12, minButtonWidth)
-        let ellipsisSize = candidatePageEllipsisSize()
+        var rowStack = makeCandidatePageRowStack(spacing: spacing)
+        var rowWidth: CGFloat = 0
+
+        for (index, candidate) in allCandidates.enumerated() {
+            let preferredWidth = candidatePageButtonPreferredWidth(for: candidate.text)
+            let isOverwideCandidate = preferredWidth > contentWidth
+            let size = candidatePageButtonSize(for: candidate.text, maxWidth: contentWidth)
+            let candidateSpacing = rowWidth == 0 ? 0 : spacing
+
+            if rowWidth > 0 && rowWidth + candidateSpacing + size.width > contentWidth {
+                rowStack = makeCandidatePageRowStack(spacing: spacing)
+                rowWidth = 0
+            }
+
+            let button = makeCandidateButton(candidate: candidate, index: index, expanded: true)
+            rowStack.addArrangedSubview(button)
+            button.widthAnchor.constraint(equalToConstant: size.width).isActive = true
+            button.heightAnchor.constraint(equalToConstant: size.height).isActive = true
+
+            if isOverwideCandidate {
+                rowWidth = contentWidth
+            } else {
+                rowWidth += (rowWidth == 0 ? 0 : spacing) + size.width
+            }
+        }
+    }
+
+    private func makeCandidatePageRowStack(spacing: CGFloat) -> UIStackView {
         let rowStack = UIStackView()
         rowStack.axis = .horizontal
         rowStack.spacing = spacing
         rowStack.alignment = .top
         rowStack.distribution = .fill
         candidatePageStack.addArrangedSubview(rowStack)
-
-        var visibleCandidates: [(index: Int, candidate: KeyboardCandidate, size: CGSize)] = []
-        var rowWidth: CGFloat = 0
-        var shouldAppendEllipsis = false
-
-        for (index, candidate) in allCandidates.enumerated() {
-            let hasMoreCandidates = index < allCandidates.count - 1
-            let availableCandidateWidth = hasMoreCandidates ? contentWidth - ellipsisSize.width - spacing : contentWidth
-            let maxCandidateWidth = max(minButtonWidth, min(contentWidth, availableCandidateWidth))
-            let size = candidatePageButtonSize(for: candidate.text, maxWidth: maxCandidateWidth)
-            let nextRowWidth = rowWidth + (rowWidth == 0 ? 0 : spacing) + size.width
-            if hasMoreCandidates && nextRowWidth > availableCandidateWidth {
-                shouldAppendEllipsis = true
-                break
-            }
-            if !hasMoreCandidates && nextRowWidth > availableCandidateWidth {
-                shouldAppendEllipsis = true
-                break
-            }
-
-            visibleCandidates.append((index, candidate, size))
-            rowWidth = nextRowWidth
-        }
-
-        shouldAppendEllipsis = shouldAppendEllipsis || visibleCandidates.count < allCandidates.count
-
-        for (index, candidate, size) in visibleCandidates {
-            let button = makeCandidateButton(candidate: candidate, index: index, expanded: true)
-            rowStack.addArrangedSubview(button)
-            button.widthAnchor.constraint(equalToConstant: size.width).isActive = true
-            button.heightAnchor.constraint(equalToConstant: size.height).isActive = true
-        }
-
-        if shouldAppendEllipsis {
-            let ellipsisButton = makeCandidatePageEllipsisView()
-            rowStack.addArrangedSubview(ellipsisButton)
-            ellipsisButton.widthAnchor.constraint(equalToConstant: ellipsisSize.width).isActive = true
-            ellipsisButton.heightAnchor.constraint(equalToConstant: ellipsisSize.height).isActive = true
-        }
-    }
-
-    private func candidatePageEllipsisSize() -> CGSize {
-        CGSize(width: 44, height: 34)
-    }
-
-    private func makeCandidatePageEllipsisView() -> UIButton {
-        let ellipsisButton = UIButton(type: .system)
-        ellipsisButton.setTitle("...", for: .normal)
-        ellipsisButton.titleLabel?.font = .systemFont(ofSize: 19, weight: .semibold)
-        ellipsisButton.titleLabel?.numberOfLines = 1
-        ellipsisButton.titleLabel?.textAlignment = .center
-        ellipsisButton.setTitleColor(secondaryText, for: .normal)
-        ellipsisButton.backgroundColor = .clear
-        ellipsisButton.contentEdgeInsets = UIEdgeInsets(top: 6, left: 10, bottom: 6, right: 10)
-        ellipsisButton.isUserInteractionEnabled = false
-        return ellipsisButton
+        return rowStack
     }
 
     private func clearCandidatePage() {
