@@ -113,6 +113,7 @@ final class KeyboardViewController: UIInputViewController {
     private static let candidateToggleButtonWidth: CGFloat = 34
     private static let candidateToggleButtonHeight: CGFloat = 30
     private static let keyboardIconPointSize: CGFloat = 24
+    private static let quickFillBackIconPointSize: CGFloat = 28
     private static let shiftKeyImagePointSize: CGFloat = 30
     private static let shiftKeyImageVerticalAlignment: CGFloat = 0.18
     private static let trackpadStepWidth: CGFloat = 10
@@ -436,7 +437,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func configureQuickFillBackButton(_ button: UIButton) {
-        button.setImage(keyboardIcon(.back, fallbackSystemName: "chevron.left"), for: .normal)
+        button.setImage(keyboardIcon(.back, fallbackSystemName: "chevron.left", pointSize: Self.quickFillBackIconPointSize), for: .normal)
         button.contentEdgeInsets = UIEdgeInsets(top: 2, left: 8, bottom: 2, right: 8)
         button.layer.cornerRadius = 7
         button.layer.borderWidth = 0
@@ -492,12 +493,16 @@ final class KeyboardViewController: UIInputViewController {
         button.heightAnchor.constraint(equalToConstant: 32).isActive = true
     }
 
-    private func keyboardIcon(_ asset: KeyboardIconAsset, fallbackSystemName: String) -> UIImage? {
+    private func keyboardIcon(
+        _ asset: KeyboardIconAsset,
+        fallbackSystemName: String,
+        pointSize: CGFloat = KeyboardViewController.keyboardIconPointSize
+    ) -> UIImage? {
         if let url = Bundle(for: Self.self).url(forResource: asset.fileName, withExtension: "png", subdirectory: "ios-icon"),
            let image = UIImage(contentsOfFile: url.path) {
-            return resizedTemplateImage(image, pointSize: Self.keyboardIconPointSize)
+            return resizedTemplateImage(image, pointSize: pointSize)
         }
-        let configuration = UIImage.SymbolConfiguration(pointSize: Self.keyboardIconPointSize, weight: .regular)
+        let configuration = UIImage.SymbolConfiguration(pointSize: pointSize, weight: .regular)
         return UIImage(systemName: fallbackSystemName, withConfiguration: configuration)
     }
 
@@ -2043,6 +2048,8 @@ final class KeyboardViewController: UIInputViewController {
             view.bringSubviewToFront(keyPreviewView)
             view.bringSubviewToFront(candidatePageView)
             candidatePageCollapseButton.isHidden = false
+            // Keep the back button above the full-height quick fill scroll view so it can receive taps.
+            candidatePageView.bringSubviewToFront(candidatePageCollapseButton)
 
             let keyboardOffset = keyboardRowsDismissOffset
             let animations = {
@@ -2117,6 +2124,7 @@ final class KeyboardViewController: UIInputViewController {
             contentStack.addArrangedSubview(makeQuickFillEmptyStateView())
         }
 
+        candidatePageView.bringSubviewToFront(candidatePageCollapseButton)
     }
 
     private func makeQuickFillHeader() -> UIStackView {
@@ -2175,20 +2183,38 @@ final class KeyboardViewController: UIInputViewController {
 
     private func makeQuickFillEmptyStateView() -> UIView {
         let container = UIView()
-        container.heightAnchor.constraint(equalToConstant: max(96, min(150, candidatePageView.bounds.height - 112))).isActive = true
+        container.heightAnchor.constraint(equalToConstant: max(140, min(176, candidatePageView.bounds.height - 104))).isActive = true
+
+        let stack = UIStackView()
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 8
+        container.addSubview(stack)
 
         if let image = quickFillEmptyImage() {
             let imageView = UIImageView(image: image)
             imageView.translatesAutoresizingMaskIntoConstraints = false
             imageView.contentMode = .scaleAspectFit
-            container.addSubview(imageView)
-            NSLayoutConstraint.activate([
-                imageView.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-                imageView.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-                imageView.widthAnchor.constraint(equalToConstant: 112),
-                imageView.heightAnchor.constraint(equalToConstant: 112)
-            ])
+            stack.addArrangedSubview(imageView)
+            imageView.widthAnchor.constraint(equalToConstant: 112).isActive = true
+            imageView.heightAnchor.constraint(equalToConstant: 112).isActive = true
         }
+
+        let label = UILabel()
+        label.text = "暂无数据"
+        label.font = .systemFont(ofSize: 14, weight: .regular)
+        label.textColor = secondaryText
+        label.textAlignment = .center
+        label.numberOfLines = 1
+        stack.addArrangedSubview(label)
+
+        NSLayoutConstraint.activate([
+            stack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 12),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -12)
+        ])
         return container
     }
 
