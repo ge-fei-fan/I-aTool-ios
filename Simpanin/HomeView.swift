@@ -5018,13 +5018,14 @@ private final class TranslateSettingsStore: ObservableObject {
     @Published private(set) var baseURL: String
     @Published private(set) var model: String
 
-    private let defaults = UserDefaults.standard
+    private let defaults = UserDefaults(suiteName: "group.com.local.fitnex") ?? .standard
+    private let legacyDefaults = UserDefaults.standard
     private let baseURLKey = "translate.baseURL"
     private let modelKey = "translate.model"
 
     private init() {
-        baseURL = defaults.string(forKey: baseURLKey) ?? Self.defaultBaseURL
-        model = defaults.string(forKey: modelKey) ?? Self.defaultModel
+        baseURL = defaults.string(forKey: baseURLKey) ?? legacyDefaults.string(forKey: baseURLKey) ?? Self.defaultBaseURL
+        model = defaults.string(forKey: modelKey) ?? legacyDefaults.string(forKey: modelKey) ?? Self.defaultModel
     }
 
     var isConfigured: Bool {
@@ -5044,6 +5045,9 @@ private final class TranslateSettingsStore: ObservableObject {
         self.model = trimmedModel.isEmpty ? Self.defaultModel : trimmedModel
         defaults.set(self.baseURL, forKey: baseURLKey)
         defaults.set(self.model, forKey: modelKey)
+        defaults.synchronize()
+        legacyDefaults.set(self.baseURL, forKey: baseURLKey)
+        legacyDefaults.set(self.model, forKey: modelKey)
     }
 }
 

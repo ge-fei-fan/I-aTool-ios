@@ -105,6 +105,13 @@ final class KeyboardViewController: UIInputViewController {
     private var quickFillItems: [String] = []
     private var isQuickFillPanelVisible = false
     private var selectedQuickFillPanelTab: QuickFillPanelTab = .commonPhrases
+    private var isTranslationPanelVisible = false
+    private let translationPanelView = UIView()
+    private let translationOriginalTextView = UITextView()
+    private let translationTextView = UITextView()
+    private let translationStatusLabel = UILabel()
+    private var translationTask: URLSessionDataTask?
+    private var translationStreamDelegate: OllamaTranslationStreamDelegate?
     private var candidatePageTopToCandidateBarConstraint: NSLayoutConstraint?
     private var candidatePageTopToViewConstraint: NSLayoutConstraint?
     private var candidatePageCollapseButtonLeadingConstraint: NSLayoutConstraint?
@@ -362,12 +369,12 @@ final class KeyboardViewController: UIInputViewController {
         utilityOverlayStack.addArrangedSubview(utilityOverlayButton)
         utilityOverlayIconButtons.append(utilityOverlayButton)
 
-        let utilityItems: [(asset: KeyboardIconAsset, fallbackSystemName: String, label: String, dismissesKeyboard: Bool, opensQuickFill: Bool)] = [
-            (asset: .heart, fallbackSystemName: "heart", label: "Quick fill", dismissesKeyboard: false, opensQuickFill: true),
-            (asset: .translate, fallbackSystemName: "text.translate", label: "Translate", dismissesKeyboard: false, opensQuickFill: false),
-            (asset: .happy, fallbackSystemName: "face.smiling", label: "Cursor", dismissesKeyboard: false, opensQuickFill: false),
-            (asset: .happy, fallbackSystemName: "face.smiling", label: "Emoji", dismissesKeyboard: false, opensQuickFill: false),
-            (asset: .arrowDown, fallbackSystemName: "chevron.down", label: "Dismiss keyboard", dismissesKeyboard: true, opensQuickFill: false)
+        let utilityItems: [(asset: KeyboardIconAsset, fallbackSystemName: String, label: String, dismissesKeyboard: Bool, opensQuickFill: Bool, opensTranslation: Bool)] = [
+            (asset: .heart, fallbackSystemName: "heart", label: "Quick fill", dismissesKeyboard: false, opensQuickFill: true, opensTranslation: false),
+            (asset: .translate, fallbackSystemName: "text.translate", label: "Translate", dismissesKeyboard: false, opensQuickFill: false, opensTranslation: true),
+            (asset: .happy, fallbackSystemName: "face.smiling", label: "Cursor", dismissesKeyboard: false, opensQuickFill: false, opensTranslation: false),
+            (asset: .happy, fallbackSystemName: "face.smiling", label: "Emoji", dismissesKeyboard: false, opensQuickFill: false, opensTranslation: false),
+            (asset: .arrowDown, fallbackSystemName: "chevron.down", label: "Dismiss keyboard", dismissesKeyboard: true, opensQuickFill: false, opensTranslation: false)
         ]
         utilityItems.forEach { item in
             let button = UIButton(type: .system)
@@ -381,6 +388,10 @@ final class KeyboardViewController: UIInputViewController {
                 button.addAction(UIAction { [weak self] _ in
                     self?.handleUtilityFillButtonTap()
                 }, for: .touchUpInside)
+            } else if item.opensTranslation {
+                button.addAction(UIAction { [weak self] _ in
+                    self?.handleTranslationButtonTap()
+                }, for: .touchUpInside)
             } else if item.dismissesKeyboard {
                 button.addAction(UIAction { [weak self] _ in
                     self?.dismissKeyboard()
@@ -393,6 +404,7 @@ final class KeyboardViewController: UIInputViewController {
         }
 
         setupCandidatePage()
+        setupTranslationPanel()
 
         NSLayoutConstraint.activate([
             utilityOverlayView.leadingAnchor.constraint(equalTo: rootStack.leadingAnchor),
@@ -477,6 +489,96 @@ final class KeyboardViewController: UIInputViewController {
             candidatePageStack.topAnchor.constraint(equalTo: candidatePageScrollView.contentLayoutGuide.topAnchor),
             candidatePageStack.bottomAnchor.constraint(equalTo: candidatePageScrollView.contentLayoutGuide.bottomAnchor),
             candidatePageStack.widthAnchor.constraint(equalTo: candidatePageScrollView.frameLayoutGuide.widthAnchor)
+        ])
+    }
+
+    private func setupTranslationPanel() {
+        guard translationPanelView.superview == nil else { return }
+        translationPanelView.isHidden = true
+        translationPanelView.alpha = 0
+        translationPanelView.translatesAutoresizingMaskIntoConstraints = false
+        translationPanelView.backgroundColor = quickFillPanelBackground
+        view.addSubview(translationPanelView)
+
+        let headerStack = UIStackView()
+        headerStack.axis = .horizontal
+        headerStack.alignment = .center
+        headerStack.spacing = 8
+        headerStack.translatesAutoresizingMaskIntoConstraints = false
+        translationPanelView.addSubview(headerStack)
+
+        let closeButton = UIButton(type: .system)
+        configureQuickFillBackButton(closeButton)
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.addAction(UIAction { [weak self] _ in
+            self?.setTranslationPanelVisible(false)
+        }, for: .touchUpInside)
+        headerStack.addArrangedSubview(closeButton)
+        closeButton.widthAnchor.constraint(equalToConstant: Self.quickFillBackButtonWidth).isActive = true
+        closeButton.heightAnchor.constraint(equalToConstant: Self.quickFillBackButtonHeight).isActive = true
+
+        let titleLabel = UILabel()
+        titleLabel.text = "粘贴板翻译"
+        titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
+        titleLabel.textColor = primaryText
+        headerStack.addArrangedSubview(titleLabel)
+
+        translationStatusLabel.font = .systemFont(ofSize: 12, weight: .regular)
+        translationStatusLabel.textColor = secondaryText
+        translationStatusLabel.textAlignment = .right
+        translationStatusLabel.numberOfLines = 1
+        headerStack.addArrangedSubview(translationStatusLabel)
+
+        let contentStack = UIStackView()
+        contentStack.axis = .vertical
+        contentStack.spacing = 8
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        translationPanelView.addSubview(contentStack)
+
+        translationOriginalTextView.isEditable = false
+        translationOriginalTextView.isSelectable = true
+        translationOriginalTextView.font = .systemFont(ofSize: 13, weight: .regular)
+        translationOriginalTextView.backgroundColor = candidateBackground
+        translationOriginalTextView.layer.cornerRadius = 10
+        translationOriginalTextView.layer.borderWidth = 0.5
+        translationOriginalTextView.layer.borderColor = candidateBorder.cgColor
+        translationOriginalTextView.textContainerInset = UIEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
+        translationOriginalTextView.textColor = secondaryText
+        translationOriginalTextView.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.addArrangedSubview(translationOriginalTextView)
+        translationOriginalTextView.heightAnchor.constraint(equalToConstant: 70).isActive = true
+
+        translationTextView.isEditable = false
+        translationTextView.isSelectable = true
+        translationTextView.font = .systemFont(ofSize: 16, weight: .regular)
+        translationTextView.backgroundColor = candidateBackground
+        translationTextView.layer.cornerRadius = 12
+        translationTextView.layer.borderWidth = 0.5
+        translationTextView.layer.borderColor = candidateBorder.cgColor
+        translationTextView.layer.shadowOpacity = 0.06
+        translationTextView.layer.shadowRadius = 8
+        translationTextView.layer.shadowOffset = CGSize(width: 0, height: 2)
+        translationTextView.textContainerInset = UIEdgeInsets(top: 16, left: 16, bottom: 16, right: 16)
+        translationTextView.text = ""
+        translationTextView.textColor = primaryText
+        translationTextView.translatesAutoresizingMaskIntoConstraints = false
+        contentStack.addArrangedSubview(translationTextView)
+
+        NSLayoutConstraint.activate([
+            translationPanelView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            translationPanelView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            translationPanelView.topAnchor.constraint(equalTo: candidateBarStack.bottomAnchor),
+            translationPanelView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            headerStack.leadingAnchor.constraint(equalTo: translationPanelView.leadingAnchor, constant: 8),
+            headerStack.trailingAnchor.constraint(equalTo: translationPanelView.trailingAnchor, constant: -12),
+            headerStack.topAnchor.constraint(equalTo: translationPanelView.topAnchor, constant: 8),
+            headerStack.heightAnchor.constraint(equalToConstant: Self.quickFillHeaderHeight),
+
+            contentStack.leadingAnchor.constraint(equalTo: translationPanelView.leadingAnchor, constant: 12),
+            contentStack.trailingAnchor.constraint(equalTo: translationPanelView.trailingAnchor, constant: -12),
+            contentStack.topAnchor.constraint(equalTo: headerStack.bottomAnchor, constant: 6),
+            contentStack.bottomAnchor.constraint(equalTo: translationPanelView.bottomAnchor, constant: -10)
         ])
     }
 
@@ -1607,6 +1709,7 @@ final class KeyboardViewController: UIInputViewController {
 
         if shouldShow {
             setQuickFillPanelVisible(false, animated: false)
+            setTranslationPanelVisible(false, animated: false)
             applyQuickFillPanelChrome(false)
         }
 
@@ -1620,9 +1723,11 @@ final class KeyboardViewController: UIInputViewController {
             candidatePageView.backgroundColor = candidatePageBackground
             candidatePageView.isHidden = false
             candidatePageView.alpha = 1
-            view.bringSubviewToFront(candidatePageView)
-            view.bringSubviewToFront(trackpadBlurView)
-            view.bringSubviewToFront(keyPreviewView)
+        view.bringSubviewToFront(candidatePageView)
+        view.bringSubviewToFront(trackpadBlurView)
+        view.bringSubviewToFront(keyPreviewView)
+
+        setupTranslationPanel()
 
             let candidatePageOffset = candidatePageDismissOffset
             let keyboardOffset = keyboardRowsDismissOffset
@@ -1676,6 +1781,188 @@ final class KeyboardViewController: UIInputViewController {
 
     private var keyboardRowsDismissOffset: CGFloat {
         max(keyboardRowsStack.bounds.height, view.bounds.height - keyboardRowsStack.frame.minY, 1) + 12
+    }
+
+    private var translationPanelDismissOffset: CGFloat {
+        max(translationPanelView.bounds.height, view.bounds.height - translationPanelView.frame.minY, 1) + 12
+    }
+
+    private func handleTranslationButtonTap() {
+        hideKeyPreview(animated: false)
+        if isTranslationPanelVisible {
+            setTranslationPanelVisible(false)
+        } else {
+            setTranslationPanelVisible(true)
+            startClipboardTranslation()
+        }
+    }
+
+    private func startClipboardTranslation() {
+        cancelTranslationRequest()
+
+        guard hasFullAccess else {
+            translationOriginalTextView.text = ""
+            translationTextView.text = "请在系统设置中为键盘开启“允许完全访问”，用于读取粘贴板并访问翻译服务。"
+            translationStatusLabel.text = "需要权限"
+            return
+        }
+
+        let sourceText = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !sourceText.isEmpty else {
+            translationOriginalTextView.text = ""
+            translationTextView.text = "粘贴板暂无可翻译文本。"
+            translationStatusLabel.text = "空粘贴板"
+            return
+        }
+
+        translationOriginalTextView.text = "原文：\n\(sourceText)"
+        translationTextView.text = ""
+        translationStatusLabel.text = "翻译中…"
+        requestStreamingTranslation(for: sourceText)
+    }
+
+    private func requestStreamingTranslation(for text: String) {
+        let defaults = UserDefaults(suiteName: "group.com.local.fitnex")
+        let storedBaseURL = defaults?.string(forKey: "translate.baseURL") ?? "http://192.168.2.88:11434"
+        let storedModel = defaults?.string(forKey: "translate.model") ?? "transgemma4b"
+        let baseURL = storedBaseURL
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let model = storedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !baseURL.isEmpty, let url = URL(string: "\(baseURL)/api/generate") else {
+            translationTextView.text = "翻译服务地址无效，请在 App 的设置中检查服务地址。"
+            translationStatusLabel.text = "配置错误"
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 120
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/x-ndjson", forHTTPHeaderField: "Accept")
+
+        let prompt = """
+        Translate the following text into Chinese if it is not Chinese, or into natural English if it is Chinese. Return only the translation, no explanation.
+
+        \(text)
+        """
+        let body: [String: Any] = [
+            "model": model.isEmpty ? "transgemma4b" : model,
+            "prompt": prompt,
+            "stream": true
+        ]
+        guard JSONSerialization.isValidJSONObject(body),
+              let data = try? JSONSerialization.data(withJSONObject: body) else {
+            translationTextView.text = "翻译请求构造失败。"
+            translationStatusLabel.text = "请求错误"
+            return
+        }
+        request.httpBody = data
+
+        var accumulated = ""
+        let delegate = OllamaTranslationStreamDelegate(
+            onToken: { [weak self] token in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    accumulated += token
+                    self.translationTextView.text = accumulated
+                    if !accumulated.isEmpty {
+                        let bottom = NSRange(location: max((accumulated as NSString).length - 1, 0), length: 1)
+                        self.translationTextView.scrollRangeToVisible(bottom)
+                    }
+                }
+            },
+            onComplete: { [weak self] errorMessage in
+                DispatchQueue.main.async {
+                    guard let self else { return }
+                    if let errorMessage {
+                        self.translationStatusLabel.text = "失败"
+                        if accumulated.isEmpty {
+                            self.translationTextView.text = errorMessage
+                        }
+                    } else {
+                        self.translationStatusLabel.text = "完成"
+                    }
+                    self.translationTask = nil
+                    self.translationStreamDelegate = nil
+                }
+            }
+        )
+        translationStreamDelegate = delegate
+        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+        let task = session.dataTask(with: request)
+        translationTask = task
+        task.resume()
+    }
+
+    private func cancelTranslationRequest() {
+        translationTask?.cancel()
+        translationTask = nil
+        translationStreamDelegate = nil
+    }
+
+    private func setTranslationPanelVisible(_ visible: Bool, animated: Bool = true) {
+        guard isTranslationPanelVisible != visible else { return }
+        isTranslationPanelVisible = visible
+
+        if visible {
+            setCandidatePageVisible(false, animated: false)
+            setQuickFillPanelVisible(false, animated: false)
+            applyQuickFillPanelChrome(false)
+        }
+
+        view.layoutIfNeeded()
+
+        if visible {
+            hideKeyPreview(animated: false)
+            translationPanelView.isHidden = false
+            translationPanelView.alpha = 1
+            view.bringSubviewToFront(translationPanelView)
+            view.bringSubviewToFront(keyPreviewView)
+
+            let panelOffset = translationPanelDismissOffset
+            let keyboardOffset = keyboardRowsDismissOffset
+            let animations = {
+                self.translationPanelView.transform = .identity
+                self.keyboardRowsStack.transform = CGAffineTransform(translationX: 0, y: keyboardOffset)
+            }
+            if animated {
+                translationPanelView.transform = CGAffineTransform(translationX: 0, y: panelOffset)
+                keyboardRowsStack.transform = .identity
+                UIView.animate(
+                    withDuration: Self.candidatePanelAnimationDuration,
+                    delay: 0,
+                    options: [.curveEaseInOut, .beginFromCurrentState],
+                    animations: animations
+                )
+            } else {
+                animations()
+            }
+        } else {
+            cancelTranslationRequest()
+            let animations = {
+                self.translationPanelView.transform = CGAffineTransform(translationX: 0, y: self.translationPanelDismissOffset)
+                self.keyboardRowsStack.transform = .identity
+            }
+            let complete: (Bool) -> Void = { _ in
+                guard !self.isTranslationPanelVisible else { return }
+                self.translationPanelView.isHidden = true
+                self.translationPanelView.transform = .identity
+            }
+            if animated && !translationPanelView.isHidden {
+                UIView.animate(
+                    withDuration: Self.candidatePanelAnimationDuration,
+                    delay: 0,
+                    options: [.curveEaseInOut, .beginFromCurrentState],
+                    animations: animations,
+                    completion: complete
+                )
+            } else {
+                animations()
+                complete(true)
+            }
+        }
     }
 
     private func renderCandidatePageIfNeeded() {
@@ -1777,6 +2064,14 @@ final class KeyboardViewController: UIInputViewController {
         candidatePageCollapseButton.tintColor = secondaryText
         candidatePageCollapseButton.backgroundColor = .clear
         candidatePageCollapseButton.layer.borderColor = UIColor.clear.cgColor
+        translationPanelView.backgroundColor = quickFillPanelBackground
+        translationOriginalTextView.backgroundColor = candidateBackground
+        translationOriginalTextView.textColor = secondaryText
+        translationOriginalTextView.layer.borderColor = candidateBorder.cgColor
+        translationTextView.backgroundColor = candidateBackground
+        translationTextView.textColor = primaryText
+        translationTextView.layer.borderColor = candidateBorder.cgColor
+        translationStatusLabel.textColor = secondaryText
         updateCompositionBarAppearance()
         if isQuickFillPanelVisible {
             renderQuickFillPanel()
@@ -2158,6 +2453,7 @@ final class KeyboardViewController: UIInputViewController {
         isQuickFillPanelVisible = shouldShow
 
         if shouldShow {
+            setTranslationPanelVisible(false, animated: false)
             selectedQuickFillPanelTab = .commonPhrases
             applyQuickFillPanelChrome(true)
             renderQuickFillPanel()
@@ -3161,6 +3457,82 @@ extension KeyboardViewController: UIScrollViewDelegate {
         let remaining = scrollView.contentSize.width - scrollView.bounds.width - scrollView.contentOffset.x
         if remaining < 120 {
             appendMoreCandidatesIfNeeded()
+        }
+    }
+}
+
+private final class OllamaTranslationStreamDelegate: NSObject, URLSessionDataDelegate {
+    private let onToken: (String) -> Void
+    private let onComplete: (String?) -> Void
+    private var buffer = Data()
+    private var didComplete = false
+
+    init(onToken: @escaping (String) -> Void, onComplete: @escaping (String?) -> Void) {
+        self.onToken = onToken
+        self.onComplete = onComplete
+    }
+
+    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
+        buffer.append(data)
+        consumeAvailableLines()
+    }
+
+    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        consumeAvailableLines(flushRemainder: true)
+        guard !didComplete else {
+            session.invalidateAndCancel()
+            return
+        }
+        didComplete = true
+
+        if let error = error as? URLError, error.code == .cancelled {
+            session.invalidateAndCancel()
+            return
+        }
+        if let error {
+            onComplete("翻译请求失败：\(error.localizedDescription)")
+        } else if let httpResponse = task.response as? HTTPURLResponse,
+                  !(200..<300).contains(httpResponse.statusCode) {
+            onComplete("翻译服务返回 HTTP \(httpResponse.statusCode)。")
+        } else {
+            onComplete(nil)
+        }
+        session.finishTasksAndInvalidate()
+    }
+
+    private func consumeAvailableLines(flushRemainder: Bool = false) {
+        while let newlineRange = buffer.firstRange(of: Data([0x0A])) {
+            let lineData = buffer.subdata(in: buffer.startIndex..<newlineRange.lowerBound)
+            buffer.removeSubrange(buffer.startIndex..<newlineRange.upperBound)
+            consumeLine(lineData)
+        }
+
+        if flushRemainder, !buffer.isEmpty {
+            let lineData = buffer
+            buffer.removeAll()
+            consumeLine(lineData)
+        }
+    }
+
+    private func consumeLine(_ data: Data) {
+        guard !data.isEmpty else { return }
+        let trimmedData = data.last == 0x0D ? data.dropLast() : data[...]
+        guard !trimmedData.isEmpty else { return }
+        guard let object = try? JSONSerialization.jsonObject(with: Data(trimmedData)) as? [String: Any] else { return }
+
+        if let response = object["response"] as? String, !response.isEmpty {
+            onToken(response)
+        }
+
+        if let error = object["error"] as? String, !error.isEmpty, !didComplete {
+            didComplete = true
+            onComplete("翻译服务错误：\(error)")
+            return
+        }
+
+        if (object["done"] as? Bool) == true, !didComplete {
+            didComplete = true
+            onComplete(nil)
         }
     }
 }
