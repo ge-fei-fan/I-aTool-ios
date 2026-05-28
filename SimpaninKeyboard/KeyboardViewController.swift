@@ -116,7 +116,7 @@ final class KeyboardViewController: UIInputViewController {
     private static let candidatePanelAnimationDuration: TimeInterval = 0.22
     private static let candidateRefreshDelay: TimeInterval = 0.012
     private static let candidateToggleButtonWidth: CGFloat = 34
-    private static let candidateToggleButtonHeight: CGFloat = 42
+    private static let candidateToggleButtonHeight: CGFloat = 32
     private static let keyboardIconPointSize: CGFloat = 24
     private static let quickFillBackIconPointSize: CGFloat = 28
     private static let shiftKeyImagePointSize: CGFloat = 30
