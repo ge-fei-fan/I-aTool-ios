@@ -167,7 +167,6 @@ def main() -> int:
     symbol_row3 = symbol_third_row_definition(source)
     width_helper = function_body(source, "private func usesLetterKeyWidth(for kind: KeyKind) -> Bool")
     make_button = function_body(source, "private func makeButton(for spec: KeySpec) -> KeyboardKeyButton")
-    shift_default_helper = function_body(source, "private func preferredShiftState(for language: InputLanguage) -> ShiftState")
     key_handler = function_body(source, "private func handle(_ kind: KeyKind)")
 
     checks = {
@@ -214,16 +213,14 @@ def main() -> int:
         "language switch preview exists": bool(language_preview),
         "language switch preview renders both states": 'data-state="chinese"' in language_preview and 'data-state="english"' in language_preview,
         "language switch preview uses stacked glyph icon": "language-icon__glyph language-icon__glyph--chinese" in language_preview and "language-icon__glyph language-icon__glyph--english" in language_preview,
-        "language switch preview highlights english in chinese mode": '.language-key[data-state="chinese"] .language-icon__glyph--english' in language_preview and "#58a6ff" in language_preview,
-        "language switch preview highlights chinese in english mode": '.language-key[data-state="english"] .language-icon__glyph--chinese' in language_preview and "color: var(--blue);" in language_preview,
+        "language switch preview highlights chinese in chinese mode": '.language-key[data-state="chinese"] .language-icon__glyph--chinese' in language_preview and "#58a6ff" in language_preview,
+        "language switch preview highlights english in english mode": '.language-key[data-state="english"] .language-icon__glyph--english' in language_preview and "color: var(--blue);" in language_preview,
         "language switch icon view exists in keyboard": "private final class LanguageSwitchIconView" in source,
         "language switch key uses icon view": "configureLanguageSwitchButton(button)" in source,
         "language switch title is not rendered as plain text": "} else if case .languageSwitch = spec.kind {\n            configureLanguageSwitchButton(button)\n        } else {\n            button.setTitle(title(for: spec), for: .normal)" in make_button,
-        "language switch uses same blue for enlarged glyphs": "let activeColor = UIColor(red: 0.35, green: 0.65, blue: 1, alpha: 1)" in source and "chineseLabel.textColor = highlightsEnglish ? inactiveColor : activeColor" in source and "englishLabel.textColor = highlightsEnglish ? activeColor : inactiveColor" in source,
+        "language switch uses same blue for current-language glyphs": "let activeColor = UIColor(red: 0.35, green: 0.65, blue: 1, alpha: 1)" in source and "chineseLabel.textColor = highlightsChinese ? activeColor : inactiveColor" in source and "englishLabel.textColor = highlightsChinese ? inactiveColor : activeColor" in source,
         "theme refresh updates language icon": "updateLanguageSwitchIconAppearance" in source,
-        "language-specific shift default helper exists": bool(shift_default_helper),
-        "language-specific shift defaults are lowercase Chinese and uppercase English": "case .chinese:\n            return .off" in shift_default_helper and "case .english:\n            return .on" in shift_default_helper,
-        "language switch resets shift state to language default": "shiftState = preferredShiftState(for: inputLanguage)" in key_handler,
+        "language switch preserves current shift state": "preferredShiftState(for: inputLanguage)" not in key_handler,
         "translate icon asset exists": TRANSLATE_IMAGE.exists(),
         "translate icon image is a png": translate_image.get("is_png") is True,
         "translate keyboard icon asset exists": "case translate" in source and 'return "翻译"' in source,

@@ -116,21 +116,26 @@
       font-size: 18px;
     }
 
-    .language-key[data-state="chinese"] .language-icon__glyph--english {
-      color: var(--blue);
-      font-size: 20px;
-      font-weight: 700;
-    }
-
-    .language-key[data-state="english"] .language-icon__glyph--chinese {
+    .language-key[data-state="chinese"] .language-icon__glyph--chinese {
       color: var(--blue);
       font-size: 19px;
       font-weight: 700;
     }
 
-    .language-key[data-state="english"] .language-icon__glyph--english {
+    .language-key[data-state="english"] .language-icon__glyph--chinese {
+      color: rgba(255, 255, 255, 0.42);
+      font-size: 16px;
+    }
+
+    .language-key[data-state="chinese"] .language-icon__glyph--english {
       color: rgba(255, 255, 255, 0.42);
       font-size: 14px;
+    }
+
+    .language-key[data-state="english"] .language-icon__glyph--english {
+      color: var(--blue);
+      font-size: 20px;
+      font-weight: 700;
     }
 
     .dark-preview {

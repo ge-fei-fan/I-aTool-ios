@@ -1023,7 +1023,7 @@ final class KeyboardViewController: UIInputViewController {
         let iconView = LanguageSwitchIconView()
         iconView.translatesAutoresizingMaskIntoConstraints = false
         iconView.isUserInteractionEnabled = false
-        iconView.configure(highlightsEnglish: inputLanguage == .chinese, darkMode: isDark)
+        iconView.configure(highlightsChinese: inputLanguage == .chinese, darkMode: isDark)
         button.addSubview(iconView)
         NSLayoutConstraint.activate([
             iconView.centerXAnchor.constraint(equalTo: button.centerXAnchor),
@@ -1195,15 +1195,6 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
-    // private func preferredShiftState(for language: InputLanguage) -> ShiftState {
-    //     switch language {
-    //     case .chinese:
-    //         return .off
-    //     case .english:
-    //         return .on
-    //     }
-    // }
-
     private func handle(_ kind: KeyKind) {
         if suppressNextKeyTap || isTrackpadActive {
             suppressNextKeyTap = false
@@ -1261,7 +1252,6 @@ final class KeyboardViewController: UIInputViewController {
             commitCompositionAsText()
             associationContext = nil
             inputLanguage = inputLanguage == .chinese ? .english : .chinese
-            // shiftState = preferredShiftState(for: inputLanguage)
             renderKeyboard()
         case .spacer:
             break
@@ -1801,7 +1791,7 @@ final class KeyboardViewController: UIInputViewController {
 
     private func updateLanguageSwitchIconAppearance() {
         for iconView in languageSwitchIconViews {
-            iconView.configure(highlightsEnglish: inputLanguage == .chinese, darkMode: isDark)
+            iconView.configure(highlightsChinese: inputLanguage == .chinese, darkMode: isDark)
         }
     }
 
@@ -2429,7 +2419,7 @@ final class KeyboardViewController: UIInputViewController {
 private final class LanguageSwitchIconView: UIView {
     private let chineseLabel = UILabel()
     private let englishLabel = UILabel()
-    private var highlightsEnglish = true
+    private var highlightsChinese = true
 
     override init(frame: CGRect) {
         super.init(frame: frame)
@@ -2442,25 +2432,25 @@ private final class LanguageSwitchIconView: UIView {
         fatalError("init(coder:) has not been implemented")
     }
 
-    func configure(highlightsEnglish: Bool, darkMode: Bool) {
-        self.highlightsEnglish = highlightsEnglish
+    func configure(highlightsChinese: Bool, darkMode: Bool) {
+        self.highlightsChinese = highlightsChinese
         let inactiveColor = UIColor(white: 1, alpha: darkMode ? 0.42 : 0.50)
         let activeColor = UIColor(red: 0.35, green: 0.65, blue: 1, alpha: 1)
-        chineseLabel.textColor = highlightsEnglish ? inactiveColor : activeColor
-        englishLabel.textColor = highlightsEnglish ? activeColor : inactiveColor
-        chineseLabel.font = .systemFont(ofSize: highlightsEnglish ? 16 : 19, weight: highlightsEnglish ? .semibold : .bold)
-        englishLabel.font = .systemFont(ofSize: highlightsEnglish ? 20 : 14, weight: highlightsEnglish ? .bold : .semibold)
+        chineseLabel.textColor = highlightsChinese ? activeColor : inactiveColor
+        englishLabel.textColor = highlightsChinese ? inactiveColor : activeColor
+        chineseLabel.font = .systemFont(ofSize: highlightsChinese ? 19 : 16, weight: highlightsChinese ? .bold : .semibold)
+        englishLabel.font = .systemFont(ofSize: highlightsChinese ? 14 : 20, weight: highlightsChinese ? .semibold : .bold)
         setNeedsLayout()
     }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        if highlightsEnglish {
-            chineseLabel.frame = CGRect(x: 1, y: 2, width: 18, height: 18)
-            englishLabel.frame = CGRect(x: bounds.width - 21, y: bounds.height - 22, width: 22, height: 22)
-        } else {
+        if highlightsChinese {
             chineseLabel.frame = CGRect(x: 1, y: 1, width: 22, height: 22)
             englishLabel.frame = CGRect(x: bounds.width - 17, y: bounds.height - 16, width: 17, height: 17)
+        } else {
+            chineseLabel.frame = CGRect(x: 1, y: 2, width: 18, height: 18)
+            englishLabel.frame = CGRect(x: bounds.width - 21, y: bounds.height - 22, width: 22, height: 22)
         }
     }
 
