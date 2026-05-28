@@ -119,6 +119,8 @@ final class KeyboardViewController: UIInputViewController {
     private static let candidateToggleButtonHeight: CGFloat = 32
     private static let keyboardIconPointSize: CGFloat = 24
     private static let quickFillBackIconPointSize: CGFloat = 28
+    private static let quickFillBackButtonWidth: CGFloat = 32
+    private static let quickFillBackButtonHeight: CGFloat = 28
     private static let shiftKeyImagePointSize: CGFloat = 30
     private static let shiftKeyImageVerticalAlignment: CGFloat = 0.18
     private static let trackpadStepWidth: CGFloat = 10
@@ -443,8 +445,8 @@ final class KeyboardViewController: UIInputViewController {
             candidatePageView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
             candidatePageCollapseButton.topAnchor.constraint(equalTo: candidatePageView.topAnchor, constant: 4),
-            candidatePageCollapseButton.heightAnchor.constraint(equalToConstant: Self.candidateToggleButtonHeight),
-            candidatePageCollapseButton.widthAnchor.constraint(equalToConstant: Self.candidateToggleButtonWidth),
+            candidatePageCollapseButton.heightAnchor.constraint(equalToConstant: Self.quickFillBackButtonHeight),
+            candidatePageCollapseButton.widthAnchor.constraint(equalToConstant: Self.quickFillBackButtonWidth),
             candidatePageCollapseButtonTrailingConstraint!,
 
             quickFillTopBar.leadingAnchor.constraint(equalTo: candidatePageView.leadingAnchor),
