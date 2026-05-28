@@ -1261,7 +1261,7 @@ final class KeyboardViewController: UIInputViewController {
             commitCompositionAsText()
             associationContext = nil
             inputLanguage = inputLanguage == .chinese ? .english : .chinese
-            shiftState = preferredShiftState(for: inputLanguage)
+            // shiftState = preferredShiftState(for: inputLanguage)
             renderKeyboard()
         case .spacer:
             break
