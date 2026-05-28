@@ -193,6 +193,11 @@ def main() -> int:
         "shift lower image exists": SHIFT_LOWER_IMAGE.exists(),
         "shift upper image is a png": shift_upper_image.get("is_png") is True,
         "shift lower image is a png": shift_lower_image.get("is_png") is True,
+        "shift lower image has alpha channel": shift_lower_image.get("has_alpha") is True,
+        "shift lower image background corners are transparent": (
+            isinstance(shift_lower_image.get("corner_alpha"), list)
+            and shift_lower_image.get("corner_alpha")[:3] == [0, 0, 0]
+        ),
         "shift upper asset maps to uppercase icon": 'return "大写图标"' in source,
         "shift lower asset maps to lowercase icon": 'return "小写图标"' in source,
         "backspace uses clear-symbol asset": 'return "icons8-clear-symbol-48"' in source,
