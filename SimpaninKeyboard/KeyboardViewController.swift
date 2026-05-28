@@ -118,9 +118,15 @@ final class KeyboardViewController: UIInputViewController {
     private static let candidateToggleButtonWidth: CGFloat = 34
     private static let candidateToggleButtonHeight: CGFloat = 32
     private static let keyboardIconPointSize: CGFloat = 24
-    private static let quickFillBackIconPointSize: CGFloat = 28
-    private static let quickFillBackButtonWidth: CGFloat = 32
-    private static let quickFillBackButtonHeight: CGFloat = 28
+    private static let quickFillHeaderHeight: CGFloat = 36
+    private static let quickFillHeaderSideSlotWidth: CGFloat = 44
+    private static let quickFillHeaderTabSpacing: CGFloat = 28
+    private static let quickFillHeaderBottomSpacing: CGFloat = 8
+    private static let quickFillTabIndicatorWidth: CGFloat = 20
+    private static let quickFillTabIndicatorHeight: CGFloat = 3
+    private static let quickFillBackIconPointSize: CGFloat = 20
+    private static let quickFillBackButtonWidth: CGFloat = 36
+    private static let quickFillBackButtonHeight: CGFloat = 36
     private static let shiftKeyImagePointSize: CGFloat = 30
     private static let shiftKeyImageVerticalAlignment: CGFloat = 0.18
     private static let trackpadStepWidth: CGFloat = 10
@@ -436,7 +442,7 @@ final class KeyboardViewController: UIInputViewController {
         candidatePageCollapseButtonTrailingConstraint = candidatePageCollapseButton.trailingAnchor.constraint(equalTo: candidatePageView.trailingAnchor, constant: -8)
         candidatePageScrollTopToCollapseConstraint = candidatePageScrollView.topAnchor.constraint(equalTo: candidatePageCollapseButton.bottomAnchor, constant: 4)
         candidatePageScrollTopToPageConstraint = candidatePageScrollView.topAnchor.constraint(equalTo: candidatePageView.topAnchor)
-        candidatePageScrollTopToQuickFillTopBarConstraint = candidatePageScrollView.topAnchor.constraint(equalTo: quickFillTopBar.bottomAnchor, constant: 31)
+        candidatePageScrollTopToQuickFillTopBarConstraint = candidatePageScrollView.topAnchor.constraint(equalTo: quickFillTopBar.bottomAnchor, constant: Self.quickFillHeaderBottomSpacing)
 
         NSLayoutConstraint.activate([
             candidatePageView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
@@ -452,7 +458,7 @@ final class KeyboardViewController: UIInputViewController {
             quickFillTopBar.leadingAnchor.constraint(equalTo: candidatePageView.leadingAnchor),
             quickFillTopBar.trailingAnchor.constraint(equalTo: candidatePageView.trailingAnchor),
             quickFillTopBar.topAnchor.constraint(equalTo: candidatePageView.topAnchor, constant: 4),
-            quickFillTopBar.heightAnchor.constraint(equalToConstant: 42),
+            quickFillTopBar.heightAnchor.constraint(equalToConstant: Self.quickFillHeaderHeight),
 
             candidatePageScrollView.leadingAnchor.constraint(equalTo: candidatePageView.leadingAnchor, constant: 6),
             candidatePageScrollView.trailingAnchor.constraint(equalTo: candidatePageView.trailingAnchor, constant: -6),
@@ -1741,7 +1747,11 @@ final class KeyboardViewController: UIInputViewController {
         candidatePageCollapseButton.backgroundColor = .clear
         candidatePageCollapseButton.layer.borderColor = UIColor.clear.cgColor
         updateCompositionBarAppearance()
-        renderCandidatePageIfNeeded()
+        if isQuickFillPanelVisible {
+            renderQuickFillPanel()
+        } else {
+            renderCandidatePageIfNeeded()
+        }
         if let previewedKeySourceView = previewedKeySourceView,
            let previewedKeyText = previewedKeyText {
             showKeyPreview(from: previewedKeySourceView, text: previewedKeyText)
@@ -2212,29 +2222,23 @@ final class KeyboardViewController: UIInputViewController {
         ])
     }
 
-    private func makeQuickFillHeader() -> UIStackView {
-        let header = UIStackView()
-        header.axis = .horizontal
-        header.alignment = .fill
-        header.distribution = .fill
-        header.spacing = 14
-        header.layoutMargins = UIEdgeInsets(top: 0, left: 44, bottom: 0, right: 12)
-        header.isLayoutMarginsRelativeArrangement = true
-        header.heightAnchor.constraint(equalToConstant: 42).isActive = true
-
+    private func makeQuickFillHeader() -> UIView {
+        let header = UIView()
         let tabStack = UIStackView()
+        tabStack.translatesAutoresizingMaskIntoConstraints = false
         tabStack.axis = .horizontal
-        tabStack.alignment = .fill
-        tabStack.distribution = .fillEqually
-        tabStack.spacing = 22
+        tabStack.alignment = .top
+        tabStack.distribution = .fill
+        tabStack.spacing = Self.quickFillHeaderTabSpacing
         tabStack.addArrangedSubview(makeQuickFillTabControl(tab: .commonPhrases, title: "常用语"))
         tabStack.addArrangedSubview(makeQuickFillTabControl(tab: .clipboard, title: "粘贴板"))
-        header.addArrangedSubview(tabStack)
-
-        let trailingSpacer = UIView()
-        trailingSpacer.setContentHuggingPriority(.defaultLow, for: .horizontal)
-        header.addArrangedSubview(trailingSpacer)
-        trailingSpacer.widthAnchor.constraint(greaterThanOrEqualToConstant: 44).isActive = true
+        header.addSubview(tabStack)
+        NSLayoutConstraint.activate([
+            tabStack.centerXAnchor.constraint(equalTo: header.centerXAnchor),
+            tabStack.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+            tabStack.leadingAnchor.constraint(greaterThanOrEqualTo: header.leadingAnchor, constant: Self.quickFillHeaderSideSlotWidth),
+            tabStack.trailingAnchor.constraint(lessThanOrEqualTo: header.trailingAnchor, constant: -Self.quickFillHeaderSideSlotWidth)
+        ])
         return header
     }
 
@@ -2243,13 +2247,13 @@ final class KeyboardViewController: UIInputViewController {
         let stack = UIStackView()
         stack.axis = .vertical
         stack.alignment = .center
-        stack.spacing = 2
+        stack.spacing = 4
 
         let button = UIButton(type: .system)
         button.setTitle(title, for: .normal)
-        button.titleLabel?.font = .systemFont(ofSize: 16, weight: isSelected ? .semibold : .regular)
+        button.titleLabel?.font = .systemFont(ofSize: 17, weight: isSelected ? .semibold : .regular)
         button.setTitleColor(isSelected ? primaryText : secondaryText.withAlphaComponent(0.62), for: .normal)
-        button.contentEdgeInsets = UIEdgeInsets(top: 0, left: 2, bottom: 0, right: 2)
+        button.contentEdgeInsets = .zero
         button.addAction(UIAction { [weak self] _ in
             guard let self, self.selectedQuickFillPanelTab != tab else { return }
             self.selectedQuickFillPanelTab = tab
@@ -2260,8 +2264,8 @@ final class KeyboardViewController: UIInputViewController {
         let indicator = UIView()
         indicator.backgroundColor = isSelected ? UIColor.systemBlue : .clear
         indicator.layer.cornerRadius = 1.5
-        indicator.heightAnchor.constraint(equalToConstant: 3).isActive = true
-        indicator.widthAnchor.constraint(equalToConstant: 22).isActive = true
+        indicator.heightAnchor.constraint(equalToConstant: Self.quickFillTabIndicatorHeight).isActive = true
+        indicator.widthAnchor.constraint(equalToConstant: Self.quickFillTabIndicatorWidth).isActive = true
         stack.addArrangedSubview(indicator)
         return stack
     }
