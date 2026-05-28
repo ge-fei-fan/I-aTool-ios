@@ -224,7 +224,7 @@ def main() -> int:
         "translate icon asset exists": TRANSLATE_IMAGE.exists(),
         "translate icon image is a png": translate_image.get("is_png") is True,
         "translate keyboard icon asset exists": "case translate" in source and 'return "翻译"' in source,
-        "candidate bar third visible utility icon uses translate asset": '(asset: .heart, fallbackSystemName: "heart", label: "Quick fill", dismissesKeyboard: false, opensQuickFill: true),\n            (asset: .translate, fallbackSystemName: "text.translate", label: "Translate", dismissesKeyboard: false, opensQuickFill: false),' in source,
+        "candidate bar third visible utility icon uses translate asset": '(asset: .heart, fallbackSystemName: "heart", label: "Quick fill", dismissesKeyboard: false, opensQuickFill: true, opensTranslation: false),\n            (asset: .translate, fallbackSystemName: "text.translate", label: "Translate", dismissesKeyboard: false, opensQuickFill: false, opensTranslation: true),' in source,
         "translate utility icon shares unified styling": "configureUtilityIconButton(\n                button,\n                asset: item.asset," in source and "button.setImage(keyboardIcon(asset, fallbackSystemName: fallbackSystemName), for: .normal)" in source,
     }
 

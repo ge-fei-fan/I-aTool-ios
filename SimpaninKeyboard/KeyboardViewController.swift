@@ -107,11 +107,11 @@ final class KeyboardViewController: UIInputViewController {
     private var selectedQuickFillPanelTab: QuickFillPanelTab = .commonPhrases
     private var isTranslationPanelVisible = false
     private let translationPanelView = UIView()
-    private let translationOriginalTextView = UITextView()
     private let translationTextView = UITextView()
     private let translationStatusLabel = UILabel()
     private var translationTask: URLSessionDataTask?
     private var translationStreamDelegate: OllamaTranslationStreamDelegate?
+    private var activeTranslationRequestID = 0
     private var candidatePageTopToCandidateBarConstraint: NSLayoutConstraint?
     private var candidatePageTopToViewConstraint: NSLayoutConstraint?
     private var candidatePageCollapseButtonLeadingConstraint: NSLayoutConstraint?
@@ -534,19 +534,6 @@ final class KeyboardViewController: UIInputViewController {
         contentStack.spacing = 8
         contentStack.translatesAutoresizingMaskIntoConstraints = false
         translationPanelView.addSubview(contentStack)
-
-        translationOriginalTextView.isEditable = false
-        translationOriginalTextView.isSelectable = true
-        translationOriginalTextView.font = .systemFont(ofSize: 13, weight: .regular)
-        translationOriginalTextView.backgroundColor = candidateBackground
-        translationOriginalTextView.layer.cornerRadius = 10
-        translationOriginalTextView.layer.borderWidth = 0.5
-        translationOriginalTextView.layer.borderColor = candidateBorder.cgColor
-        translationOriginalTextView.textContainerInset = UIEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
-        translationOriginalTextView.textColor = secondaryText
-        translationOriginalTextView.translatesAutoresizingMaskIntoConstraints = false
-        contentStack.addArrangedSubview(translationOriginalTextView)
-        translationOriginalTextView.heightAnchor.constraint(equalToConstant: 70).isActive = true
 
         translationTextView.isEditable = false
         translationTextView.isSelectable = true
@@ -1789,19 +1776,18 @@ final class KeyboardViewController: UIInputViewController {
 
     private func handleTranslationButtonTap() {
         hideKeyPreview(animated: false)
-        if isTranslationPanelVisible {
-            setTranslationPanelVisible(false)
-        } else {
+        if !isTranslationPanelVisible {
             setTranslationPanelVisible(true)
-            startClipboardTranslation()
         }
+        startClipboardTranslation()
     }
 
     private func startClipboardTranslation() {
         cancelTranslationRequest()
+        activeTranslationRequestID += 1
+        let requestID = activeTranslationRequestID
 
         guard hasFullAccess else {
-            translationOriginalTextView.text = ""
             translationTextView.text = "请在系统设置中为键盘开启“允许完全访问”，用于读取粘贴板并访问翻译服务。"
             translationStatusLabel.text = "需要权限"
             return
@@ -1809,19 +1795,18 @@ final class KeyboardViewController: UIInputViewController {
 
         let sourceText = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         guard !sourceText.isEmpty else {
-            translationOriginalTextView.text = ""
             translationTextView.text = "粘贴板暂无可翻译文本。"
             translationStatusLabel.text = "空粘贴板"
             return
         }
 
-        translationOriginalTextView.text = "原文：\n\(sourceText)"
         translationTextView.text = ""
+        translationTextView.setContentOffset(.zero, animated: false)
         translationStatusLabel.text = "翻译中…"
-        requestStreamingTranslation(for: sourceText)
+        requestStreamingTranslation(for: sourceText, requestID: requestID)
     }
 
-    private func requestStreamingTranslation(for text: String) {
+    private func requestStreamingTranslation(for text: String, requestID: Int) {
         let defaults = UserDefaults(suiteName: "group.com.local.fitnex")
         let storedBaseURL = defaults?.string(forKey: "translate.baseURL") ?? "http://192.168.2.88:11434"
         let storedModel = defaults?.string(forKey: "translate.model") ?? "transgemma4b"
@@ -1843,7 +1828,9 @@ final class KeyboardViewController: UIInputViewController {
         request.setValue("application/x-ndjson", forHTTPHeaderField: "Accept")
 
         let prompt = """
-        Translate the following text into Chinese if it is not Chinese, or into natural English if it is Chinese. Return only the translation, no explanation.
+        请自动识别以下文本的语言，并将内容翻译成简体中文。
+        如果文本已经是中文，请保持中文原文，不要翻译成其他语言，也不要润色改写。
+        只返回译文，不要返回解释、标签、原文或额外说明。
 
         \(text)
         """
@@ -1865,6 +1852,7 @@ final class KeyboardViewController: UIInputViewController {
             onToken: { [weak self] token in
                 DispatchQueue.main.async {
                     guard let self else { return }
+                    guard self.activeTranslationRequestID == requestID else { return }
                     accumulated += token
                     self.translationTextView.text = accumulated
                     if !accumulated.isEmpty {
@@ -1876,6 +1864,7 @@ final class KeyboardViewController: UIInputViewController {
             onComplete: { [weak self] errorMessage in
                 DispatchQueue.main.async {
                     guard let self else { return }
+                    guard self.activeTranslationRequestID == requestID else { return }
                     if let errorMessage {
                         self.translationStatusLabel.text = "失败"
                         if accumulated.isEmpty {
@@ -1897,6 +1886,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func cancelTranslationRequest() {
+        activeTranslationRequestID += 1
         translationTask?.cancel()
         translationTask = nil
         translationStreamDelegate = nil
@@ -2065,9 +2055,6 @@ final class KeyboardViewController: UIInputViewController {
         candidatePageCollapseButton.backgroundColor = .clear
         candidatePageCollapseButton.layer.borderColor = UIColor.clear.cgColor
         translationPanelView.backgroundColor = quickFillPanelBackground
-        translationOriginalTextView.backgroundColor = candidateBackground
-        translationOriginalTextView.textColor = secondaryText
-        translationOriginalTextView.layer.borderColor = candidateBorder.cgColor
         translationTextView.backgroundColor = candidateBackground
         translationTextView.textColor = primaryText
         translationTextView.layer.borderColor = candidateBorder.cgColor
