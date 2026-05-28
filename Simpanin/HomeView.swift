@@ -2110,9 +2110,11 @@ private struct SettingsView: View {
     @ObservedObject private var hostSettings = HostMonitorSettingsStore.shared
     @ObservedObject private var nezhaSettings = NezhaSettingsStore.shared
     @ObservedObject private var quickFillStore = QuickFillStore.shared
+    @ObservedObject private var translateSettings = TranslateSettingsStore.shared
     @State private var showingLogs = false
     @State private var showingHostSettings = false
     @State private var showingNezhaSettings = false
+    @State private var showingTranslateSettings = false
     @State private var showingKeyboardGuide = false
     @State private var showingQuickFillSettings = false
 
@@ -2143,7 +2145,7 @@ private struct SettingsView: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(alignment: .leading, spacing: 22) {
-                    settingsSection(title: "监控") {
+                    settingsSection(title: "配置") {
                         Button {
                             showingHostSettings = true
                         } label: {
@@ -2165,6 +2167,20 @@ private struct SettingsView: View {
                                 title: "哪吒配置",
                                 trailingText: nezhaSettings.isConfigured ? "已配置" : "未配置",
                                 subtitle: nezhaSettings.displayHost
+                            )
+                        }
+                        .buttonStyle(.plain)
+
+                        settingsDivider
+
+                        Button {
+                            showingTranslateSettings = true
+                        } label: {
+                            settingsRow(
+                                icon: "character.book.closed",
+                                title: "翻译配置",
+                                trailingText: translateSettings.isConfigured ? "已配置" : "未配置",
+                                subtitle: "\(translateSettings.displayHost) · \(translateSettings.model)"
                             )
                         }
                         .buttonStyle(.plain)
@@ -2262,6 +2278,10 @@ private struct SettingsView: View {
         }
         .sheet(isPresented: $showingNezhaSettings) {
             NezhaSettingsSheet(settings: nezhaSettings)
+                .presentationDetents([.medium])
+        }
+        .sheet(isPresented: $showingTranslateSettings) {
+            TranslateSettingsSheet(settings: translateSettings)
                 .presentationDetents([.medium])
         }
         .sheet(isPresented: $showingKeyboardGuide) {
@@ -2929,6 +2949,79 @@ private struct NezhaSettingsSheet: View {
         .onAppear {
             draftBaseURL = settings.baseURL
             draftToken = settings.authToken
+        }
+    }
+}
+
+private struct TranslateSettingsSheet: View {
+    @ObservedObject var settings: TranslateSettingsStore
+    @Environment(\.dismiss) private var dismiss
+    @State private var draftBaseURL = ""
+    @State private var draftModel = ""
+
+    var body: some View {
+        NavigationView {
+            VStack(alignment: .leading, spacing: 18) {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("服务地址")
+                        .font(.fitnexTitle(size: 13))
+                        .foregroundColor(FitnexColor.black)
+                    TextField("http://192.168.2.88:11434", text: $draftBaseURL)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.URL)
+                        .font(.fitnexBody(size: 13, weight: .regular))
+                        .padding(.horizontal, 12)
+                        .frame(height: 44)
+                        .background(FitnexColor.pale, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("模型名称")
+                        .font(.fitnexTitle(size: 13))
+                        .foregroundColor(FitnexColor.black)
+                    TextField("transgemma4b", text: $draftModel)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .font(.fitnexBody(size: 13, weight: .regular))
+                        .padding(.horizontal, 12)
+                        .frame(height: 44)
+                        .background(FitnexColor.pale, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                }
+
+                Text("配置 Ollama 翻译服务的 API 地址和模型名称。")
+                    .font(.fitnexBody(size: 11, weight: .regular))
+                    .foregroundColor(FitnexColor.grayText)
+
+                Spacer()
+            }
+            .padding(20)
+            .background(FitnexColor.background)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    Text("翻译配置")
+                        .font(.fitnexTitle(size: 16))
+                        .foregroundColor(FitnexColor.black)
+                }
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") {
+                        dismiss()
+                    }
+                    .foregroundColor(FitnexColor.grayText)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("保存") {
+                        settings.save(baseURL: draftBaseURL, model: draftModel)
+                        dismiss()
+                    }
+                    .foregroundColor(FitnexColor.orange)
+                }
+            }
+        }
+        .onAppear {
+            draftBaseURL = settings.baseURL
+            draftModel = settings.model
         }
     }
 }
@@ -4913,6 +5006,44 @@ private final class NezhaSettingsStore: ObservableObject {
         }
         let normalized = "http://\(trimmed)"
         return URL(string: normalized)?.host == nil ? Self.defaultBaseURL : normalized
+    }
+}
+
+@MainActor
+private final class TranslateSettingsStore: ObservableObject {
+    static let shared = TranslateSettingsStore()
+    private static let defaultBaseURL = "http://192.168.2.88:11434"
+    private static let defaultModel = "transgemma4b"
+
+    @Published private(set) var baseURL: String
+    @Published private(set) var model: String
+
+    private let defaults = UserDefaults.standard
+    private let baseURLKey = "translate.baseURL"
+    private let modelKey = "translate.model"
+
+    private init() {
+        baseURL = defaults.string(forKey: baseURLKey) ?? Self.defaultBaseURL
+        model = defaults.string(forKey: modelKey) ?? Self.defaultModel
+    }
+
+    var isConfigured: Bool {
+        !baseURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var displayHost: String {
+        let trimmed = baseURL.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return "翻译服务未配置" }
+        return URL(string: trimmed)?.host ?? trimmed
+    }
+
+    func save(baseURL: String, model: String) {
+        let trimmedURL = baseURL.trimmingCharacters(in: .whitespacesAndNewlines).trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let trimmedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
+        self.baseURL = trimmedURL.isEmpty ? Self.defaultBaseURL : trimmedURL
+        self.model = trimmedModel.isEmpty ? Self.defaultModel : trimmedModel
+        defaults.set(self.baseURL, forKey: baseURLKey)
+        defaults.set(self.model, forKey: modelKey)
     }
 }
 
