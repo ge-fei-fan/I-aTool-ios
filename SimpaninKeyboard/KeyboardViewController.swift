@@ -1195,14 +1195,14 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
-    private func preferredShiftState(for language: InputLanguage) -> ShiftState {
-        switch language {
-        case .chinese:
-            return .off
-        case .english:
-            return .on
-        }
-    }
+    // private func preferredShiftState(for language: InputLanguage) -> ShiftState {
+    //     switch language {
+    //     case .chinese:
+    //         return .off
+    //     case .english:
+    //         return .on
+    //     }
+    // }
 
     private func handle(_ kind: KeyKind) {
         if suppressNextKeyTap || isTrackpadActive {
