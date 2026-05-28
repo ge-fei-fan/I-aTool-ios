@@ -80,6 +80,7 @@ final class KeyboardViewController: UIInputViewController {
     private var isCandidateScrollInteractionEnabled = false
     private var associationContext: String?
     private var keyButtons: [UIButton] = []
+    private var languageSwitchIconViews: [LanguageSwitchIconView] = []
     private var proxySpacerButtons: [KeyboardProxySpacerButton] = []
     private var edgeProxyButtons: [KeyboardProxySpacerButton] = []
     private var selectedCompositionSegments: [SelectedCompositionSegment] = []
@@ -142,6 +143,7 @@ final class KeyboardViewController: UIInputViewController {
         case arrowDown
         case arrowUp
         case back
+        case translate
 
         var fileName: String {
             switch self {
@@ -157,6 +159,8 @@ final class KeyboardViewController: UIInputViewController {
                 return "icons8-collapse-arrow-50"
             case .back:
                 return "icons8-back-50"
+            case .translate:
+                return "翻译"
             }
         }
     }
@@ -357,7 +361,7 @@ final class KeyboardViewController: UIInputViewController {
 
         let utilityItems: [(asset: KeyboardIconAsset, fallbackSystemName: String, label: String, dismissesKeyboard: Bool, opensQuickFill: Bool)] = [
             (asset: .heart, fallbackSystemName: "heart", label: "Quick fill", dismissesKeyboard: false, opensQuickFill: true),
-            (asset: .happy, fallbackSystemName: "face.smiling", label: "Dictation", dismissesKeyboard: false, opensQuickFill: false),
+            (asset: .translate, fallbackSystemName: "text.translate", label: "Translate", dismissesKeyboard: false, opensQuickFill: false),
             (asset: .happy, fallbackSystemName: "face.smiling", label: "Cursor", dismissesKeyboard: false, opensQuickFill: false),
             (asset: .happy, fallbackSystemName: "face.smiling", label: "Emoji", dismissesKeyboard: false, opensQuickFill: false),
             (asset: .arrowDown, fallbackSystemName: "chevron.down", label: "Dismiss keyboard", dismissesKeyboard: true, opensQuickFill: false)
@@ -621,6 +625,7 @@ final class KeyboardViewController: UIInputViewController {
         edgeProxyButtons.forEach { $0.removeFromSuperview() }
         edgeProxyButtons.removeAll()
         keyButtons.removeAll()
+        languageSwitchIconViews.removeAll()
         proxySpacerButtons.removeAll()
         keyboardRowsStack.arrangedSubviews.forEach { view in
             keyboardRowsStack.removeArrangedSubview(view)
@@ -986,6 +991,8 @@ final class KeyboardViewController: UIInputViewController {
             button.setImage(keyboardKeyIcon(.backspace, fallbackSystemName: "delete.left", fallbackWeight: .light), for: .normal)
             button.tintColor = primaryText
             button.accessibilityLabel = "删除"
+        } else if case .languageSwitch = spec.kind {
+            configureLanguageSwitchButton(button)
         } else {
             button.setTitle(title(for: spec), for: .normal)
         }
@@ -1002,6 +1009,25 @@ final class KeyboardViewController: UIInputViewController {
             button.addGestureRecognizer(recognizer)
         }
         return button
+    }
+
+    private func configureLanguageSwitchButton(_ button: KeyboardKeyButton) {
+        button.setTitle(nil, for: .normal)
+        button.setImage(nil, for: .normal)
+        button.accessibilityLabel = inputLanguage == .chinese ? "切换到英文" : "切换到中文"
+
+        let iconView = LanguageSwitchIconView()
+        iconView.translatesAutoresizingMaskIntoConstraints = false
+        iconView.isUserInteractionEnabled = false
+        iconView.configure(highlightsEnglish: inputLanguage == .chinese, darkMode: isDark)
+        button.addSubview(iconView)
+        NSLayoutConstraint.activate([
+            iconView.centerXAnchor.constraint(equalTo: button.centerXAnchor),
+            iconView.centerYAnchor.constraint(equalTo: button.centerYAnchor),
+            iconView.widthAnchor.constraint(equalToConstant: 30),
+            iconView.heightAnchor.constraint(equalToConstant: 30)
+        ])
+        languageSwitchIconViews.append(iconView)
     }
 
     private func shouldPreviewKey(_ kind: KeyKind) -> Bool {
@@ -1731,6 +1757,7 @@ final class KeyboardViewController: UIInputViewController {
             button.tintColor = primaryText
             button.layer.shadowColor = shadowColor.cgColor
         }
+        updateLanguageSwitchIconAppearance()
         for button in proxySpacerButtons {
             button.applyAppearance(backgroundColor: proxySpacerBackground, shadowColor: shadowColor, showsShadow: false)
         }
@@ -1755,6 +1782,12 @@ final class KeyboardViewController: UIInputViewController {
         if let previewedKeySourceView = previewedKeySourceView,
            let previewedKeyText = previewedKeyText {
             showKeyPreview(from: previewedKeySourceView, text: previewedKeyText)
+        }
+    }
+
+    private func updateLanguageSwitchIconAppearance() {
+        for iconView in languageSwitchIconViews {
+            iconView.configure(highlightsEnglish: inputLanguage == .chinese, darkMode: isDark)
         }
     }
 
@@ -2376,6 +2409,52 @@ final class KeyboardViewController: UIInputViewController {
         selectedCompositionSegments = []
         compositionBuffer = ""
         compositionCursorOffset = 0
+    }
+}
+
+private final class LanguageSwitchIconView: UIView {
+    private let chineseLabel = UILabel()
+    private let englishLabel = UILabel()
+    private var highlightsEnglish = true
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        isOpaque = false
+        setupLabel(chineseLabel, text: "中")
+        setupLabel(englishLabel, text: "英")
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func configure(highlightsEnglish: Bool, darkMode: Bool) {
+        self.highlightsEnglish = highlightsEnglish
+        let inactiveColor = UIColor(white: 1, alpha: darkMode ? 0.42 : 0.50)
+        chineseLabel.textColor = highlightsEnglish ? inactiveColor : .white
+        englishLabel.textColor = highlightsEnglish ? UIColor(red: 0.35, green: 0.65, blue: 1, alpha: 1) : inactiveColor
+        chineseLabel.font = .systemFont(ofSize: highlightsEnglish ? 16 : 19, weight: highlightsEnglish ? .semibold : .bold)
+        englishLabel.font = .systemFont(ofSize: highlightsEnglish ? 20 : 14, weight: highlightsEnglish ? .bold : .semibold)
+        setNeedsLayout()
+    }
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        if highlightsEnglish {
+            chineseLabel.frame = CGRect(x: 1, y: 2, width: 18, height: 18)
+            englishLabel.frame = CGRect(x: bounds.width - 21, y: bounds.height - 22, width: 22, height: 22)
+        } else {
+            chineseLabel.frame = CGRect(x: 1, y: 1, width: 22, height: 22)
+            englishLabel.frame = CGRect(x: bounds.width - 17, y: bounds.height - 16, width: 17, height: 17)
+        }
+    }
+
+    private func setupLabel(_ label: UILabel, text: String) {
+        label.text = text
+        label.textAlignment = .center
+        label.adjustsFontSizeToFitWidth = true
+        label.minimumScaleFactor = 0.75
+        addSubview(label)
     }
 }
 
