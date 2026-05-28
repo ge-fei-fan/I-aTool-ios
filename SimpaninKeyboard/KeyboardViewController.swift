@@ -145,7 +145,7 @@ final class KeyboardViewController: UIInputViewController {
 
     private enum KeyboardIconAsset {
         case diversity
-        case heart
+        case text
         case happy
         case arrowDown
         case arrowUp
@@ -156,8 +156,8 @@ final class KeyboardViewController: UIInputViewController {
             switch self {
             case .diversity:
                 return "icons8-diversity-50"
-            case .heart:
-                return "icons8-heart-50"
+            case .text:
+                return "文本"
             case .happy:
                 return "icons8-happy-50"
             case .arrowDown:
@@ -370,7 +370,7 @@ final class KeyboardViewController: UIInputViewController {
         utilityOverlayIconButtons.append(utilityOverlayButton)
 
         let utilityItems: [(asset: KeyboardIconAsset, fallbackSystemName: String, label: String, dismissesKeyboard: Bool, opensQuickFill: Bool, opensTranslation: Bool)] = [
-            (asset: .heart, fallbackSystemName: "heart", label: "Quick fill", dismissesKeyboard: false, opensQuickFill: true, opensTranslation: false),
+            (asset: .text, fallbackSystemName: "textformat", label: "Quick fill", dismissesKeyboard: false, opensQuickFill: true, opensTranslation: false),
             (asset: .translate, fallbackSystemName: "text.translate", label: "Translate", dismissesKeyboard: false, opensQuickFill: false, opensTranslation: true),
             (asset: .happy, fallbackSystemName: "face.smiling", label: "Cursor", dismissesKeyboard: false, opensQuickFill: false, opensTranslation: false),
             (asset: .happy, fallbackSystemName: "face.smiling", label: "Emoji", dismissesKeyboard: false, opensQuickFill: false, opensTranslation: false),
