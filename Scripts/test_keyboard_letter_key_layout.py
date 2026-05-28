@@ -12,7 +12,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parents[1]
 KEYBOARD_SOURCE = REPO_ROOT / "SimpaninKeyboard" / "KeyboardViewController.swift"
 PREVIEW_SOURCE = REPO_ROOT / "docs" / "previews" / "keyboard-letter-layout-preview.html"
-SHIFT_IMAGE = REPO_ROOT / "ios-icon" / "cat1.png"
+LANGUAGE_PREVIEW_SOURCE = REPO_ROOT / "docs" / "previews" / "language-switch-icon-preview.html"
+SHIFT_UPPER_IMAGE = REPO_ROOT / "ios-icon" / "大写图标.png"
+SHIFT_LOWER_IMAGE = REPO_ROOT / "ios-icon" / "小写图标.png"
+TRANSLATE_IMAGE = REPO_ROOT / "ios-icon" / "翻译.png"
 
 
 def function_body(source: str, signature: str) -> str:
@@ -155,11 +158,17 @@ def png_alpha_summary(path: Path) -> dict[str, object]:
 def main() -> int:
     source = KEYBOARD_SOURCE.read_text(encoding="utf-8")
     preview = PREVIEW_SOURCE.read_text(encoding="utf-8")
-    shift_image = png_alpha_summary(SHIFT_IMAGE)
+    language_preview = LANGUAGE_PREVIEW_SOURCE.read_text(encoding="utf-8") if LANGUAGE_PREVIEW_SOURCE.exists() else ""
+    shift_upper_image = png_alpha_summary(SHIFT_UPPER_IMAGE) if SHIFT_UPPER_IMAGE.exists() else {"is_png": False}
+    shift_lower_image = png_alpha_summary(SHIFT_LOWER_IMAGE) if SHIFT_LOWER_IMAGE.exists() else {"is_png": False}
+    translate_image = png_alpha_summary(TRANSLATE_IMAGE) if TRANSLATE_IMAGE.exists() else {"is_png": False}
     row3 = row3_definition(source)
     number_row3 = number_third_row_definition(source)
     symbol_row3 = symbol_third_row_definition(source)
     width_helper = function_body(source, "private func usesLetterKeyWidth(for kind: KeyKind) -> Bool")
+    make_button = function_body(source, "private func makeButton(for spec: KeySpec) -> KeyboardKeyButton")
+    shift_default_helper = function_body(source, "private func preferredShiftState(for language: InputLanguage) -> ShiftState")
+    key_handler = function_body(source, "private func handle(_ kind: KeyKind)")
 
     checks = {
         "letter third row keeps shift pinned left": row3.startswith("[KeySpec(.shift), KeySpec(.spacer, widthUnit: 0.5)]"),
@@ -178,21 +187,43 @@ def main() -> int:
         "keyboard icon point size stays 24pt": "private static let keyboardIconPointSize: CGFloat = 24" in source,
         "shift key image point size constant exists": "private static let shiftKeyImagePointSize: CGFloat = 30" in source,
         "shift key image alignment constant exists": "private static let shiftKeyImageVerticalAlignment: CGFloat = 0.18" in source,
-        "keyboard key icon asset enum exists": "private enum KeyboardKeyIconAsset" in source and "case shift" in source and "case backspace" in source,
-        "shift uses cat1 asset": 'return "cat1"' in source,
-        "shift image is a png": shift_image.get("is_png") is True,
-        "shift image has alpha channel": shift_image.get("has_alpha") is True,
-        "shift image corners are transparent": shift_image.get("corner_alpha") == [0, 0, 0, 0],
+        "keyboard key icon asset enum exists": "private enum KeyboardKeyIconAsset" in source and "case shiftUpper" in source and "case shiftLower" in source and "case backspace" in source,
+        "shift no longer uses cat1 asset": 'return "cat1"' not in source,
+        "shift upper image exists": SHIFT_UPPER_IMAGE.exists(),
+        "shift lower image exists": SHIFT_LOWER_IMAGE.exists(),
+        "shift upper image is a png": shift_upper_image.get("is_png") is True,
+        "shift lower image is a png": shift_lower_image.get("is_png") is True,
+        "shift upper asset maps to uppercase icon": 'return "大写图标"' in source,
+        "shift lower asset maps to lowercase icon": 'return "小写图标"' in source,
         "backspace uses clear-symbol asset": 'return "icons8-clear-symbol-48"' in source,
-        "shift primary path uses keyboard key asset": 'button.setImage(keyboardKeyIcon(.shift' in source,
+        "shift primary path uses state-specific keyboard key asset": "let shiftAsset: KeyboardKeyIconAsset = shiftState == .on ? .shiftUpper : .shiftLower" in source and "button.setImage(keyboardKeyIcon(shiftAsset" in source,
         "backspace primary path uses keyboard key asset": 'button.setImage(keyboardKeyIcon(.backspace' in source,
         "keyboard key icon helper avoids Self in default arguments": "pointSize: CGFloat = Self.keyboardIconPointSize" not in source,
-        "shift uses original-color inset image": "keyboardKeyIcon(.shift, fallbackSystemName: \"shift\", fallbackWeight: .light, pointSize: Self.shiftKeyImagePointSize, renderingMode: .alwaysOriginal, aspectFill: true, verticalAlignment: Self.shiftKeyImageVerticalAlignment)" in source,
+        "shift uses original-color inset image": "keyboardKeyIcon(shiftAsset, fallbackSystemName: \"shift\", fallbackWeight: .light, pointSize: Self.shiftKeyImagePointSize, renderingMode: .alwaysOriginal, aspectFill: true, verticalAlignment: Self.shiftKeyImageVerticalAlignment)" in source,
         "backspace stays templated": "keyboardKeyIcon(.backspace, fallbackSystemName: \"delete.left\", fallbackWeight: .light)" in source,
         "keyboard image resizer supports aspect fill focus": "verticalAlignment: CGFloat = 0.5" in source and "let maxOffsetY = max(0, scaledSize.height - size.height)" in source and "let clampedVerticalAlignment = min(max(verticalAlignment, 0), 1)" in source and "y: -maxOffsetY * clampedVerticalAlignment" in source,
         "preview shift image keeps key background visible": ".key__icon--shift {" in preview and "inset: 4px;" in preview,
         "preview shift image keeps original colors": ".key__icon--shift .key__icon-image {" in preview and "filter: none;" in preview,
-        "preview shift image focuses cat face": ".key__icon--shift .key__icon-image {" in preview and "object-position: 50% 18%;" in preview,
+        "preview shift image defaults to lowercase icon": 'src="../../ios-icon/小写图标.png"' in preview,
+        "preview shift image switches to uppercase icon": 'shiftIconImage.src = shiftOn ? "../../ios-icon/大写图标.png" : "../../ios-icon/小写图标.png"' in preview,
+        "language switch preview exists": bool(language_preview),
+        "language switch preview renders both states": 'data-state="chinese"' in language_preview and 'data-state="english"' in language_preview,
+        "language switch preview uses stacked glyph icon": "language-icon__glyph language-icon__glyph--chinese" in language_preview and "language-icon__glyph language-icon__glyph--english" in language_preview,
+        "language switch preview highlights english in chinese mode": '.language-key[data-state="chinese"] .language-icon__glyph--english' in language_preview and "#58a6ff" in language_preview,
+        "language switch preview highlights chinese in english mode": '.language-key[data-state="english"] .language-icon__glyph--chinese' in language_preview and "color: var(--blue);" in language_preview,
+        "language switch icon view exists in keyboard": "private final class LanguageSwitchIconView" in source,
+        "language switch key uses icon view": "configureLanguageSwitchButton(button)" in source,
+        "language switch title is not rendered as plain text": "} else if case .languageSwitch = spec.kind {\n            configureLanguageSwitchButton(button)\n        } else {\n            button.setTitle(title(for: spec), for: .normal)" in make_button,
+        "language switch uses same blue for enlarged glyphs": "let activeColor = UIColor(red: 0.35, green: 0.65, blue: 1, alpha: 1)" in source and "chineseLabel.textColor = highlightsEnglish ? inactiveColor : activeColor" in source and "englishLabel.textColor = highlightsEnglish ? activeColor : inactiveColor" in source,
+        "theme refresh updates language icon": "updateLanguageSwitchIconAppearance" in source,
+        "language-specific shift default helper exists": bool(shift_default_helper),
+        "language-specific shift defaults are lowercase Chinese and uppercase English": "case .chinese:\n            return .off" in shift_default_helper and "case .english:\n            return .on" in shift_default_helper,
+        "language switch resets shift state to language default": "shiftState = preferredShiftState(for: inputLanguage)" in key_handler,
+        "translate icon asset exists": TRANSLATE_IMAGE.exists(),
+        "translate icon image is a png": translate_image.get("is_png") is True,
+        "translate keyboard icon asset exists": "case translate" in source and 'return "翻译"' in source,
+        "candidate bar third visible utility icon uses translate asset": '(asset: .heart, fallbackSystemName: "heart", label: "Quick fill", dismissesKeyboard: false, opensQuickFill: true),\n            (asset: .translate, fallbackSystemName: "text.translate", label: "Translate", dismissesKeyboard: false, opensQuickFill: false),' in source,
+        "translate utility icon shares unified styling": "configureUtilityIconButton(\n                button,\n                asset: item.asset," in source and "button.setImage(keyboardIcon(asset, fallbackSystemName: fallbackSystemName), for: .normal)" in source,
     }
 
     failed = [name for name, passed in checks.items() if not passed]

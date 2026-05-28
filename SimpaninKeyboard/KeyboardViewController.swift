@@ -166,13 +166,16 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private enum KeyboardKeyIconAsset {
-        case shift
+        case shiftUpper
+        case shiftLower
         case backspace
 
         var fileName: String {
             switch self {
-            case .shift:
-                return "cat1"
+            case .shiftUpper:
+                return "大写图标"
+            case .shiftLower:
+                return "小写图标"
             case .backspace:
                 return "icons8-clear-symbol-48"
             }
@@ -984,7 +987,8 @@ final class KeyboardViewController: UIInputViewController {
         button.titleLabel?.minimumScaleFactor = 0.75
         button.titleLabel?.baselineAdjustment = .alignCenters
         if case .shift = spec.kind {
-            button.setImage(keyboardKeyIcon(.shift, fallbackSystemName: "shift", fallbackWeight: .light, pointSize: Self.shiftKeyImagePointSize, renderingMode: .alwaysOriginal, aspectFill: true, verticalAlignment: Self.shiftKeyImageVerticalAlignment), for: .normal)
+            let shiftAsset: KeyboardKeyIconAsset = shiftState == .on ? .shiftUpper : .shiftLower
+            button.setImage(keyboardKeyIcon(shiftAsset, fallbackSystemName: "shift", fallbackWeight: .light, pointSize: Self.shiftKeyImagePointSize, renderingMode: .alwaysOriginal, aspectFill: true, verticalAlignment: Self.shiftKeyImageVerticalAlignment), for: .normal)
             button.tintColor = primaryText
             button.accessibilityLabel = "Shift"
         } else if case .backspace = spec.kind {
@@ -1191,6 +1195,15 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
+    private func preferredShiftState(for language: InputLanguage) -> ShiftState {
+        switch language {
+        case .chinese:
+            return .off
+        case .english:
+            return .on
+        }
+    }
+
     private func handle(_ kind: KeyKind) {
         if suppressNextKeyTap || isTrackpadActive {
             suppressNextKeyTap = false
@@ -1248,6 +1261,7 @@ final class KeyboardViewController: UIInputViewController {
             commitCompositionAsText()
             associationContext = nil
             inputLanguage = inputLanguage == .chinese ? .english : .chinese
+            shiftState = preferredShiftState(for: inputLanguage)
             renderKeyboard()
         case .spacer:
             break
@@ -2431,8 +2445,9 @@ private final class LanguageSwitchIconView: UIView {
     func configure(highlightsEnglish: Bool, darkMode: Bool) {
         self.highlightsEnglish = highlightsEnglish
         let inactiveColor = UIColor(white: 1, alpha: darkMode ? 0.42 : 0.50)
-        chineseLabel.textColor = highlightsEnglish ? inactiveColor : .white
-        englishLabel.textColor = highlightsEnglish ? UIColor(red: 0.35, green: 0.65, blue: 1, alpha: 1) : inactiveColor
+        let activeColor = UIColor(red: 0.35, green: 0.65, blue: 1, alpha: 1)
+        chineseLabel.textColor = highlightsEnglish ? inactiveColor : activeColor
+        englishLabel.textColor = highlightsEnglish ? activeColor : inactiveColor
         chineseLabel.font = .systemFont(ofSize: highlightsEnglish ? 16 : 19, weight: highlightsEnglish ? .semibold : .bold)
         englishLabel.font = .systemFont(ofSize: highlightsEnglish ? 20 : 14, weight: highlightsEnglish ? .bold : .semibold)
         setNeedsLayout()

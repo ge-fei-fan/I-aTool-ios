@@ -223,7 +223,7 @@
       <div class="row row--bottom">
         <button class="key key--special key--shift" data-action="shift" aria-label="Shift">
           <span class="key__icon key__icon--shift" aria-hidden="true">
-            <img class="key__icon-image" src="../../ios-icon/cat1.png" alt="">
+            <img class="key__icon-image" src="../../ios-icon/小写图标.png" alt="">
           </span>
           <span class="sr-only">Shift</span>
         </button>
@@ -258,6 +258,7 @@
     const languageLabel = document.querySelector("#languageLabel");
     const letterButtons = Array.from(document.querySelectorAll("[data-letter]"));
     const shiftButton = document.querySelector("[data-action='shift']");
+    const shiftIconImage = shiftButton.querySelector(".key__icon-image");
     const buttons = Array.from(document.querySelectorAll(".key"));
     const placeholderText = "轻点按键";
 
@@ -279,6 +280,7 @@
         const value = button.dataset.letter;
         button.querySelector(".key__label").textContent = shiftOn ? value.toUpperCase() : value;
       });
+      shiftIconImage.src = shiftOn ? "../../ios-icon/大写图标.png" : "../../ios-icon/小写图标.png";
       shiftButton.classList.toggle("is-latched", shiftOn);
     }
 
