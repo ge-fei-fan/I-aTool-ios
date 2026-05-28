@@ -4958,6 +4958,7 @@ private final class QuickFillStore: ObservableObject {
 
     private func save() {
         defaults?.set(items.map(\.text), forKey: itemsKey)
+        defaults?.synchronize()
     }
 
     static var sharedItems: [String] {

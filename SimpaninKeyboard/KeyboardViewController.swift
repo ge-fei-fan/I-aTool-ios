@@ -450,14 +450,14 @@ final class KeyboardViewController: UIInputViewController {
             candidatePageTopToCandidateBarConstraint!,
             candidatePageView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
 
-            candidatePageCollapseButton.topAnchor.constraint(equalTo: candidatePageView.topAnchor, constant: 4),
+            candidatePageCollapseButton.topAnchor.constraint(equalTo: candidatePageView.topAnchor, constant: 8),
             candidatePageCollapseButton.heightAnchor.constraint(equalToConstant: Self.quickFillBackButtonHeight),
             candidatePageCollapseButton.widthAnchor.constraint(equalToConstant: Self.quickFillBackButtonWidth),
             candidatePageCollapseButtonTrailingConstraint!,
 
             quickFillTopBar.leadingAnchor.constraint(equalTo: candidatePageView.leadingAnchor),
             quickFillTopBar.trailingAnchor.constraint(equalTo: candidatePageView.trailingAnchor),
-            quickFillTopBar.topAnchor.constraint(equalTo: candidatePageView.topAnchor, constant: 4),
+            quickFillTopBar.topAnchor.constraint(equalTo: candidatePageView.topAnchor, constant: 8),
             quickFillTopBar.heightAnchor.constraint(equalToConstant: Self.quickFillHeaderHeight),
 
             candidatePageScrollView.leadingAnchor.constraint(equalTo: candidatePageView.leadingAnchor, constant: 6),
@@ -2111,6 +2111,7 @@ final class KeyboardViewController: UIInputViewController {
 
     private func reloadQuickFillItems() {
         let sharedDefaults = UserDefaults(suiteName: "group.com.local.fitnex")
+        sharedDefaults?.synchronize()
         quickFillItems = sharedDefaults?.stringArray(forKey: "quickFill.items") ?? []
     }
 
