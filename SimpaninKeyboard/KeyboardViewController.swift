@@ -1546,11 +1546,6 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func handleCandidateSelection(_ candidate: KeyboardCandidate, index: Int) {
-        if isQuickFillAddWindowVisible {
-            setQuickFillAddWindowVisible(false)
-            return
-        }
-
         highlightedCandidateIndex = index
         switch candidateMode {
         case .composition:
