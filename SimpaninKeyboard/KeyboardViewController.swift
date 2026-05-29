@@ -1546,6 +1546,11 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func handleCandidateSelection(_ candidate: KeyboardCandidate, index: Int) {
+        if isQuickFillAddWindowVisible {
+            setQuickFillAddWindowVisible(false)
+            return
+        }
+
         highlightedCandidateIndex = index
         switch candidateMode {
         case .composition:
@@ -1559,8 +1564,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func insertAssociationCandidate(_ text: String) {
-        textDocumentProxy.insertText(text)
-        hasInsertedTextInCurrentContext = true
+        insertTextIntoCurrentTarget(text)
         associationContext = limitedAssociationContext((associationContext ?? "") + text)
         updateCandidates(resetScroll: true)
     }
@@ -1573,8 +1577,7 @@ final class KeyboardViewController: UIInputViewController {
 
     private func replaceCompositionWith(_ candidate: KeyboardCandidate) {
         guard hasActiveComposition else {
-            textDocumentProxy.insertText(candidate.text)
-            hasInsertedTextInCurrentContext = true
+            insertTextIntoCurrentTarget(candidate.text)
             resetCompositionState()
             refreshCompositionDisplay()
             updateCandidates(resetScroll: true)
@@ -1602,8 +1605,7 @@ final class KeyboardViewController: UIInputViewController {
             if selectedCompositionSegments.count > 1, selectedCompositionSegments.allSatisfy({ $0.recordsSelection }) {
                 candidateProvider.recordSelection(committedText, for: committedPinyin)
             }
-            textDocumentProxy.insertText(committedText)
-            hasInsertedTextInCurrentContext = true
+            insertTextIntoCurrentTarget(committedText)
             associationContext = limitedAssociationContext(committedText)
             resetCompositionState()
             refreshCompositionDisplay()
@@ -1612,6 +1614,16 @@ final class KeyboardViewController: UIInputViewController {
             refreshCompositionDisplay()
         }
         updateCandidates(resetScroll: true)
+    }
+
+    private func insertTextIntoCurrentTarget(_ text: String) {
+        guard !text.isEmpty else { return }
+        if isQuickFillAddWindowVisible {
+            appendQuickFillAddDraftText(text)
+        } else {
+            textDocumentProxy.insertText(text)
+            hasInsertedTextInCurrentContext = true
+        }
     }
 
     private func updateCandidates(resetScroll: Bool = false) {
@@ -3050,12 +3062,7 @@ final class KeyboardViewController: UIInputViewController {
             updateCandidates(resetScroll: true)
             return
         }
-        if isQuickFillAddWindowVisible {
-            appendQuickFillAddDraftText(text)
-        } else {
-            textDocumentProxy.insertText(text)
-            hasInsertedTextInCurrentContext = true
-        }
+        insertTextIntoCurrentTarget(text)
         associationContext = nil
         resetCompositionState()
         refreshCompositionDisplay()
