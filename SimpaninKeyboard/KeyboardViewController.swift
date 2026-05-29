@@ -4021,7 +4021,8 @@ private final class QuickFillSwipeActionRow: UIView, UIGestureRecognizerDelegate
             onExpand?()
         case .changed:
             let translation = recognizer.translation(in: self).x
-            currentOffset = min(0, max(-Self.actionRevealWidth, panStartOffset + translation))            contentButton.transform = CGAffineTransform(translationX: currentOffset, y: 0)
+            currentOffset = min(0, max(-Self.actionRevealWidth, panStartOffset + translation))
+            contentButton.transform = CGAffineTransform(translationX: currentOffset, y: 0)
         case .ended, .cancelled, .failed:
             let velocity = recognizer.velocity(in: self).x
             let shouldExpand = velocity < -80 || (velocity <= 80 && currentOffset < -Self.actionRevealWidth / 2)
