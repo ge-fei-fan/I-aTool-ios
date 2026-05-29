@@ -57,9 +57,9 @@ final class KeyboardViewController: UIInputViewController {
     private let candidatePageView = UIView()
     private let candidatePageScrollView = UIScrollView()
     private let candidatePageStack = UIStackView()
+    private let quickFillAddInlineView = UIView()
+    private let quickFillAddInlineCardView = UIView()
     private let quickFillTopBar = UIView()
-    private let quickFillAddOverlayView = UIView()
-    private let quickFillAddCardView = UIView()
     private let quickFillAddTextView = UITextView()
     private let quickFillAddPlaceholderLabel = UILabel()
     private let quickFillAddSaveButton = UIButton(type: .system)
@@ -105,6 +105,7 @@ final class KeyboardViewController: UIInputViewController {
     private var quickFillItems: [String] = []
     private var isQuickFillPanelVisible = false
     private var isQuickFillAddWindowVisible = false
+    private var quickFillAddDraftText = ""
     private var isTranslationPanelVisible = false
     private let translationPanelView = UIView()
     private let translationTextView = UITextView()
@@ -405,7 +406,7 @@ final class KeyboardViewController: UIInputViewController {
 
         setupCandidatePage()
         setupTranslationPanel()
-        setupQuickFillAddWindow()
+        setupQuickFillAddInlineInput()
 
         NSLayoutConstraint.activate([
             utilityOverlayView.leadingAnchor.constraint(equalTo: rootStack.leadingAnchor),
@@ -570,48 +571,40 @@ final class KeyboardViewController: UIInputViewController {
         ])
     }
 
-    private func setupQuickFillAddWindow() {
-        guard quickFillAddOverlayView.superview == nil else { return }
-        quickFillAddOverlayView.translatesAutoresizingMaskIntoConstraints = false
-        quickFillAddOverlayView.isHidden = true
-        quickFillAddOverlayView.alpha = 0
-        quickFillAddOverlayView.backgroundColor = UIColor.black.withAlphaComponent(0.22)
-        view.addSubview(quickFillAddOverlayView)
+    private func setupQuickFillAddInlineInput() {
+        guard quickFillAddInlineView.superview == nil else { return }
+        quickFillAddInlineView.isHidden = true
+        quickFillAddInlineView.backgroundColor = .clear
+        rootStack.insertArrangedSubview(quickFillAddInlineView, at: 0)
+        quickFillAddInlineView.heightAnchor.constraint(equalToConstant: 118).isActive = true
 
-        let dismissTap = UITapGestureRecognizer(target: self, action: #selector(handleQuickFillAddOverlayTap(_:)))
-        dismissTap.cancelsTouchesInView = false
-        quickFillAddOverlayView.addGestureRecognizer(dismissTap)
-
-        quickFillAddCardView.translatesAutoresizingMaskIntoConstraints = false
-        quickFillAddCardView.backgroundColor = candidateBackground
-        quickFillAddCardView.layer.cornerRadius = 18
-        quickFillAddCardView.layer.cornerCurve = .continuous
-        quickFillAddCardView.layer.borderWidth = 0.5
-        quickFillAddCardView.layer.borderColor = candidateBorder.cgColor
-        quickFillAddCardView.layer.shadowColor = UIColor.black.cgColor
-        quickFillAddCardView.layer.shadowOpacity = 0.16
-        quickFillAddCardView.layer.shadowRadius = 18
-        quickFillAddCardView.layer.shadowOffset = CGSize(width: 0, height: 8)
-        quickFillAddOverlayView.addSubview(quickFillAddCardView)
+        quickFillAddInlineCardView.translatesAutoresizingMaskIntoConstraints = false
+        quickFillAddInlineCardView.backgroundColor = candidateBackground
+        quickFillAddInlineCardView.layer.cornerRadius = 14
+        quickFillAddInlineCardView.layer.cornerCurve = .continuous
+        quickFillAddInlineCardView.layer.borderWidth = 0.5
+        quickFillAddInlineCardView.layer.borderColor = candidateBorder.cgColor
+        quickFillAddInlineView.addSubview(quickFillAddInlineCardView)
 
         let titleLabel = UILabel()
         titleLabel.translatesAutoresizingMaskIntoConstraints = false
         titleLabel.text = "添加常用语"
         titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
         titleLabel.textColor = primaryText
-        quickFillAddCardView.addSubview(titleLabel)
+        quickFillAddInlineCardView.addSubview(titleLabel)
 
         let closeButton = UIButton(type: .system)
         closeButton.translatesAutoresizingMaskIntoConstraints = false
-        closeButton.setImage(UIImage(systemName: "xmark"), for: .normal)
-        closeButton.tintColor = secondaryText
+        configureQuickFillBackButton(closeButton)
         closeButton.addAction(UIAction { [weak self] _ in
             self?.setQuickFillAddWindowVisible(false)
         }, for: .touchUpInside)
-        quickFillAddCardView.addSubview(closeButton)
+        quickFillAddInlineCardView.addSubview(closeButton)
 
         quickFillAddTextView.translatesAutoresizingMaskIntoConstraints = false
         quickFillAddTextView.delegate = self
+        quickFillAddTextView.isEditable = false
+        quickFillAddTextView.isSelectable = false
         quickFillAddTextView.font = .systemFont(ofSize: 15, weight: .regular)
         quickFillAddTextView.textColor = primaryText
         quickFillAddTextView.backgroundColor = isDark ? UIColor(white: 1, alpha: 0.07) : UIColor(white: 0.95, alpha: 1)
@@ -619,7 +612,7 @@ final class KeyboardViewController: UIInputViewController {
         quickFillAddTextView.layer.borderWidth = 0.5
         quickFillAddTextView.layer.borderColor = candidateBorder.cgColor
         quickFillAddTextView.textContainerInset = UIEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
-        quickFillAddCardView.addSubview(quickFillAddTextView)
+        quickFillAddInlineCardView.addSubview(quickFillAddTextView)
 
         quickFillAddPlaceholderLabel.translatesAutoresizingMaskIntoConstraints = false
         quickFillAddPlaceholderLabel.text = "输入常用语内容"
@@ -627,64 +620,42 @@ final class KeyboardViewController: UIInputViewController {
         quickFillAddPlaceholderLabel.textColor = secondaryText.withAlphaComponent(0.55)
         quickFillAddTextView.addSubview(quickFillAddPlaceholderLabel)
 
-        let buttonStack = UIStackView()
-        buttonStack.translatesAutoresizingMaskIntoConstraints = false
-        buttonStack.axis = .horizontal
-        buttonStack.spacing = 10
-        buttonStack.distribution = .fillEqually
-        quickFillAddCardView.addSubview(buttonStack)
-
-        let cancelButton = UIButton(type: .system)
-        cancelButton.setTitle("取消", for: .normal)
-        cancelButton.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
-        cancelButton.setTitleColor(secondaryText, for: .normal)
-        cancelButton.backgroundColor = isDark ? UIColor(white: 1, alpha: 0.08) : UIColor(white: 0.92, alpha: 1)
-        cancelButton.layer.cornerRadius = 12
-        cancelButton.addAction(UIAction { [weak self] _ in
-            self?.setQuickFillAddWindowVisible(false)
-        }, for: .touchUpInside)
-        buttonStack.addArrangedSubview(cancelButton)
-
         quickFillAddSaveButton.setTitle("保存", for: .normal)
         quickFillAddSaveButton.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
         quickFillAddSaveButton.setTitleColor(.white, for: .normal)
         quickFillAddSaveButton.backgroundColor = UIColor.systemBlue
-        quickFillAddSaveButton.layer.cornerRadius = 12
+        quickFillAddSaveButton.layer.cornerRadius = 15
+        quickFillAddSaveButton.translatesAutoresizingMaskIntoConstraints = false
         quickFillAddSaveButton.addAction(UIAction { [weak self] _ in
             self?.saveQuickFillAddText()
         }, for: .touchUpInside)
-        buttonStack.addArrangedSubview(quickFillAddSaveButton)
+        quickFillAddInlineCardView.addSubview(quickFillAddSaveButton)
 
         NSLayoutConstraint.activate([
-            quickFillAddOverlayView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            quickFillAddOverlayView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            quickFillAddOverlayView.topAnchor.constraint(equalTo: view.topAnchor),
-            quickFillAddOverlayView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+            quickFillAddInlineCardView.leadingAnchor.constraint(equalTo: quickFillAddInlineView.leadingAnchor, constant: 2),
+            quickFillAddInlineCardView.trailingAnchor.constraint(equalTo: quickFillAddInlineView.trailingAnchor, constant: -2),
+            quickFillAddInlineCardView.topAnchor.constraint(equalTo: quickFillAddInlineView.topAnchor),
+            quickFillAddInlineCardView.bottomAnchor.constraint(equalTo: quickFillAddInlineView.bottomAnchor),
 
-            quickFillAddCardView.leadingAnchor.constraint(equalTo: quickFillAddOverlayView.leadingAnchor, constant: 16),
-            quickFillAddCardView.trailingAnchor.constraint(equalTo: quickFillAddOverlayView.trailingAnchor, constant: -16),
-            quickFillAddCardView.bottomAnchor.constraint(equalTo: quickFillAddOverlayView.bottomAnchor, constant: -12),
-
-            titleLabel.leadingAnchor.constraint(equalTo: quickFillAddCardView.leadingAnchor, constant: 16),
-            titleLabel.topAnchor.constraint(equalTo: quickFillAddCardView.topAnchor, constant: 14),
-            closeButton.trailingAnchor.constraint(equalTo: quickFillAddCardView.trailingAnchor, constant: -10),
-            closeButton.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+            closeButton.leadingAnchor.constraint(equalTo: quickFillAddInlineCardView.leadingAnchor, constant: 6),
+            closeButton.topAnchor.constraint(equalTo: quickFillAddInlineCardView.topAnchor, constant: 5),
             closeButton.widthAnchor.constraint(equalToConstant: 32),
             closeButton.heightAnchor.constraint(equalToConstant: 32),
+            titleLabel.centerXAnchor.constraint(equalTo: quickFillAddInlineCardView.centerXAnchor),
+            closeButton.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+            titleLabel.topAnchor.constraint(equalTo: quickFillAddInlineCardView.topAnchor, constant: 10),
+            quickFillAddSaveButton.trailingAnchor.constraint(equalTo: quickFillAddInlineCardView.trailingAnchor, constant: -10),
+            quickFillAddSaveButton.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+            quickFillAddSaveButton.widthAnchor.constraint(equalToConstant: 58),
+            quickFillAddSaveButton.heightAnchor.constraint(equalToConstant: 30),
 
-            quickFillAddTextView.leadingAnchor.constraint(equalTo: quickFillAddCardView.leadingAnchor, constant: 16),
-            quickFillAddTextView.trailingAnchor.constraint(equalTo: quickFillAddCardView.trailingAnchor, constant: -16),
+            quickFillAddTextView.leadingAnchor.constraint(equalTo: quickFillAddInlineCardView.leadingAnchor, constant: 12),
+            quickFillAddTextView.trailingAnchor.constraint(equalTo: quickFillAddInlineCardView.trailingAnchor, constant: -12),
             quickFillAddTextView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 12),
-            quickFillAddTextView.heightAnchor.constraint(equalToConstant: 78),
+            quickFillAddTextView.bottomAnchor.constraint(equalTo: quickFillAddInlineCardView.bottomAnchor, constant: -10),
 
             quickFillAddPlaceholderLabel.leadingAnchor.constraint(equalTo: quickFillAddTextView.leadingAnchor, constant: 15),
-            quickFillAddPlaceholderLabel.topAnchor.constraint(equalTo: quickFillAddTextView.topAnchor, constant: 10),
-
-            buttonStack.leadingAnchor.constraint(equalTo: quickFillAddCardView.leadingAnchor, constant: 16),
-            buttonStack.trailingAnchor.constraint(equalTo: quickFillAddCardView.trailingAnchor, constant: -16),
-            buttonStack.topAnchor.constraint(equalTo: quickFillAddTextView.bottomAnchor, constant: 12),
-            buttonStack.bottomAnchor.constraint(equalTo: quickFillAddCardView.bottomAnchor, constant: -14),
-            buttonStack.heightAnchor.constraint(equalToConstant: 42)
+            quickFillAddPlaceholderLabel.topAnchor.constraint(equalTo: quickFillAddTextView.topAnchor, constant: 10)
         ])
         updateQuickFillAddSaveButtonState()
     }
@@ -1410,6 +1381,10 @@ final class KeyboardViewController: UIInputViewController {
             return
         }
 
+        if isQuickFillAddWindowVisible, handleQuickFillAddInput(kind) {
+            return
+        }
+
         switch kind {
         case .character(let value):
             if keyboardMode == .letters, inputLanguage == .chinese, value.rangeOfCharacter(from: .letters) != nil {
@@ -1726,7 +1701,7 @@ final class KeyboardViewController: UIInputViewController {
         defer {
             updateCandidateScrollInteraction()
         }
-        utilityOverlayView.isHidden = hasActiveComposition || !allCandidates.isEmpty || isQuickFillPanelVisible
+        utilityOverlayView.isHidden = hasActiveComposition || !allCandidates.isEmpty || isQuickFillPanelVisible || isQuickFillAddWindowVisible
         updateCandidateExpandButtonVisibility()
 
         guard !allCandidates.isEmpty else {
@@ -2174,8 +2149,8 @@ final class KeyboardViewController: UIInputViewController {
         candidatePageCollapseButton.tintColor = secondaryText
         candidatePageCollapseButton.backgroundColor = .clear
         candidatePageCollapseButton.layer.borderColor = UIColor.clear.cgColor
-        quickFillAddCardView.backgroundColor = candidateBackground
-        quickFillAddCardView.layer.borderColor = candidateBorder.cgColor
+        quickFillAddInlineCardView.backgroundColor = candidateBackground
+        quickFillAddInlineCardView.layer.borderColor = candidateBorder.cgColor
         quickFillAddTextView.textColor = primaryText
         quickFillAddTextView.backgroundColor = isDark ? UIColor(white: 1, alpha: 0.07) : UIColor(white: 0.95, alpha: 1)
         quickFillAddTextView.layer.borderColor = candidateBorder.cgColor
@@ -2335,6 +2310,9 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private var returnKeyTitle: String {
+        if isQuickFillAddWindowVisible {
+            return "保存"
+        }
         if hasPendingCandidates {
             return "确认"
         }
@@ -2351,6 +2329,9 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private var isReturnKeyEnabled: Bool {
+        if isQuickFillAddWindowVisible {
+            return hasActiveComposition || !quickFillAddDraftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
         if hasPendingCandidates {
             return true
         }
@@ -2554,11 +2535,11 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func showQuickFillAddWindow() {
-        if !isQuickFillPanelVisible {
-            setQuickFillPanelVisible(true, animated: false)
-        }
-        quickFillAddTextView.text = ""
-        updateQuickFillAddSaveButtonState()
+        setQuickFillPanelVisible(false)
+        setCandidatePageVisible(false, animated: false)
+        setTranslationPanelVisible(false, animated: false)
+        quickFillAddDraftText = ""
+        updateQuickFillAddDraftDisplay()
         setQuickFillAddWindowVisible(true)
     }
 
@@ -2568,55 +2549,35 @@ final class KeyboardViewController: UIInputViewController {
 
         if visible {
             hideKeyPreview(animated: false)
-            quickFillAddOverlayView.isHidden = false
-            view.bringSubviewToFront(quickFillAddOverlayView)
-            quickFillAddCardView.transform = CGAffineTransform(translationX: 0, y: 18)
-            let animations = {
-                self.quickFillAddOverlayView.alpha = 1
-                self.quickFillAddCardView.transform = .identity
-            }
-            if animated {
-                UIView.animate(withDuration: 0.18, delay: 0, options: [.curveEaseOut, .beginFromCurrentState], animations: animations)
-            } else {
-                animations()
-            }
-            quickFillAddTextView.becomeFirstResponder()
+            resetCompositionState()
+            refreshCompositionDisplay()
+            quickFillAddInlineView.isHidden = false
+            candidateBarStack.isHidden = false
+            updateQuickFillAddDraftDisplay()
+            updateCandidates(resetScroll: true)
         } else {
-            quickFillAddTextView.resignFirstResponder()
-            let animations = {
-                self.quickFillAddOverlayView.alpha = 0
-                self.quickFillAddCardView.transform = CGAffineTransform(translationX: 0, y: 18)
-            }
-            let complete: (Bool) -> Void = { _ in
-                guard !self.isQuickFillAddWindowVisible else { return }
-                self.quickFillAddOverlayView.isHidden = true
-                self.quickFillAddCardView.transform = .identity
-            }
-            if animated && !quickFillAddOverlayView.isHidden {
-                UIView.animate(withDuration: 0.16, delay: 0, options: [.curveEaseIn, .beginFromCurrentState], animations: animations, completion: complete)
-            } else {
-                animations()
-                complete(true)
-            }
+            resetCompositionState()
+            refreshCompositionDisplay()
+            quickFillAddInlineView.isHidden = true
+            quickFillAddDraftText = ""
+            updateQuickFillAddDraftDisplay()
+            updateCandidates(resetScroll: true)
         }
-    }
-
-    @objc private func handleQuickFillAddOverlayTap(_ recognizer: UITapGestureRecognizer) {
-        let point = recognizer.location(in: quickFillAddCardView)
-        if !quickFillAddCardView.bounds.contains(point) {
-            setQuickFillAddWindowVisible(false)
-        }
+        updateReturnKeyAppearance()
     }
 
     private func updateQuickFillAddSaveButtonState() {
-        let hasText = !quickFillAddTextView.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let hasText = !quickFillAddDraftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         quickFillAddPlaceholderLabel.isHidden = hasText
         quickFillAddSaveButton.isEnabled = hasText
         quickFillAddSaveButton.alpha = hasText ? 1 : 0.45
     }
 
     private func saveQuickFillAddText() {
-        let text = quickFillAddTextView.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        if hasActiveComposition {
+            finalizeComposition()
+        }
+        let text = quickFillAddDraftText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         var items = quickFillItems.filter { $0 != text }
         items.insert(text, at: 0)
@@ -2625,7 +2586,90 @@ final class KeyboardViewController: UIInputViewController {
         sharedDefaults?.set(items, forKey: "quickFill.items")
         sharedDefaults?.synchronize()
         setQuickFillAddWindowVisible(false)
-        renderQuickFillPanel()
+        setQuickFillPanelVisible(true)
+    }
+
+    private func updateQuickFillAddDraftDisplay() {
+        quickFillAddTextView.text = quickFillAddDraftText
+        updateQuickFillAddSaveButtonState()
+        if !quickFillAddDraftText.isEmpty {
+            let bottom = NSRange(location: max((quickFillAddDraftText as NSString).length - 1, 0), length: 1)
+            quickFillAddTextView.scrollRangeToVisible(bottom)
+        }
+    }
+
+    private func appendQuickFillAddDraftText(_ text: String) {
+        guard !text.isEmpty else { return }
+        quickFillAddDraftText += text
+        updateQuickFillAddDraftDisplay()
+        updateReturnKeyAppearance()
+    }
+
+    private func deleteQuickFillAddDraftBackward() {
+        guard !quickFillAddDraftText.isEmpty else { return }
+        quickFillAddDraftText.removeLast()
+        updateQuickFillAddDraftDisplay()
+        updateReturnKeyAppearance()
+    }
+
+    private func handleQuickFillAddInput(_ kind: KeyKind) -> Bool {
+        switch kind {
+        case .character(let value):
+            if keyboardMode == .letters, inputLanguage == .chinese, value.rangeOfCharacter(from: .letters) != nil {
+                associationContext = nil
+                let letter = shiftState == .on ? value.uppercased() : value.lowercased()
+                insertCompositionText(letter)
+                updateCandidates(resetScroll: true)
+            } else {
+                commitCompositionAsText()
+                let text = keyboardMode == .letters && value.rangeOfCharacter(from: .letters) != nil
+                    ? (shiftState == .on ? value.uppercased() : value.lowercased())
+                    : value
+                appendQuickFillAddDraftText(text)
+                updateCandidates(resetScroll: true)
+            }
+            return true
+        case .shift:
+            shiftState = shiftState == .on ? .off : .on
+            renderKeyboard()
+            return true
+        case .backspace:
+            if hasActiveComposition {
+                deleteCompositionBackward()
+            } else {
+                deleteQuickFillAddDraftBackward()
+            }
+            updateCandidates(resetScroll: true)
+            return true
+        case .space:
+            if hasActiveComposition {
+                if let first = candidates(for: activeCandidatePinyin).first {
+                    replaceCompositionWith(first)
+                } else {
+                    commitCompositionAsText()
+                    appendQuickFillAddDraftText(" ")
+                }
+            } else {
+                appendQuickFillAddDraftText(" ")
+            }
+            updateCandidates(resetScroll: true)
+            return true
+        case .returnKey:
+            saveQuickFillAddText()
+            return true
+        case .languageSwitch:
+            commitCompositionAsText()
+            inputLanguage = inputLanguage == .chinese ? .english : .chinese
+            renderKeyboard()
+            return true
+        case .modeSwitch(let target):
+            commitCompositionAsText()
+            keyboardMode = target
+            renderKeyboard()
+            return true
+        case .spacer:
+            return true
+        }
     }
 
     private func reloadQuickFillItems() {
@@ -2843,7 +2887,7 @@ final class KeyboardViewController: UIInputViewController {
             cardView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             cardView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             cardView.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            cardView.heightAnchor.constraint(equalTo: container.heightAnchor, multiplier: 0.7),
+            cardView.heightAnchor.constraint(equalTo: container.heightAnchor, multiplier: 0.91),
 
             stack.centerXAnchor.constraint(equalTo: cardView.centerXAnchor),
             stack.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
@@ -2881,6 +2925,7 @@ final class KeyboardViewController: UIInputViewController {
     }
 
     private func handleQuickFillSelection(_ text: String) {
+        guard !isQuickFillAddWindowVisible else { return }
         textDocumentProxy.insertText(text)
         hasInsertedTextInCurrentContext = true
     }
@@ -2894,8 +2939,12 @@ final class KeyboardViewController: UIInputViewController {
             updateCandidates(resetScroll: true)
             return
         }
-        textDocumentProxy.insertText(text)
-        hasInsertedTextInCurrentContext = true
+        if isQuickFillAddWindowVisible {
+            appendQuickFillAddDraftText(text)
+        } else {
+            textDocumentProxy.insertText(text)
+            hasInsertedTextInCurrentContext = true
+        }
         associationContext = nil
         resetCompositionState()
         refreshCompositionDisplay()
