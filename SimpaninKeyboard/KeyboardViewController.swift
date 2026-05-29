@@ -1897,6 +1897,9 @@ final class KeyboardViewController: UIInputViewController {
 
     private func handleTranslationButtonTap() {
         hideKeyPreview(animated: false)
+        if isQuickFillAddWindowVisible {
+            setQuickFillAddWindowVisible(false, animated: false)
+        }
         if !isTranslationPanelVisible {
             setTranslationPanelVisible(true)
         }
@@ -2344,10 +2347,6 @@ final class KeyboardViewController: UIInputViewController {
               allCandidates.isEmpty,
               !isQuickFillPanelVisible else {
             return false
-        }
-
-        if isQuickFillAddWindowVisible {
-            return quickFillAddDraftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         }
 
         return true
