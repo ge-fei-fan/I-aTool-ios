@@ -2712,9 +2712,8 @@ final class KeyboardViewController: UIInputViewController {
             items.insert(text, at: 0)
             persistQuickFillItems(items)
         }
-        setQuickFillAddWindowVisible(false)
+        setQuickFillAddWindowVisible(false, animated: false, updatesCandidates: false)
         restoreQuickFillPanelAfterAddWindow(animated: true)
-        setQuickFillPanelVisible(true)
     }
 
     private func updateQuickFillAddDraftDisplay() {
@@ -2864,7 +2863,6 @@ final class KeyboardViewController: UIInputViewController {
             candidatePageView.backgroundColor = quickFillPanelBackground
             candidatePageView.isHidden = false
             candidatePageView.alpha = 1
-            view.layoutIfNeeded()
             renderQuickFillPanel()
             view.bringSubviewToFront(trackpadBlurView)
             view.bringSubviewToFront(keyPreviewView)
@@ -3006,7 +3004,7 @@ final class KeyboardViewController: UIInputViewController {
 
     private func makeQuickFillEmptyStateView() -> UIView {
         let container = UIView()
-        let availableHeight = max(180, candidatePageView.bounds.height - Self.quickFillHeaderHeight - Self.quickFillHeaderBottomSpacing - 22)
+        let availableHeight: CGFloat = 180
         container.heightAnchor.constraint(equalToConstant: availableHeight).isActive = true
 
         let cardView = UIView()
@@ -3069,7 +3067,7 @@ final class KeyboardViewController: UIInputViewController {
             cardView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             cardView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             cardView.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            cardView.heightAnchor.constraint(equalTo: container.heightAnchor, multiplier: 0.91),
+            cardView.heightAnchor.constraint(equalToConstant: 172),
 
             stack.centerXAnchor.constraint(equalTo: cardView.centerXAnchor),
             stack.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
