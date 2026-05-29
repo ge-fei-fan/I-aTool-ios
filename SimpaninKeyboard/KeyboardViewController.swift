@@ -3923,6 +3923,7 @@ private final class QuickFillSwipeActionRow: UIView, UIGestureRecognizerDelegate
     private static let actionRevealWidth: CGFloat = 132
     private let text: String
     private let contentButton = UIButton(type: .system)
+    private let actionsStack = UIStackView()
     private let editButton = UIButton(type: .system)
     private let deleteButton = UIButton(type: .system)
     private var panStartOffset: CGFloat = 0
@@ -3936,7 +3937,8 @@ private final class QuickFillSwipeActionRow: UIView, UIGestureRecognizerDelegate
         clipsToBounds = true
         heightAnchor.constraint(equalToConstant: 42).isActive = true
 
-        let actionsStack = UIStackView(arrangedSubviews: [editButton, deleteButton])
+        actionsStack.addArrangedSubview(editButton)
+        actionsStack.addArrangedSubview(deleteButton)
         actionsStack.translatesAutoresizingMaskIntoConstraints = false
         actionsStack.axis = .horizontal
         actionsStack.alignment = .fill
