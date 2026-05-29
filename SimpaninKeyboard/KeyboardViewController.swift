@@ -3044,12 +3044,12 @@ final class KeyboardViewController: UIInputViewController {
             imageView.heightAnchor.constraint(equalToConstant: 40).isActive = true
         }
 
-        let label = UILabel()
-        label.text = "暂无数据"
-        label.font = .systemFont(ofSize: 14, weight: .regular)
-        label.textColor = secondaryText
-        label.textAlignment = .center
-        stack.addArrangedSubview(label)
+        // let label = UILabel()
+        // label.text = "暂无数据"
+        // label.font = .systemFont(ofSize: 14, weight: .regular)
+        // label.textColor = secondaryText
+        // label.textAlignment = .center
+        // stack.addArrangedSubview(label)
 
         let subtitleLabel = UILabel()
         subtitleLabel.text = "添加后可在键盘中快速输入"
