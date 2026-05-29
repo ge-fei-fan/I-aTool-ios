@@ -2574,6 +2574,7 @@ final class KeyboardViewController: UIInputViewController {
         reloadQuickFillItems()
         if isQuickFillAddWindowVisible {
             setQuickFillAddWindowVisible(false, animated: false)
+            restoreQuickFillPanelAfterAddWindow(animated: false)
             setQuickFillPanelVisible(true)
             return
         }
@@ -2628,10 +2629,22 @@ final class KeyboardViewController: UIInputViewController {
         updateReturnKeyAppearance()
     }
 
-    private func closeQuickFillAddWindowToPanel() {
+    private func closeQuickFillAddWindowToPanel(animated: Bool = true) {
         setQuickFillAddWindowVisible(false, animated: false)
         reloadQuickFillItems()
+        restoreQuickFillPanelAfterAddWindow(animated: animated)
         setQuickFillPanelVisible(true)
+    }
+
+    private func restoreQuickFillPanelAfterAddWindow(animated: Bool = true) {
+        reloadQuickFillItems()
+        isQuickFillPanelVisible = false
+        candidatePageView.layer.removeAllAnimations()
+        keyboardRowsStack.layer.removeAllAnimations()
+        candidatePageView.transform = .identity
+        keyboardRowsStack.transform = .identity
+        applyQuickFillPanelChrome(true)
+        setQuickFillPanelVisible(true, animated: animated)
     }
 
     private func updateQuickFillAddInputActiveState(_ active: Bool) {
@@ -2689,6 +2702,7 @@ final class KeyboardViewController: UIInputViewController {
             persistQuickFillItems(items)
         }
         setQuickFillAddWindowVisible(false)
+        restoreQuickFillPanelAfterAddWindow(animated: true)
         setQuickFillPanelVisible(true)
     }
 
@@ -3011,6 +3025,13 @@ final class KeyboardViewController: UIInputViewController {
             imageView.widthAnchor.constraint(equalToConstant: 40).isActive = true
             imageView.heightAnchor.constraint(equalToConstant: 40).isActive = true
         }
+
+        let label = UILabel()
+        label.text = "暂无数据"
+        label.font = .systemFont(ofSize: 14, weight: .regular)
+        label.textColor = secondaryText
+        label.textAlignment = .center
+        stack.addArrangedSubview(label)
 
         let subtitleLabel = UILabel()
         subtitleLabel.text = "添加后可在键盘中快速输入"
@@ -4000,8 +4021,7 @@ private final class QuickFillSwipeActionRow: UIView, UIGestureRecognizerDelegate
             onExpand?()
         case .changed:
             let translation = recognizer.translation(in: self).x
-            currentOffset = min(0, max(-Self.actionRevealWidth, panStartOffset + translation))
-            contentButton.transform = CGAffineTransform(translationX: currentOffset, y: 0)
+            currentOffset = min(0, max(-Self.actionRevealWidth, panStartOffset + translation))            contentButton.transform = CGAffineTransform(translationX: currentOffset, y: 0)
         case .ended, .cancelled, .failed:
             let velocity = recognizer.velocity(in: self).x
             let shouldExpand = velocity < -80 || (velocity <= 80 && currentOffset < -Self.actionRevealWidth / 2)
