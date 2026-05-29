@@ -23,11 +23,6 @@ final class KeyboardViewController: UIInputViewController {
         case association
     }
 
-    private enum QuickFillPanelTab {
-        case commonPhrases
-        case clipboard
-    }
-
     private struct SelectedCompositionSegment {
         let pinyin: String
         let text: String
@@ -63,6 +58,11 @@ final class KeyboardViewController: UIInputViewController {
     private let candidatePageScrollView = UIScrollView()
     private let candidatePageStack = UIStackView()
     private let quickFillTopBar = UIView()
+    private let quickFillAddOverlayView = UIView()
+    private let quickFillAddCardView = UIView()
+    private let quickFillAddTextView = UITextView()
+    private let quickFillAddPlaceholderLabel = UILabel()
+    private let quickFillAddSaveButton = UIButton(type: .system)
     private let candidatePageCollapseButton = UIButton(type: .system)
     private let keyboardRowsStack = UIStackView()
     private let utilityOverlayView = UIView()
@@ -104,7 +104,7 @@ final class KeyboardViewController: UIInputViewController {
     private let trackpadMovementFeedback = UISelectionFeedbackGenerator()
     private var quickFillItems: [String] = []
     private var isQuickFillPanelVisible = false
-    private var selectedQuickFillPanelTab: QuickFillPanelTab = .commonPhrases
+    private var isQuickFillAddWindowVisible = false
     private var isTranslationPanelVisible = false
     private let translationPanelView = UIView()
     private let translationTextView = UITextView()
@@ -405,6 +405,7 @@ final class KeyboardViewController: UIInputViewController {
 
         setupCandidatePage()
         setupTranslationPanel()
+        setupQuickFillAddWindow()
 
         NSLayoutConstraint.activate([
             utilityOverlayView.leadingAnchor.constraint(equalTo: rootStack.leadingAnchor),
@@ -567,6 +568,125 @@ final class KeyboardViewController: UIInputViewController {
             contentStack.topAnchor.constraint(equalTo: headerStack.bottomAnchor, constant: 6),
             contentStack.bottomAnchor.constraint(equalTo: translationPanelView.bottomAnchor, constant: -10)
         ])
+    }
+
+    private func setupQuickFillAddWindow() {
+        guard quickFillAddOverlayView.superview == nil else { return }
+        quickFillAddOverlayView.translatesAutoresizingMaskIntoConstraints = false
+        quickFillAddOverlayView.isHidden = true
+        quickFillAddOverlayView.alpha = 0
+        quickFillAddOverlayView.backgroundColor = UIColor.black.withAlphaComponent(0.22)
+        view.addSubview(quickFillAddOverlayView)
+
+        let dismissTap = UITapGestureRecognizer(target: self, action: #selector(handleQuickFillAddOverlayTap(_:)))
+        dismissTap.cancelsTouchesInView = false
+        quickFillAddOverlayView.addGestureRecognizer(dismissTap)
+
+        quickFillAddCardView.translatesAutoresizingMaskIntoConstraints = false
+        quickFillAddCardView.backgroundColor = candidateBackground
+        quickFillAddCardView.layer.cornerRadius = 18
+        quickFillAddCardView.layer.cornerCurve = .continuous
+        quickFillAddCardView.layer.borderWidth = 0.5
+        quickFillAddCardView.layer.borderColor = candidateBorder.cgColor
+        quickFillAddCardView.layer.shadowColor = UIColor.black.cgColor
+        quickFillAddCardView.layer.shadowOpacity = 0.16
+        quickFillAddCardView.layer.shadowRadius = 18
+        quickFillAddCardView.layer.shadowOffset = CGSize(width: 0, height: 8)
+        quickFillAddOverlayView.addSubview(quickFillAddCardView)
+
+        let titleLabel = UILabel()
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+        titleLabel.text = "添加常用语"
+        titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
+        titleLabel.textColor = primaryText
+        quickFillAddCardView.addSubview(titleLabel)
+
+        let closeButton = UIButton(type: .system)
+        closeButton.translatesAutoresizingMaskIntoConstraints = false
+        closeButton.setImage(UIImage(systemName: "xmark"), for: .normal)
+        closeButton.tintColor = secondaryText
+        closeButton.addAction(UIAction { [weak self] _ in
+            self?.setQuickFillAddWindowVisible(false)
+        }, for: .touchUpInside)
+        quickFillAddCardView.addSubview(closeButton)
+
+        quickFillAddTextView.translatesAutoresizingMaskIntoConstraints = false
+        quickFillAddTextView.delegate = self
+        quickFillAddTextView.font = .systemFont(ofSize: 15, weight: .regular)
+        quickFillAddTextView.textColor = primaryText
+        quickFillAddTextView.backgroundColor = isDark ? UIColor(white: 1, alpha: 0.07) : UIColor(white: 0.95, alpha: 1)
+        quickFillAddTextView.layer.cornerRadius = 12
+        quickFillAddTextView.layer.borderWidth = 0.5
+        quickFillAddTextView.layer.borderColor = candidateBorder.cgColor
+        quickFillAddTextView.textContainerInset = UIEdgeInsets(top: 10, left: 10, bottom: 10, right: 10)
+        quickFillAddCardView.addSubview(quickFillAddTextView)
+
+        quickFillAddPlaceholderLabel.translatesAutoresizingMaskIntoConstraints = false
+        quickFillAddPlaceholderLabel.text = "输入常用语内容"
+        quickFillAddPlaceholderLabel.font = .systemFont(ofSize: 15, weight: .regular)
+        quickFillAddPlaceholderLabel.textColor = secondaryText.withAlphaComponent(0.55)
+        quickFillAddTextView.addSubview(quickFillAddPlaceholderLabel)
+
+        let buttonStack = UIStackView()
+        buttonStack.translatesAutoresizingMaskIntoConstraints = false
+        buttonStack.axis = .horizontal
+        buttonStack.spacing = 10
+        buttonStack.distribution = .fillEqually
+        quickFillAddCardView.addSubview(buttonStack)
+
+        let cancelButton = UIButton(type: .system)
+        cancelButton.setTitle("取消", for: .normal)
+        cancelButton.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
+        cancelButton.setTitleColor(secondaryText, for: .normal)
+        cancelButton.backgroundColor = isDark ? UIColor(white: 1, alpha: 0.08) : UIColor(white: 0.92, alpha: 1)
+        cancelButton.layer.cornerRadius = 12
+        cancelButton.addAction(UIAction { [weak self] _ in
+            self?.setQuickFillAddWindowVisible(false)
+        }, for: .touchUpInside)
+        buttonStack.addArrangedSubview(cancelButton)
+
+        quickFillAddSaveButton.setTitle("保存", for: .normal)
+        quickFillAddSaveButton.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
+        quickFillAddSaveButton.setTitleColor(.white, for: .normal)
+        quickFillAddSaveButton.backgroundColor = UIColor.systemBlue
+        quickFillAddSaveButton.layer.cornerRadius = 12
+        quickFillAddSaveButton.addAction(UIAction { [weak self] _ in
+            self?.saveQuickFillAddText()
+        }, for: .touchUpInside)
+        buttonStack.addArrangedSubview(quickFillAddSaveButton)
+
+        NSLayoutConstraint.activate([
+            quickFillAddOverlayView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            quickFillAddOverlayView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            quickFillAddOverlayView.topAnchor.constraint(equalTo: view.topAnchor),
+            quickFillAddOverlayView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+
+            quickFillAddCardView.leadingAnchor.constraint(equalTo: quickFillAddOverlayView.leadingAnchor, constant: 16),
+            quickFillAddCardView.trailingAnchor.constraint(equalTo: quickFillAddOverlayView.trailingAnchor, constant: -16),
+            quickFillAddCardView.bottomAnchor.constraint(equalTo: quickFillAddOverlayView.bottomAnchor, constant: -12),
+
+            titleLabel.leadingAnchor.constraint(equalTo: quickFillAddCardView.leadingAnchor, constant: 16),
+            titleLabel.topAnchor.constraint(equalTo: quickFillAddCardView.topAnchor, constant: 14),
+            closeButton.trailingAnchor.constraint(equalTo: quickFillAddCardView.trailingAnchor, constant: -10),
+            closeButton.centerYAnchor.constraint(equalTo: titleLabel.centerYAnchor),
+            closeButton.widthAnchor.constraint(equalToConstant: 32),
+            closeButton.heightAnchor.constraint(equalToConstant: 32),
+
+            quickFillAddTextView.leadingAnchor.constraint(equalTo: quickFillAddCardView.leadingAnchor, constant: 16),
+            quickFillAddTextView.trailingAnchor.constraint(equalTo: quickFillAddCardView.trailingAnchor, constant: -16),
+            quickFillAddTextView.topAnchor.constraint(equalTo: titleLabel.bottomAnchor, constant: 12),
+            quickFillAddTextView.heightAnchor.constraint(equalToConstant: 78),
+
+            quickFillAddPlaceholderLabel.leadingAnchor.constraint(equalTo: quickFillAddTextView.leadingAnchor, constant: 15),
+            quickFillAddPlaceholderLabel.topAnchor.constraint(equalTo: quickFillAddTextView.topAnchor, constant: 10),
+
+            buttonStack.leadingAnchor.constraint(equalTo: quickFillAddCardView.leadingAnchor, constant: 16),
+            buttonStack.trailingAnchor.constraint(equalTo: quickFillAddCardView.trailingAnchor, constant: -16),
+            buttonStack.topAnchor.constraint(equalTo: quickFillAddTextView.bottomAnchor, constant: 12),
+            buttonStack.bottomAnchor.constraint(equalTo: quickFillAddCardView.bottomAnchor, constant: -14),
+            buttonStack.heightAnchor.constraint(equalToConstant: 42)
+        ])
+        updateQuickFillAddSaveButtonState()
     }
 
     private func configureCandidateToggleButton(_ button: UIButton, asset: KeyboardIconAsset, fallbackSystemName: String) {
@@ -2054,6 +2174,12 @@ final class KeyboardViewController: UIInputViewController {
         candidatePageCollapseButton.tintColor = secondaryText
         candidatePageCollapseButton.backgroundColor = .clear
         candidatePageCollapseButton.layer.borderColor = UIColor.clear.cgColor
+        quickFillAddCardView.backgroundColor = candidateBackground
+        quickFillAddCardView.layer.borderColor = candidateBorder.cgColor
+        quickFillAddTextView.textColor = primaryText
+        quickFillAddTextView.backgroundColor = isDark ? UIColor(white: 1, alpha: 0.07) : UIColor(white: 0.95, alpha: 1)
+        quickFillAddTextView.layer.borderColor = candidateBorder.cgColor
+        quickFillAddPlaceholderLabel.textColor = secondaryText.withAlphaComponent(0.55)
         translationPanelView.backgroundColor = quickFillPanelBackground
         translationTextView.backgroundColor = candidateBackground
         translationTextView.textColor = primaryText
@@ -2422,10 +2548,84 @@ final class KeyboardViewController: UIInputViewController {
         if isQuickFillPanelVisible {
             setQuickFillPanelVisible(false)
         } else {
-            selectedQuickFillPanelTab = .commonPhrases
             setCandidatePageVisible(false)
             setQuickFillPanelVisible(true)
         }
+    }
+
+    private func showQuickFillAddWindow() {
+        if !isQuickFillPanelVisible {
+            setQuickFillPanelVisible(true, animated: false)
+        }
+        quickFillAddTextView.text = ""
+        updateQuickFillAddSaveButtonState()
+        setQuickFillAddWindowVisible(true)
+    }
+
+    private func setQuickFillAddWindowVisible(_ visible: Bool, animated: Bool = true) {
+        guard isQuickFillAddWindowVisible != visible else { return }
+        isQuickFillAddWindowVisible = visible
+
+        if visible {
+            hideKeyPreview(animated: false)
+            quickFillAddOverlayView.isHidden = false
+            view.bringSubviewToFront(quickFillAddOverlayView)
+            quickFillAddCardView.transform = CGAffineTransform(translationX: 0, y: 18)
+            let animations = {
+                self.quickFillAddOverlayView.alpha = 1
+                self.quickFillAddCardView.transform = .identity
+            }
+            if animated {
+                UIView.animate(withDuration: 0.18, delay: 0, options: [.curveEaseOut, .beginFromCurrentState], animations: animations)
+            } else {
+                animations()
+            }
+            quickFillAddTextView.becomeFirstResponder()
+        } else {
+            quickFillAddTextView.resignFirstResponder()
+            let animations = {
+                self.quickFillAddOverlayView.alpha = 0
+                self.quickFillAddCardView.transform = CGAffineTransform(translationX: 0, y: 18)
+            }
+            let complete: (Bool) -> Void = { _ in
+                guard !self.isQuickFillAddWindowVisible else { return }
+                self.quickFillAddOverlayView.isHidden = true
+                self.quickFillAddCardView.transform = .identity
+            }
+            if animated && !quickFillAddOverlayView.isHidden {
+                UIView.animate(withDuration: 0.16, delay: 0, options: [.curveEaseIn, .beginFromCurrentState], animations: animations, completion: complete)
+            } else {
+                animations()
+                complete(true)
+            }
+        }
+    }
+
+    @objc private func handleQuickFillAddOverlayTap(_ recognizer: UITapGestureRecognizer) {
+        let point = recognizer.location(in: quickFillAddCardView)
+        if !quickFillAddCardView.bounds.contains(point) {
+            setQuickFillAddWindowVisible(false)
+        }
+    }
+
+    private func updateQuickFillAddSaveButtonState() {
+        let hasText = !quickFillAddTextView.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        quickFillAddPlaceholderLabel.isHidden = hasText
+        quickFillAddSaveButton.isEnabled = hasText
+        quickFillAddSaveButton.alpha = hasText ? 1 : 0.45
+    }
+
+    private func saveQuickFillAddText() {
+        let text = quickFillAddTextView.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        var items = quickFillItems.filter { $0 != text }
+        items.insert(text, at: 0)
+        quickFillItems = items
+        let sharedDefaults = UserDefaults(suiteName: "group.com.local.fitnex")
+        sharedDefaults?.set(items, forKey: "quickFill.items")
+        sharedDefaults?.synchronize()
+        setQuickFillAddWindowVisible(false)
+        renderQuickFillPanel()
     }
 
     private func reloadQuickFillItems() {
@@ -2441,7 +2641,7 @@ final class KeyboardViewController: UIInputViewController {
 
         if shouldShow {
             setTranslationPanelVisible(false, animated: false)
-            selectedQuickFillPanelTab = .commonPhrases
+            setQuickFillAddWindowVisible(false, animated: false)
             applyQuickFillPanelChrome(true)
             renderQuickFillPanel()
             candidatePageView.backgroundColor = quickFillPanelBackground
@@ -2472,6 +2672,7 @@ final class KeyboardViewController: UIInputViewController {
                 animations()
             }
         } else {
+            setQuickFillAddWindowVisible(false, animated: false)
             let animations = {
                 self.candidatePageView.transform = CGAffineTransform(translationX: 0, y: self.candidatePageDismissOffset)
                 self.keyboardRowsStack.transform = .identity
@@ -2514,17 +2715,12 @@ final class KeyboardViewController: UIInputViewController {
         contentStack.isLayoutMarginsRelativeArrangement = true
         candidatePageStack.addArrangedSubview(contentStack)
 
-        switch selectedQuickFillPanelTab {
-        case .commonPhrases:
-            if quickFillItems.isEmpty {
-                contentStack.addArrangedSubview(makeQuickFillEmptyStateView())
-            } else {
-                quickFillItems.forEach { text in
-                    contentStack.addArrangedSubview(makeQuickFillButton(text: text))
-                }
-            }
-        case .clipboard:
+        if quickFillItems.isEmpty {
             contentStack.addArrangedSubview(makeQuickFillEmptyStateView())
+        } else {
+            quickFillItems.forEach { text in
+                contentStack.addArrangedSubview(makeQuickFillButton(text: text))
+            }
         }
 
         candidatePageView.bringSubviewToFront(candidatePageCollapseButton)
@@ -2545,94 +2741,123 @@ final class KeyboardViewController: UIInputViewController {
 
     private func makeQuickFillHeader() -> UIView {
         let header = UIView()
-        let tabStack = UIStackView()
-        tabStack.translatesAutoresizingMaskIntoConstraints = false
-        tabStack.axis = .horizontal
-        tabStack.alignment = .top
-        tabStack.distribution = .fill
-        tabStack.spacing = Self.quickFillHeaderTabSpacing
-        tabStack.addArrangedSubview(makeQuickFillTabControl(tab: .commonPhrases, title: "常用语"))
-        tabStack.addArrangedSubview(makeQuickFillTabControl(tab: .clipboard, title: "粘贴板"))
-        header.addSubview(tabStack)
+        let titleStack = UIStackView()
+        titleStack.translatesAutoresizingMaskIntoConstraints = false
+        titleStack.axis = .vertical
+        titleStack.alignment = .center
+        titleStack.spacing = 4
+
+        let titleLabel = UILabel()
+        titleLabel.text = "常用语"
+        titleLabel.font = .systemFont(ofSize: 17, weight: .semibold)
+        titleLabel.textColor = primaryText
+        titleStack.addArrangedSubview(titleLabel)
+
+        let indicator = UIView()
+        indicator.backgroundColor = UIColor.systemBlue
+        indicator.layer.cornerRadius = 1.5
+        indicator.widthAnchor.constraint(equalToConstant: Self.quickFillTabIndicatorWidth).isActive = true
+        indicator.heightAnchor.constraint(equalToConstant: Self.quickFillTabIndicatorHeight).isActive = true
+        titleStack.addArrangedSubview(indicator)
+        header.addSubview(titleStack)
+
+        let addButton = UIButton(type: .system)
+        addButton.translatesAutoresizingMaskIntoConstraints = false
+        addButton.setImage(UIImage(systemName: "plus"), for: .normal)
+        addButton.tintColor = primaryText
+        addButton.backgroundColor = .clear
+        addButton.accessibilityLabel = "添加常用语"
+        addButton.addAction(UIAction { [weak self] _ in
+            self?.showQuickFillAddWindow()
+        }, for: .touchUpInside)
+        header.addSubview(addButton)
+
         NSLayoutConstraint.activate([
-            tabStack.centerXAnchor.constraint(equalTo: header.centerXAnchor),
-            tabStack.centerYAnchor.constraint(equalTo: header.centerYAnchor),
-            tabStack.leadingAnchor.constraint(greaterThanOrEqualTo: header.leadingAnchor, constant: Self.quickFillHeaderSideSlotWidth),
-            tabStack.trailingAnchor.constraint(lessThanOrEqualTo: header.trailingAnchor, constant: -Self.quickFillHeaderSideSlotWidth)
+            titleStack.centerXAnchor.constraint(equalTo: header.centerXAnchor),
+            titleStack.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+            titleStack.leadingAnchor.constraint(greaterThanOrEqualTo: header.leadingAnchor, constant: Self.quickFillHeaderSideSlotWidth),
+            titleStack.trailingAnchor.constraint(lessThanOrEqualTo: header.trailingAnchor, constant: -Self.quickFillHeaderSideSlotWidth),
+            addButton.trailingAnchor.constraint(equalTo: header.trailingAnchor, constant: -10),
+            addButton.centerYAnchor.constraint(equalTo: header.centerYAnchor),
+            addButton.widthAnchor.constraint(equalToConstant: 36),
+            addButton.heightAnchor.constraint(equalToConstant: 36)
         ])
         return header
     }
 
-    private func makeQuickFillTabControl(tab: QuickFillPanelTab, title: String) -> UIStackView {
-        let isSelected = selectedQuickFillPanelTab == tab
-        let stack = UIStackView()
-        stack.axis = .vertical
-        stack.alignment = .center
-        stack.spacing = 4
-
-        let button = UIButton(type: .system)
-        button.setTitle(title, for: .normal)
-        button.titleLabel?.font = .systemFont(ofSize: 17, weight: isSelected ? .semibold : .regular)
-        button.setTitleColor(isSelected ? primaryText : secondaryText.withAlphaComponent(0.62), for: .normal)
-        button.contentEdgeInsets = .zero
-        button.addAction(UIAction { [weak self] _ in
-            guard let self, self.selectedQuickFillPanelTab != tab else { return }
-            self.selectedQuickFillPanelTab = tab
-            self.renderQuickFillPanel()
-        }, for: .touchUpInside)
-        stack.addArrangedSubview(button)
-
-        let indicator = UIView()
-        indicator.backgroundColor = isSelected ? UIColor.systemBlue : .clear
-        indicator.layer.cornerRadius = 1.5
-        indicator.heightAnchor.constraint(equalToConstant: Self.quickFillTabIndicatorHeight).isActive = true
-        indicator.widthAnchor.constraint(equalToConstant: Self.quickFillTabIndicatorWidth).isActive = true
-        stack.addArrangedSubview(indicator)
-        return stack
-    }
-
     private func makeQuickFillEmptyStateView() -> UIView {
         let container = UIView()
-        container.heightAnchor.constraint(equalToConstant: max(140, min(176, candidatePageView.bounds.height - 104))).isActive = true
+        let availableHeight = max(180, candidatePageView.bounds.height - Self.quickFillHeaderHeight - Self.quickFillHeaderBottomSpacing - 22)
+        container.heightAnchor.constraint(equalToConstant: availableHeight).isActive = true
+
+        let cardView = UIView()
+        cardView.translatesAutoresizingMaskIntoConstraints = false
+        cardView.backgroundColor = candidateBackground
+        cardView.layer.cornerRadius = 22
+        cardView.layer.cornerCurve = .continuous
+        cardView.layer.borderWidth = 0.5
+        cardView.layer.borderColor = candidateBorder.cgColor
+        cardView.layer.shadowColor = UIColor.black.cgColor
+        cardView.layer.shadowOpacity = isDark ? 0.12 : 0.06
+        cardView.layer.shadowRadius = 18
+        cardView.layer.shadowOffset = CGSize(width: 0, height: 8)
+        container.addSubview(cardView)
 
         let stack = UIStackView()
         stack.translatesAutoresizingMaskIntoConstraints = false
         stack.axis = .vertical
         stack.alignment = .center
-        stack.spacing = 8
-        container.addSubview(stack)
+        stack.spacing = 12
+        cardView.addSubview(stack)
 
         if let image = quickFillEmptyImage() {
             let imageView = UIImageView(image: image)
             imageView.translatesAutoresizingMaskIntoConstraints = false
             imageView.contentMode = .scaleAspectFit
             stack.addArrangedSubview(imageView)
-            imageView.widthAnchor.constraint(equalToConstant: 112).isActive = true
-            imageView.heightAnchor.constraint(equalToConstant: 112).isActive = true
+            imageView.widthAnchor.constraint(equalToConstant: 40).isActive = true
+            imageView.heightAnchor.constraint(equalToConstant: 40).isActive = true
         }
 
-        let label = UILabel()
-        label.text = "暂无数据"
-        label.font = .systemFont(ofSize: 14, weight: .regular)
-        label.textColor = secondaryText
-        label.textAlignment = .center
-        label.numberOfLines = 1
-        stack.addArrangedSubview(label)
+        let subtitleLabel = UILabel()
+        subtitleLabel.text = "添加后可在键盘中快速输入"
+        subtitleLabel.font = .systemFont(ofSize: 13, weight: .regular)
+        subtitleLabel.textColor = secondaryText
+        subtitleLabel.textAlignment = .center
+        stack.addArrangedSubview(subtitleLabel)
+
+        let addButton = UIButton(type: .system)
+        addButton.setTitle("添加常用语", for: .normal)
+        addButton.titleLabel?.font = .systemFont(ofSize: 15, weight: .semibold)
+        addButton.setTitleColor(.white, for: .normal)
+        addButton.backgroundColor = UIColor.systemBlue
+        addButton.layer.cornerRadius = 18
+        addButton.contentEdgeInsets = UIEdgeInsets(top: 0, left: 18, bottom: 0, right: 18)
+        addButton.heightAnchor.constraint(equalToConstant: 36).isActive = true
+        addButton.addAction(UIAction { [weak self] _ in
+            self?.showQuickFillAddWindow()
+        }, for: .touchUpInside)
+        stack.addArrangedSubview(addButton)
 
         NSLayoutConstraint.activate([
-            stack.centerXAnchor.constraint(equalTo: container.centerXAnchor),
-            stack.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            stack.leadingAnchor.constraint(greaterThanOrEqualTo: container.leadingAnchor, constant: 12),
-            stack.trailingAnchor.constraint(lessThanOrEqualTo: container.trailingAnchor, constant: -12)
+            cardView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
+            cardView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+            cardView.centerYAnchor.constraint(equalTo: container.centerYAnchor),
+            cardView.heightAnchor.constraint(equalTo: container.heightAnchor, multiplier: 0.7),
+
+            stack.centerXAnchor.constraint(equalTo: cardView.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: cardView.leadingAnchor, constant: 16),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: cardView.trailingAnchor, constant: -16)
         ])
         return container
     }
 
     private func quickFillEmptyImage() -> UIImage? {
-        if let url = Bundle(for: Self.self).url(forResource: "暂无数据", withExtension: "png", subdirectory: "ios-icon") {
+        if let url = Bundle(for: Self.self).url(forResource: "快速添加 ", withExtension: "png", subdirectory: "ios-icon") {
             return UIImage(contentsOfFile: url.path)
         }
-        return UIImage(named: "暂无数据")
+        return UIImage(named: "快速添加 ") ?? UIImage(named: "快速添加")
     }
 
     private func makeQuickFillButton(text: String) -> UIButton {
@@ -3445,6 +3670,13 @@ extension KeyboardViewController: UIScrollViewDelegate {
         if remaining < 120 {
             appendMoreCandidatesIfNeeded()
         }
+    }
+}
+
+extension KeyboardViewController: UITextViewDelegate {
+    func textViewDidChange(_ textView: UITextView) {
+        guard textView === quickFillAddTextView else { return }
+        updateQuickFillAddSaveButtonState()
     }
 }
 
