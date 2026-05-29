@@ -2650,7 +2650,11 @@ final class KeyboardViewController: UIInputViewController {
         candidatePageView.transform = .identity
         keyboardRowsStack.transform = .identity
         applyQuickFillPanelChrome(true)
-        setQuickFillPanelVisible(true, animated: animated)
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+        DispatchQueue.main.async { [weak self] in
+            self?.setQuickFillPanelVisible(true, animated: animated)
+        }
     }
 
     private func updateQuickFillAddInputActiveState(_ active: Bool) {
