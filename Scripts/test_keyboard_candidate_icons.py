@@ -29,7 +29,7 @@ def main() -> int:
         "leading function icon uses diversity icon": 'configureUtilityIconButton(utilityOverlayButton, asset: .diversity, fallbackSystemName: "person.2", accessibilityLabel: "Function")' in source,
         "leading function icon is disabled": "utilityOverlayButton.isUserInteractionEnabled = false" in source,
         "leading function icon does not open quick fill": "utilityOverlayButton.addAction" not in source,
-        "quick fill heart icon is first utility item": '(asset: .heart, fallbackSystemName: "heart", label: "Quick fill", dismissesKeyboard: false, opensQuickFill: true, opensTranslation: false)' in items,
+        "quick fill text icon is first utility item": '(asset: .text, fallbackSystemName: "textformat", label: "Quick fill", dismissesKeyboard: false, opensQuickFill: true, opensTranslation: false)' in items,
         "utility item list has five icons": items.count("(asset:") == 5,
         "total utility toolbar has six icons": source.count("utilityOverlayIconButtons.append(") == 2 and items.count("(asset:") == 5,
         "utility toolbar keeps equal spacing": "utilityOverlayStack.distribution = .equalSpacing" in source,
@@ -37,8 +37,8 @@ def main() -> int:
         and "utilityOverlayStack.trailingAnchor.constraint(equalTo: utilityOverlayView.trailingAnchor, constant: -5)" in source,
         "utility icon button touch size stays 34 by 32": "button.widthAnchor.constraint(equalToConstant: 34).isActive = true" in source
         and "button.heightAnchor.constraint(equalToConstant: 32).isActive = true" in source,
-        "heart icon precedes translate": items.find('label: "Quick fill"') != -1 and items.find('label: "Quick fill"') < items.find('label: "Translate"'),
-        "heart icon opens quick fill": "if item.opensQuickFill" in source and "self?.handleUtilityFillButtonTap()" in source,
+        "quick fill icon precedes translate": items.find('label: "Quick fill"') != -1 and items.find('label: "Quick fill"') < items.find('label: "Translate"'),
+        "quick fill icon opens quick fill": "if item.opensQuickFill" in source and "self?.handleUtilityFillButtonTap()" in source,
     }
 
     failed = [name for name, passed in checks.items() if not passed]

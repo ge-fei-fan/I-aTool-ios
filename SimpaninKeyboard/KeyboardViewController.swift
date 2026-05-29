@@ -110,6 +110,8 @@ final class KeyboardViewController: UIInputViewController {
     private var isQuickFillAddWindowVisible = false
     private var isQuickFillAddInputActive = false
     private var quickFillAddDraftText = ""
+    private var quickFillEditingIndex: Int?
+    private weak var expandedQuickFillRow: QuickFillSwipeActionRow?
     private var isTranslationPanelVisible = false
     private let translationPanelView = UIView()
     private let translationTextView = UITextView()
@@ -1699,7 +1701,7 @@ final class KeyboardViewController: UIInputViewController {
         if resetScroll || highlightedCandidateIndex >= visibleCandidateCount {
             highlightedCandidateIndex = 0
         }
-        if allCandidates.isEmpty {
+        if allCandidates.isEmpty && !isQuickFillPanelVisible {
             setCandidatePageVisible(false)
         }
         renderVisibleCandidates()
@@ -1862,7 +1864,8 @@ final class KeyboardViewController: UIInputViewController {
                 self.keyboardRowsStack.transform = .identity
             }
             let complete: (Bool) -> Void = { _ in
-                guard !self.isCandidatePageVisible else { return }
+                guard !self.isCandidatePageVisible,
+                      !self.isQuickFillPanelVisible else { return }
                 self.candidatePageView.isHidden = true
                 self.candidatePageView.transform = .identity
                 self.clearCandidatePage()
@@ -2569,6 +2572,11 @@ final class KeyboardViewController: UIInputViewController {
     private func handleUtilityFillButtonTap() {
         hideKeyPreview(animated: false)
         reloadQuickFillItems()
+        if isQuickFillAddWindowVisible {
+            setQuickFillAddWindowVisible(false, animated: false)
+            setQuickFillPanelVisible(true)
+            return
+        }
         if isQuickFillPanelVisible {
             setQuickFillPanelVisible(false)
         } else {
@@ -2577,11 +2585,18 @@ final class KeyboardViewController: UIInputViewController {
         }
     }
 
-    private func showQuickFillAddWindow() {
+    private func showQuickFillAddWindow(editing index: Int? = nil) {
         setQuickFillPanelVisible(false)
         setCandidatePageVisible(false, animated: false)
         setTranslationPanelVisible(false, animated: false)
-        quickFillAddDraftText = ""
+        if let index, quickFillItems.indices.contains(index) {
+            quickFillEditingIndex = index
+            quickFillAddDraftText = quickFillItems[index]
+        } else {
+            quickFillEditingIndex = nil
+            quickFillAddDraftText = ""
+        }
+        quickFillAddTitleLabel.text = quickFillEditingIndex == nil ? "添加常用语" : "编辑常用语"
         updateQuickFillAddDraftDisplay()
         setQuickFillAddWindowVisible(true)
     }
@@ -2604,6 +2619,8 @@ final class KeyboardViewController: UIInputViewController {
             refreshCompositionDisplay()
             updateQuickFillAddInputActiveState(false)
             quickFillAddInlineView.isHidden = true
+            quickFillEditingIndex = nil
+            quickFillAddTitleLabel.text = "添加常用语"
             quickFillAddDraftText = ""
             updateQuickFillAddDraftDisplay()
             updateCandidates(resetScroll: true)
@@ -2658,12 +2675,19 @@ final class KeyboardViewController: UIInputViewController {
         }
         let text = quickFillAddDraftText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        var items = quickFillItems.filter { $0 != text }
-        items.insert(text, at: 0)
-        quickFillItems = items
-        let sharedDefaults = UserDefaults(suiteName: "group.com.local.fitnex")
-        sharedDefaults?.set(items, forKey: "quickFill.items")
-        sharedDefaults?.synchronize()
+        if let editingIndex = quickFillEditingIndex,
+           quickFillItems.indices.contains(editingIndex) {
+            var items = quickFillItems
+            items.remove(at: editingIndex)
+            items.removeAll { $0 == text }
+            let targetIndex = min(editingIndex, items.count)
+            items.insert(text, at: targetIndex)
+            persistQuickFillItems(items)
+        } else {
+            var items = quickFillItems.filter { $0 != text }
+            items.insert(text, at: 0)
+            persistQuickFillItems(items)
+        }
         setQuickFillAddWindowVisible(false)
         setQuickFillPanelVisible(true)
     }
@@ -2795,9 +2819,17 @@ final class KeyboardViewController: UIInputViewController {
         quickFillItems = sharedDefaults?.stringArray(forKey: "quickFill.items") ?? []
     }
 
+    private func persistQuickFillItems(_ items: [String]) {
+        quickFillItems = items
+        let sharedDefaults = UserDefaults(suiteName: "group.com.local.fitnex")
+        sharedDefaults?.set(items, forKey: "quickFill.items")
+        sharedDefaults?.synchronize()
+    }
+
     private func setQuickFillPanelVisible(_ visible: Bool, animated: Bool = true) {
         let shouldShow = visible
-        guard isQuickFillPanelVisible != shouldShow else { return }
+        let needsPanelRestore = shouldShow && (candidatePageView.isHidden || quickFillTopBar.isHidden || candidatePageView.alpha < 1)
+        guard isQuickFillPanelVisible != shouldShow || needsPanelRestore else { return }
         isQuickFillPanelVisible = shouldShow
 
         if shouldShow {
@@ -2879,8 +2911,8 @@ final class KeyboardViewController: UIInputViewController {
         if quickFillItems.isEmpty {
             contentStack.addArrangedSubview(makeQuickFillEmptyStateView())
         } else {
-            quickFillItems.forEach { text in
-                contentStack.addArrangedSubview(makeQuickFillButton(text: text))
+            quickFillItems.enumerated().forEach { index, text in
+                contentStack.addArrangedSubview(makeQuickFillButton(text: text, index: index))
             }
         }
 
@@ -3021,30 +3053,55 @@ final class KeyboardViewController: UIInputViewController {
         return UIImage(named: "快速添加 ") ?? UIImage(named: "快速添加")
     }
 
-    private func makeQuickFillButton(text: String) -> UIButton {
-        let button = UIButton(type: .system)
-        button.setTitle(text, for: .normal)
-        button.titleLabel?.font = .systemFont(ofSize: 16, weight: .regular)
-        button.titleLabel?.numberOfLines = 1
-        button.titleLabel?.lineBreakMode = .byTruncatingTail
-        button.contentHorizontalAlignment = .left
-        button.setTitleColor(primaryText, for: .normal)
-        button.backgroundColor = candidateBackground
-        button.contentEdgeInsets = UIEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
-        button.layer.cornerRadius = 7
-        button.layer.borderWidth = 0.5
-        button.layer.borderColor = candidateBorder.cgColor
-        button.heightAnchor.constraint(equalToConstant: 42).isActive = true
-        button.addAction(UIAction { [weak self] _ in
-            self?.handleQuickFillSelection(text)
-        }, for: .touchUpInside)
-        return button
+    private func makeQuickFillButton(text: String, index: Int) -> QuickFillSwipeActionRow {
+        let row = QuickFillSwipeActionRow(
+            text: text,
+            textColor: primaryText,
+            backgroundColor: candidateBackground,
+            borderColor: candidateBorder
+        )
+        row.onSelect = { [weak self] selectedText in
+            self?.handleQuickFillSelection(selectedText)
+        }
+        row.onEdit = { [weak self] in
+            self?.showQuickFillEditWindow(at: index)
+        }
+        row.onDelete = { [weak self] in
+            self?.deleteQuickFillItem(at: index)
+        }
+        row.onExpand = { [weak self, weak row] in
+            guard let row else { return }
+            self?.handleQuickFillRowExpansion(row)
+        }
+        return row
     }
 
     private func handleQuickFillSelection(_ text: String) {
         guard !isQuickFillAddWindowVisible else { return }
         textDocumentProxy.insertText(text)
         hasInsertedTextInCurrentContext = true
+    }
+
+    private func handleQuickFillRowExpansion(_ row: QuickFillSwipeActionRow) {
+        guard expandedQuickFillRow !== row else { return }
+        expandedQuickFillRow?.setExpanded(false, animated: true)
+        expandedQuickFillRow = row
+    }
+
+    private func showQuickFillEditWindow(at index: Int) {
+        guard quickFillItems.indices.contains(index) else { return }
+        expandedQuickFillRow?.setExpanded(false, animated: false)
+        expandedQuickFillRow = nil
+        showQuickFillAddWindow(editing: index)
+    }
+
+    private func deleteQuickFillItem(at index: Int) {
+        guard quickFillItems.indices.contains(index) else { return }
+        var items = quickFillItems
+        items.remove(at: index)
+        expandedQuickFillRow = nil
+        persistQuickFillItems(items)
+        renderQuickFillPanel()
     }
 
     private func finalizeComposition() {
@@ -3821,6 +3878,150 @@ private final class HeartParticleView: UIView {
 
         color.setFill()
         path.fill()
+    }
+}
+
+private final class QuickFillSwipeActionRow: UIView, UIGestureRecognizerDelegate {
+    var onSelect: ((String) -> Void)?
+    var onEdit: (() -> Void)?
+    var onDelete: (() -> Void)?
+    var onExpand: (() -> Void)?
+
+    private static let actionRevealWidth: CGFloat = 132
+    private let text: String
+    private let contentButton = UIButton(type: .system)
+    private let editButton = UIButton(type: .system)
+    private let deleteButton = UIButton(type: .system)
+    private var panStartOffset: CGFloat = 0
+    private var currentOffset: CGFloat = 0
+    private(set) var isExpanded = false
+
+    init(text: String, textColor: UIColor, backgroundColor: UIColor, borderColor: UIColor) {
+        self.text = text
+        super.init(frame: .zero)
+
+        clipsToBounds = true
+        heightAnchor.constraint(equalToConstant: 42).isActive = true
+
+        let actionsStack = UIStackView(arrangedSubviews: [editButton, deleteButton])
+        actionsStack.translatesAutoresizingMaskIntoConstraints = false
+        actionsStack.axis = .horizontal
+        actionsStack.alignment = .fill
+        actionsStack.distribution = .fillEqually
+        addSubview(actionsStack)
+
+        editButton.setTitle("编辑", for: .normal)
+        editButton.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
+        editButton.setTitleColor(.white, for: .normal)
+        editButton.backgroundColor = UIColor.systemBlue
+        editButton.addAction(UIAction { [weak self] _ in
+            self?.setExpanded(false, animated: false)
+            self?.onEdit?()
+        }, for: .touchUpInside)
+
+        deleteButton.setTitle("删除", for: .normal)
+        deleteButton.titleLabel?.font = .systemFont(ofSize: 14, weight: .semibold)
+        deleteButton.setTitleColor(.white, for: .normal)
+        deleteButton.backgroundColor = UIColor.systemRed
+        deleteButton.addAction(UIAction { [weak self] _ in
+            self?.setExpanded(false, animated: false)
+            self?.onDelete?()
+        }, for: .touchUpInside)
+
+        contentButton.translatesAutoresizingMaskIntoConstraints = false
+        contentButton.setTitle(text, for: .normal)
+        contentButton.titleLabel?.font = .systemFont(ofSize: 16, weight: .regular)
+        contentButton.titleLabel?.numberOfLines = 1
+        contentButton.titleLabel?.lineBreakMode = .byTruncatingTail
+        contentButton.contentHorizontalAlignment = .left
+        contentButton.setTitleColor(textColor, for: .normal)
+        contentButton.backgroundColor = backgroundColor
+        contentButton.contentEdgeInsets = UIEdgeInsets(top: 0, left: 12, bottom: 0, right: 12)
+        contentButton.layer.cornerRadius = 7
+        contentButton.layer.borderWidth = 0.5
+        contentButton.layer.borderColor = borderColor.cgColor
+        contentButton.accessibilityLabel = text
+        contentButton.addAction(UIAction { [weak self] _ in
+            self?.handleContentTap()
+        }, for: .touchUpInside)
+        addSubview(contentButton)
+
+        let panGestureRecognizer = UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))
+        panGestureRecognizer.delegate = self
+        contentButton.addGestureRecognizer(panGestureRecognizer)
+
+        NSLayoutConstraint.activate([
+            actionsStack.topAnchor.constraint(equalTo: topAnchor),
+            actionsStack.trailingAnchor.constraint(equalTo: trailingAnchor),
+            actionsStack.bottomAnchor.constraint(equalTo: bottomAnchor),
+            actionsStack.widthAnchor.constraint(equalToConstant: Self.actionRevealWidth),
+
+            contentButton.leadingAnchor.constraint(equalTo: leadingAnchor),
+            contentButton.trailingAnchor.constraint(equalTo: trailingAnchor),
+            contentButton.topAnchor.constraint(equalTo: topAnchor),
+            contentButton.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func setExpanded(_ expanded: Bool, animated: Bool) {
+        isExpanded = expanded
+        currentOffset = expanded ? -Self.actionRevealWidth : 0
+        let animations = {
+            self.contentButton.transform = CGAffineTransform(translationX: self.currentOffset, y: 0)
+        }
+        if animated {
+            UIView.animate(
+                withDuration: 0.18,
+                delay: 0,
+                options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction],
+                animations: animations
+            )
+        } else {
+            animations()
+        }
+    }
+
+    private func handleContentTap() {
+        if isExpanded {
+            setExpanded(false, animated: true)
+            return
+        }
+        onSelect?(text)
+    }
+
+    @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
+        switch recognizer.state {
+        case .began:
+            panStartOffset = currentOffset
+            onExpand?()
+        case .changed:
+            let translation = recognizer.translation(in: self).x
+            currentOffset = min(0, max(-Self.actionRevealWidth, panStartOffset + translation))
+            contentButton.transform = CGAffineTransform(translationX: currentOffset, y: 0)
+        case .ended, .cancelled, .failed:
+            let velocity = recognizer.velocity(in: self).x
+            let shouldExpand = velocity < -80 || (velocity <= 80 && currentOffset < -Self.actionRevealWidth / 2)
+            setExpanded(shouldExpand, animated: true)
+            if shouldExpand {
+                onExpand?()
+            }
+        default:
+            break
+        }
+    }
+
+    func gestureRecognizerShouldBegin(_ gestureRecognizer: UIGestureRecognizer) -> Bool {
+        guard let pan = gestureRecognizer as? UIPanGestureRecognizer else { return true }
+        let velocity = pan.velocity(in: self)
+        return abs(velocity.x) > abs(velocity.y)
+    }
+
+    func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer, shouldRecognizeSimultaneouslyWith otherGestureRecognizer: UIGestureRecognizer) -> Bool {
+        true
     }
 }
 

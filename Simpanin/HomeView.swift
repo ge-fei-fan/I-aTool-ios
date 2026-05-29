@@ -2109,14 +2109,12 @@ private struct SettingsView: View {
     @ObservedObject private var logStore = AppLogStore.shared
     @ObservedObject private var hostSettings = HostMonitorSettingsStore.shared
     @ObservedObject private var nezhaSettings = NezhaSettingsStore.shared
-    @ObservedObject private var quickFillStore = QuickFillStore.shared
     @ObservedObject private var translateSettings = TranslateSettingsStore.shared
     @State private var showingLogs = false
     @State private var showingHostSettings = false
     @State private var showingNezhaSettings = false
     @State private var showingTranslateSettings = false
     @State private var showingKeyboardGuide = false
-    @State private var showingQuickFillSettings = false
 
     var body: some View {
         VStack(spacing: 0) {
@@ -2197,20 +2195,6 @@ private struct SettingsView: View {
                             )
                         }
                         .buttonStyle(.plain)
-
-                        settingsDivider
-
-                        Button {
-                            showingQuickFillSettings = true
-                        } label: {
-                            settingsRow(
-                                icon: "text.append",
-                                title: "快速填充",
-                                trailingText: "\(quickFillStore.items.count) 项",
-                                subtitle: "配置键盘快速填充字符"
-                            )
-                        }
-                        .buttonStyle(.plain)
                     }
 
                     settingsSection(title: "系统") {
@@ -2286,10 +2270,6 @@ private struct SettingsView: View {
         }
         .sheet(isPresented: $showingKeyboardGuide) {
             KeyboardGuideSheet()
-                .presentationDetents([.medium, .large])
-        }
-        .sheet(isPresented: $showingQuickFillSettings) {
-            QuickFillSettingsSheet(store: quickFillStore)
                 .presentationDetents([.medium, .large])
         }
         .onAppear {
