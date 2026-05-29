@@ -85,7 +85,7 @@ def main() -> int:
         ),
         "swipe row handles horizontal pan": (
             "UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))" in row_class
-            and "gestureRecognizerShouldBegin" in row_class
+            and "override func gestureRecognizerShouldBegin" in row_class
             and "abs(velocity.x) > abs(velocity.y)" in row_class
         ),
         "expanded row tap collapses instead of inserting": (
