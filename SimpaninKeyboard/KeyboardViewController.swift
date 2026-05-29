@@ -2376,7 +2376,7 @@ final class KeyboardViewController: UIInputViewController {
 
     private var isReturnKeyEnabled: Bool {
         if isQuickFillAddWindowVisible {
-            return hasActiveComposition || !quickFillAddDraftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            return canSaveQuickFillAddText
         }
         if hasPendingCandidates {
             return true
@@ -2573,9 +2573,8 @@ final class KeyboardViewController: UIInputViewController {
         hideKeyPreview(animated: false)
         reloadQuickFillItems()
         if isQuickFillAddWindowVisible {
-            setQuickFillAddWindowVisible(false, animated: false)
+            setQuickFillAddWindowVisible(false, animated: false, updatesCandidates: false)
             restoreQuickFillPanelAfterAddWindow(animated: false)
-            setQuickFillPanelVisible(true)
             return
         }
         if isQuickFillPanelVisible {
@@ -2602,7 +2601,11 @@ final class KeyboardViewController: UIInputViewController {
         setQuickFillAddWindowVisible(true)
     }
 
-    private func setQuickFillAddWindowVisible(_ visible: Bool, animated: Bool = true) {
+    private func setQuickFillAddWindowVisible(
+        _ visible: Bool,
+        animated: Bool = true,
+        updatesCandidates: Bool = true
+    ) {
         guard isQuickFillAddWindowVisible != visible else { return }
         isQuickFillAddWindowVisible = visible
 
@@ -2614,7 +2617,9 @@ final class KeyboardViewController: UIInputViewController {
             quickFillAddInlineView.isHidden = false
             candidateBarStack.isHidden = false
             updateQuickFillAddDraftDisplay()
-            updateCandidates(resetScroll: true)
+            if updatesCandidates {
+                updateCandidates(resetScroll: true)
+            }
         } else {
             resetCompositionState()
             refreshCompositionDisplay()
@@ -2624,16 +2629,17 @@ final class KeyboardViewController: UIInputViewController {
             quickFillAddTitleLabel.text = "添加常用语"
             quickFillAddDraftText = ""
             updateQuickFillAddDraftDisplay()
-            updateCandidates(resetScroll: true)
+            if updatesCandidates {
+                updateCandidates(resetScroll: true)
+            }
         }
         updateReturnKeyAppearance()
     }
 
     private func closeQuickFillAddWindowToPanel(animated: Bool = true) {
-        setQuickFillAddWindowVisible(false, animated: false)
+        setQuickFillAddWindowVisible(false, animated: false, updatesCandidates: false)
         reloadQuickFillItems()
         restoreQuickFillPanelAfterAddWindow(animated: animated)
-        setQuickFillPanelVisible(true)
     }
 
     private func restoreQuickFillPanelAfterAddWindow(animated: Bool = true) {
@@ -2677,9 +2683,14 @@ final class KeyboardViewController: UIInputViewController {
 
     private func updateQuickFillAddSaveButtonState() {
         let hasText = !quickFillAddDraftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-        quickFillAddPlaceholderLabel.isHidden = hasText
-        quickFillAddSaveButton.isEnabled = hasText
-        quickFillAddSaveButton.alpha = hasText ? 1 : 0.45
+        let canSave = canSaveQuickFillAddText
+        quickFillAddPlaceholderLabel.isHidden = hasText || hasActiveComposition
+        quickFillAddSaveButton.isEnabled = canSave
+        quickFillAddSaveButton.alpha = canSave ? 1 : 0.45
+    }
+
+    private var canSaveQuickFillAddText: Bool {
+        hasActiveComposition || !quickFillAddDraftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func saveQuickFillAddText() {
@@ -2850,10 +2861,11 @@ final class KeyboardViewController: UIInputViewController {
             setTranslationPanelVisible(false, animated: false)
             setQuickFillAddWindowVisible(false, animated: false)
             applyQuickFillPanelChrome(true)
-            renderQuickFillPanel()
             candidatePageView.backgroundColor = quickFillPanelBackground
             candidatePageView.isHidden = false
             candidatePageView.alpha = 1
+            view.layoutIfNeeded()
+            renderQuickFillPanel()
             view.bringSubviewToFront(trackpadBlurView)
             view.bringSubviewToFront(keyPreviewView)
             view.bringSubviewToFront(candidatePageView)
@@ -3929,6 +3941,7 @@ private final class QuickFillSwipeActionRow: UIView, UIGestureRecognizerDelegate
         actionsStack.axis = .horizontal
         actionsStack.alignment = .fill
         actionsStack.distribution = .fillEqually
+        actionsStack.isHidden = true
         addSubview(actionsStack)
 
         editButton.setTitle("编辑", for: .normal)
@@ -3991,18 +4004,28 @@ private final class QuickFillSwipeActionRow: UIView, UIGestureRecognizerDelegate
     func setExpanded(_ expanded: Bool, animated: Bool) {
         isExpanded = expanded
         currentOffset = expanded ? -Self.actionRevealWidth : 0
+        if expanded {
+            actionsStack.isHidden = false
+        }
         let animations = {
             self.contentButton.transform = CGAffineTransform(translationX: self.currentOffset, y: 0)
+        }
+        let completion: (Bool) -> Void = { _ in
+            if !expanded {
+                self.actionsStack.isHidden = true
+            }
         }
         if animated {
             UIView.animate(
                 withDuration: 0.18,
                 delay: 0,
                 options: [.curveEaseOut, .beginFromCurrentState, .allowUserInteraction],
-                animations: animations
+                animations: animations,
+                completion: completion
             )
         } else {
             animations()
+            completion(true)
         }
     }
 
@@ -4017,6 +4040,7 @@ private final class QuickFillSwipeActionRow: UIView, UIGestureRecognizerDelegate
     @objc private func handlePan(_ recognizer: UIPanGestureRecognizer) {
         switch recognizer.state {
         case .began:
+            actionsStack.isHidden = false
             panStartOffset = currentOffset
             onExpand?()
         case .changed:
