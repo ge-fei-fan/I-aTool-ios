@@ -3079,7 +3079,7 @@ final class KeyboardViewController: UIInputViewController {
             cardView.leadingAnchor.constraint(equalTo: container.leadingAnchor),
             cardView.trailingAnchor.constraint(equalTo: container.trailingAnchor),
             cardView.centerYAnchor.constraint(equalTo: container.centerYAnchor),
-            cardView.heightAnchor.constraint(equalToConstant: 148),
+            cardView.heightAnchor.constraint(equalTo: container.heightAnchor, multiplier: 0.8),
 
             stack.centerXAnchor.constraint(equalTo: cardView.centerXAnchor),
             stack.centerYAnchor.constraint(equalTo: cardView.centerYAnchor),

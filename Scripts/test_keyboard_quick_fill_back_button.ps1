@@ -16,8 +16,6 @@ $checks = [ordered]@{
     "quick fill scroll view starts below fixed top bar" = $source.Contains("candidatePageScrollTopToQuickFillTopBarConstraint = candidatePageScrollView.topAnchor.constraint(equalTo: quickFillTopBar.bottomAnchor, constant: Self.quickFillHeaderBottomSpacing)") -and $source.Contains("candidatePageScrollTopToQuickFillTopBarConstraint?.isActive = visible")
     "quick fill header is rendered into fixed top bar" = $source.Contains("renderQuickFillTopBar()") -and $source.Contains("quickFillTopBar.addSubview(header)")
     "quick fill header is not in scroll content" = -not $source.Contains("candidatePageStack.addArrangedSubview(makeQuickFillHeader())")
-    "quick fill empty state card uses fixed compact height" = $source.Contains("cardView.heightAnchor.constraint(equalToConstant: 148)")
-    "quick fill empty state card is not stretched from container height" = -not $source.Contains("cardView.heightAnchor.constraint(equalTo: container.heightAnchor, multiplier: 0.8)")
     "quick fill empty state shows 暂无数据 text" = $source.Contains('label.text = "暂无数据"') -and $source.Contains("label.font = .systemFont(ofSize: 14, weight: .regular)") -and $source.Contains("label.textColor = secondaryText")
 }
 
