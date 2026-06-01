@@ -7,10 +7,51 @@ final class KeyboardViewController: KeyboardInputViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
-        services.actionHandler = PinyinKeyboardActionHandler(
-            controller: self,
-            pinyinState: pinyinState
-        )
+    }
+
+    override func performKeyboardAction(
+        _ action: KeyboardAction,
+        with gesture: Keyboard.Gesture
+    ) {
+        guard gesture == .release else {
+            super.performKeyboardAction(action, with: gesture)
+            return
+        }
+
+        switch action {
+        case .character(let value):
+            if isPinyinLetter(value) {
+                pinyinState.insertLetter(value)
+                return
+            }
+        case .backspace:
+            if pinyinState.hasComposition {
+                if !pinyinState.deleteBackward() {
+                    textDocumentProxy.deleteBackward()
+                }
+                return
+            }
+        case .space:
+            if let first = pinyinState.candidates.first,
+               let text = pinyinState.select(first) {
+                textDocumentProxy.insertText(text)
+                return
+            }
+        case .primary:
+            if pinyinState.hasComposition {
+                if let text = pinyinState.commitCompositionAsText() {
+                    textDocumentProxy.insertText(text)
+                }
+            }
+        default:
+            if pinyinState.hasComposition {
+                if let text = pinyinState.commitCompositionAsText() {
+                    textDocumentProxy.insertText(text)
+                }
+            }
+        }
+
+        super.performKeyboardAction(action, with: gesture)
     }
 
     override func viewWillSetupKeyboardView() {
@@ -23,6 +64,10 @@ final class KeyboardViewController: KeyboardInputViewController {
                 }
             )
         }
+    }
+
+    private func isPinyinLetter(_ value: String) -> Bool {
+        value.count == 1 && value.rangeOfCharacter(from: .letters) != nil
     }
 }
 
@@ -67,67 +112,6 @@ private final class PinyinKeyboardInputState: ObservableObject {
         let text = engine.commitCompositionAsText()
         isCandidatePageVisible = false
         return text
-    }
-}
-
-private final class PinyinKeyboardActionHandler: KeyboardAction.StandardActionHandler {
-    private let pinyinState: PinyinKeyboardInputState
-
-    init(
-        controller: KeyboardInputViewController,
-        pinyinState: PinyinKeyboardInputState
-    ) {
-        self.pinyinState = pinyinState
-        super.init(controller: controller)
-    }
-
-    override func action(
-        for gesture: Keyboard.Gesture,
-        on action: KeyboardAction
-    ) -> KeyboardAction.GestureAction? {
-        let standard = super.action(for: gesture, on: action)
-        guard gesture == .release else { return standard }
-
-        switch action {
-        case .character(let value):
-            guard isPinyinLetter(value) else { return standard }
-            return { [weak self] _ in
-                self?.pinyinState.insertLetter(value)
-            }
-        case .backspace:
-            guard pinyinState.hasComposition else { return standard }
-            return { [weak self] _ in
-                _ = self?.pinyinState.deleteBackward()
-            }
-        case .space:
-            guard let first = pinyinState.candidates.first else { return standard }
-            return { [weak self] _ in
-                guard let self, let text = self.pinyinState.select(first) else { return }
-                self.keyboardController?.insertText(text)
-            }
-        case .primary:
-            guard pinyinState.hasComposition else { return standard }
-            return { [weak self] _ in
-                guard let self else { return }
-                if let text = self.pinyinState.commitCompositionAsText() {
-                    self.keyboardController?.insertText(text)
-                }
-                standard?(self.keyboardController)
-            }
-        default:
-            guard pinyinState.hasComposition else { return standard }
-            return { [weak self] _ in
-                guard let self else { return }
-                if let text = self.pinyinState.commitCompositionAsText() {
-                    self.keyboardController?.insertText(text)
-                }
-                standard?(self.keyboardController)
-            }
-        }
-    }
-
-    private func isPinyinLetter(_ value: String) -> Bool {
-        value.count == 1 && value.rangeOfCharacter(from: .letters) != nil
     }
 }
 
