@@ -104,25 +104,25 @@ private final class PinyinKeyboardActionHandler: KeyboardAction.StandardActionHa
             guard let first = pinyinState.candidates.first else { return standard }
             return { [weak self] _ in
                 guard let self, let text = self.pinyinState.select(first) else { return }
-                self.keyboardContext.textDocumentProxy.insertText(text)
+                self.keyboardController?.insertText(text)
             }
-        case .return:
+        case .primary:
             guard pinyinState.hasComposition else { return standard }
             return { [weak self] _ in
                 guard let self else { return }
                 if let text = self.pinyinState.commitCompositionAsText() {
-                    self.keyboardContext.textDocumentProxy.insertText(text)
+                    self.keyboardController?.insertText(text)
                 }
-                self.keyboardContext.textDocumentProxy.insertText("\n")
+                standard?(self.keyboardController)
             }
         default:
             guard pinyinState.hasComposition else { return standard }
             return { [weak self] _ in
                 guard let self else { return }
                 if let text = self.pinyinState.commitCompositionAsText() {
-                    self.keyboardContext.textDocumentProxy.insertText(text)
+                    self.keyboardController?.insertText(text)
                 }
-                standard?(action)
+                standard?(self.keyboardController)
             }
         }
     }
