@@ -7,8 +7,10 @@ final class KeyboardViewController: KeyboardInputViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        let standardActionHandler = services.actionHandler
         services.actionHandler = PinyinKeyboardActionHandler(
             controller: self,
+            standardActionHandler: standardActionHandler,
             pinyinState: pinyinState
         )
     }
@@ -70,63 +72,95 @@ private final class PinyinKeyboardInputState: ObservableObject {
     }
 }
 
-private final class PinyinKeyboardActionHandler: KeyboardAction.StandardActionHandler {
+private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
+    private weak var controller: (any KeyboardController)?
+    private let standardActionHandler: any KeyboardActionHandler
     private let pinyinState: PinyinKeyboardInputState
 
     init(
-        controller: KeyboardInputViewController,
+        controller: any KeyboardController,
+        standardActionHandler: any KeyboardActionHandler,
         pinyinState: PinyinKeyboardInputState
     ) {
+        self.controller = controller
+        self.standardActionHandler = standardActionHandler
         self.pinyinState = pinyinState
-        super.init(controller: controller)
     }
 
-    override func action(
-        for gesture: Keyboard.Gesture,
-        on action: KeyboardAction
-    ) -> KeyboardAction.GestureAction? {
-        let standard = super.action(for: gesture, on: action)
-        guard gesture == .release else { return standard }
+    func canHandle(_ gesture: Keyboard.Gesture, on action: KeyboardAction) -> Bool {
+        standardActionHandler.canHandle(gesture, on: action)
+    }
+
+    func handle(_ action: KeyboardAction) {
+        standardActionHandler.handle(action)
+    }
+
+    func handle(_ gesture: Keyboard.Gesture, on action: KeyboardAction) {
+        guard gesture == .release else {
+            standardActionHandler.handle(gesture, on: action)
+            return
+        }
 
         switch action {
         case .character(let value):
-            guard isPinyinLetter(value) else { return standard }
-            return { [weak self] _ in
-                self?.pinyinState.insertLetter(value)
+            guard isPinyinLetter(value) else {
+                standardActionHandler.handle(gesture, on: action)
+                return
             }
+            pinyinState.insertLetter(value)
         case .backspace:
-            guard pinyinState.hasComposition else { return standard }
-            return { [weak self] controller in
-                guard let self else { return }
-                if !self.pinyinState.deleteBackward() {
-                    controller?.deleteBackward()
-                }
+            guard pinyinState.hasComposition else {
+                standardActionHandler.handle(gesture, on: action)
+                return
+            }
+            if !pinyinState.deleteBackward() {
+                standardActionHandler.handle(gesture, on: action)
             }
         case .space:
-            guard let first = pinyinState.candidates.first else { return standard }
-            return { [weak self] controller in
-                guard let self, let text = self.pinyinState.select(first) else { return }
+            guard let first = pinyinState.candidates.first else {
+                standardActionHandler.handle(gesture, on: action)
+                return
+            }
+            if let text = pinyinState.select(first) {
                 controller?.insertText(text)
             }
         case .primary:
-            guard pinyinState.hasComposition else { return standard }
-            return { [weak self] controller in
-                guard let self else { return }
-                if let text = self.pinyinState.commitCompositionAsText() {
-                    controller?.insertText(text)
-                }
-                standard?(controller)
+            if pinyinState.hasComposition,
+               let text = pinyinState.commitCompositionAsText() {
+                controller?.insertText(text)
             }
+            standardActionHandler.handle(gesture, on: action)
         default:
-            guard pinyinState.hasComposition else { return standard }
-            return { [weak self] controller in
-                guard let self else { return }
-                if let text = self.pinyinState.commitCompositionAsText() {
-                    controller?.insertText(text)
-                }
-                standard?(controller)
+            if pinyinState.hasComposition,
+               let text = pinyinState.commitCompositionAsText() {
+                controller?.insertText(text)
             }
+            standardActionHandler.handle(gesture, on: action)
         }
+    }
+
+    func handle(_ suggestion: Autocomplete.Suggestion) {
+        standardActionHandler.handle(suggestion)
+    }
+
+    func handleDrag(
+        on action: KeyboardAction,
+        from startLocation: CGPoint,
+        to currentLocation: CGPoint
+    ) {
+        standardActionHandler.handleDrag(on: action, from: startLocation, to: currentLocation)
+    }
+
+    func triggerFeedback(for gesture: Keyboard.Gesture, on action: KeyboardAction) {
+        standardActionHandler.triggerFeedback(for: gesture, on: action)
+    }
+
+    func triggerAudioFeedback(_ feedback: Feedback.Audio) {
+        standardActionHandler.triggerAudioFeedback(feedback)
+    }
+
+    func triggerHapticFeedback(_ feedback: Feedback.Haptic) {
+        standardActionHandler.triggerHapticFeedback(feedback)
     }
 
     private func isPinyinLetter(_ value: String) -> Bool {
