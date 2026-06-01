@@ -17,7 +17,6 @@ final class KeyboardViewController: KeyboardInputViewController {
         setupKeyboardView { [pinyinState] controller in
             PinyinKeyboardView(
                 services: controller.services,
-                state: controller.state,
                 pinyinState: pinyinState,
                 insertText: { [weak controller] text in
                     controller?.textDocumentProxy.insertText(text)
@@ -134,13 +133,11 @@ private final class PinyinKeyboardActionHandler: KeyboardAction.StandardActionHa
 
 private struct PinyinKeyboardView: View {
     let services: Keyboard.Services
-    let state: Keyboard.State
     @ObservedObject var pinyinState: PinyinKeyboardInputState
     let insertText: (String) -> Void
 
     var body: some View {
         KeyboardView(
-            state: state,
             services: services,
             buttonContent: { $0.view },
             buttonView: { $0.view },
