@@ -153,7 +153,7 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
     }
 
     func triggerFeedback(for gesture: Keyboard.Gesture, on action: KeyboardAction) {
-        standardActionHandler.triggerFeedback(for: gesture, on: action)
+        // Disable KeyboardKit's combined feedback path to avoid key haptics.
     }
 
     func triggerAudioFeedback(_ feedback: Feedback.Audio) {
@@ -161,7 +161,7 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
     }
 
     func triggerHapticFeedback(_ feedback: Feedback.Haptic) {
-        standardActionHandler.triggerHapticFeedback(feedback)
+        // Key vibration is intentionally disabled for this keyboard.
     }
 
     private func isPinyinLetter(_ value: String) -> Bool {
