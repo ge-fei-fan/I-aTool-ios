@@ -46,7 +46,8 @@ $checks = [ordered]@{
     "project references KeyboardKit package" = (
         $project.Contains('XCRemoteSwiftPackageReference "KeyboardKit"') -and
         $project.Contains("https://github.com/KeyboardKit/KeyboardKit.git") -and
-        $project.Contains("minimumVersion = 10.5.0;")
+        $project.Contains("kind = exactVersion;") -and
+        $project.Contains("version = 10.1.4;")
     )
     "project compiles active keyboard and pinyin engine" = (
         $project.Contains("KeyboardViewController.swift in Sources") -and
