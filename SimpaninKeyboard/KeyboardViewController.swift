@@ -179,44 +179,40 @@ private struct PinyinKeyboardView: View {
     let insertText: (String) -> Void
 
     var body: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .top) {
-                KeyboardView(
-                    services: services,
-                    buttonContent: { params in
-                        if case .shift(let keyboardCase) = params.item.action {
-                            PinyinShiftButtonContent(keyboardCase: keyboardCase)
-                        } else {
-                            params.view
-                        }
-                    },
-                    buttonView: { $0.view },
-                    collapsedView: { $0.view },
-                    emojiKeyboard: { $0.view },
-                    toolbar: { _ in
-                        PinyinCandidateToolbar(
-                            pinyinState: pinyinState,
-                            insertText: insertText
-                        )
-                    }
-                )
-
-                if pinyinState.isCandidatePageVisible {
-                    PinyinExpandedCandidateOverlay(
-                        pinyinState: pinyinState,
-                        insertText: insertText
-                    )
-                    .frame(height: expandedCandidateOverlayHeight(for: proxy.size.height), alignment: .top)
-                    .offset(y: PinyinKeyboardMetrics.candidateToolbarHeight)
+        KeyboardView(
+            services: services,
+            buttonContent: { params in
+                if case .shift(let keyboardCase) = params.item.action {
+                    PinyinShiftButtonContent(keyboardCase: keyboardCase)
+                } else {
+                    params.view
                 }
+            },
+            buttonView: { $0.view },
+            collapsedView: { $0.view },
+            emojiKeyboard: { $0.view },
+            toolbar: { _ in
+                PinyinCandidateToolbar(
+                    pinyinState: pinyinState,
+                    insertText: insertText
+                )
             }
-            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
-            .clipped()
+        )
+        .overlay(alignment: .top) {
+            expandedCandidateOverlay
         }
+        .clipped()
     }
 
-    private func expandedCandidateOverlayHeight(for keyboardHeight: CGFloat) -> CGFloat {
-        max(0, keyboardHeight - PinyinKeyboardMetrics.candidateToolbarHeight)
+    @ViewBuilder
+    private var expandedCandidateOverlay: some View {
+        if pinyinState.isCandidatePageVisible {
+            PinyinExpandedCandidateOverlay(
+                pinyinState: pinyinState,
+                insertText: insertText
+            )
+            .padding(.top, PinyinKeyboardMetrics.candidateToolbarHeight)
+        }
     }
 }
 
@@ -293,7 +289,7 @@ private struct PinyinCandidateToolbar: View {
 
     private var compositionBar: some View {
         HStack(spacing: 8) {
-            Text(pinyinState.displayText.isEmpty ? "中文拼音" : pinyinState.displayText)
+            Text(pinyinState.displayText.isEmpty ? "" : pinyinState.displayText)
                 .font(.system(size: 15, weight: .regular))
                 .foregroundStyle(pinyinState.hasComposition ? .primary : .secondary)
                 .lineLimit(1)

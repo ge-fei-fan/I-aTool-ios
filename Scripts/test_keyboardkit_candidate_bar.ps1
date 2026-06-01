@@ -34,11 +34,13 @@ $checks = [ordered]@{
         $source.Contains("PinyinCandidateButton")
     )
     "expanded candidate page covers only the key area" = (
-        $source.Contains("GeometryReader { proxy in") -and
+        $source.Contains(".overlay(alignment: .top) {") -and
+        $source.Contains("expandedCandidateOverlay") -and
         $source.Contains("PinyinKeyboardMetrics.candidateToolbarHeight") -and
-        $source.Contains("expandedCandidateOverlayHeight(for: proxy.size.height)") -and
-        $source.Contains(".offset(y: PinyinKeyboardMetrics.candidateToolbarHeight)") -and
+        $source.Contains(".padding(.top, PinyinKeyboardMetrics.candidateToolbarHeight)") -and
         $source.Contains(".clipped()") -and
+        -not $source.Contains("GeometryReader { proxy in") -and
+        -not $source.Contains("expandedCandidateOverlayHeight(for:") -and
         -not $source.Contains(".frame(maxHeight: .infinity, alignment: .top)")
     )
     "expanded candidate page keeps flow layout" = (
