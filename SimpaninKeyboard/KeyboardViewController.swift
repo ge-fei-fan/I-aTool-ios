@@ -58,23 +58,48 @@ private struct ChinesePinyinKeyboardView: View {
     @State private var engine = PinyinInputEngine()
     @State private var mode: PinyinKeyboardMode = .letters
     @State private var isShifted = false
+    @State private var isCandidatePageVisible = false
+
+    private let candidateBatchSize = 30
 
     var body: some View {
         VStack(spacing: 7) {
-            compositionBar
-            candidateBar
-            keyRows
+            candidateInputArea
+            ZStack(alignment: .top) {
+                keyRows
+                    .opacity(isCandidatePageVisible ? 0 : 1)
+                    .offset(y: isCandidatePageVisible ? 120 : 0)
+                    .allowsHitTesting(!isCandidatePageVisible)
+
+                if isCandidatePageVisible {
+                    candidateExpandedPage
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+            }
         }
         .padding(.horizontal, 4)
         .padding(.vertical, 6)
         .background(.regularMaterial)
+        .animation(.easeInOut(duration: 0.22), value: isCandidatePageVisible)
+        .onChange(of: engine.candidates) { candidates in
+            if candidates.isEmpty {
+                isCandidatePageVisible = false
+            }
+        }
+    }
+
+    private var candidateInputArea: some View {
+        VStack(spacing: 7) {
+            compositionBar
+            migratedCandidateStrip
+        }
     }
 
     private var compositionBar: some View {
-        HStack {
+        HStack(spacing: 8) {
             Text(engine.displayText.isEmpty ? "中文拼音" : engine.displayText)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundStyle(engine.displayText.isEmpty ? .secondary : .primary)
+                .font(.system(size: 15, weight: .regular))
+                .foregroundStyle(engine.hasComposition ? .primary : .secondary)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -84,32 +109,76 @@ private struct ChinesePinyinKeyboardView: View {
         .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
     }
 
-    private var candidateBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                ForEach(engine.candidates) { candidate in
-                    Button {
-                        selectCandidate(candidate)
-                    } label: {
-                        Text(candidate.text)
-                            .font(.system(size: 16, weight: .medium))
-                            .lineLimit(1)
-                            .padding(.horizontal, 12)
-                            .frame(height: 30)
-                            .background(Color(.systemBackground).opacity(0.82))
-                            .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
+    private var migratedCandidateStrip: some View {
+        HStack(spacing: 6) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    ForEach(Array(engine.candidates.prefix(candidateBatchSize).enumerated()), id: \.element.id) { index, candidate in
+                        candidateButton(candidate, index: index, expanded: false)
                     }
-                    .buttonStyle(.plain)
-                }
 
-                if engine.candidates.isEmpty {
-                    Text(" ")
-                        .frame(height: 30)
+                    if engine.candidates.isEmpty {
+                        Color.clear.frame(width: 1, height: 30)
+                    }
                 }
+                .frame(minWidth: 0, alignment: .leading)
+                .padding(.bottom, 1)
             }
-            .padding(.horizontal, 2)
+            .scrollDisabled(engine.candidates.count <= 3)
+
+            candidateExpandButton
         }
         .frame(height: 32)
+    }
+
+    private var candidateExpandButton: some View {
+        Button {
+            guard !engine.candidates.isEmpty else { return }
+            isCandidatePageVisible = true
+        } label: {
+            Image(systemName: "chevron.down")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.primary)
+                .frame(width: 34, height: 32)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .opacity(engine.candidates.isEmpty ? 0 : 1)
+        .allowsHitTesting(!engine.candidates.isEmpty)
+    }
+
+    private var candidateExpandedPage: some View {
+        VStack(spacing: 0) {
+            HStack {
+                Spacer()
+                Button {
+                    isCandidatePageVisible = false
+                } label: {
+                    Image(systemName: "chevron.up")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .frame(width: 34, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+            }
+            .frame(height: 32)
+            .padding(.trailing, 1)
+
+            ScrollView(.vertical, showsIndicators: false) {
+                CandidateFlowLayout(spacing: 6) {
+                    ForEach(Array(engine.candidates.enumerated()), id: \.element.id) { index, candidate in
+                        candidateButton(candidate, index: index, expanded: true)
+                    }
+                }
+                .padding(.horizontal, 6)
+                .padding(.bottom, 8)
+            }
+        }
+        .frame(maxWidth: .infinity)
+        .frame(minHeight: 204, alignment: .top)
+        .background(Color(.secondarySystemBackground))
+        .clipped()
     }
 
     private var keyRows: some View {
@@ -144,11 +213,32 @@ private struct ChinesePinyinKeyboardView: View {
         case .symbols:
             return [
                 "[]{}#%^*+=".map { .character(String($0)) },
-                "_\\|~<>€£¥·".map { .character(String($0)) },
+                "_\\|~<>€£¥".map { .character(String($0)) },
                 [.modeSwitch("123", .numbers)] + ".,?!'".map { .character(String($0)) } + [.backspace],
                 [.modeSwitch("ABC", .letters), .nextKeyboard, .space, .returnKey]
             ]
         }
+    }
+
+    private func candidateButton(
+        _ candidate: PinyinInputEngine.Candidate,
+        index: Int,
+        expanded: Bool
+    ) -> some View {
+        Button {
+            selectCandidate(candidate)
+        } label: {
+            Text(candidate.text)
+                .font(.system(size: 19, weight: index == 0 ? .semibold : .regular))
+                .foregroundStyle(.primary)
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .padding(.horizontal, 12)
+                .padding(.vertical, expanded ? 6 : 2)
+                .frame(minWidth: expanded ? 56 : 48, minHeight: expanded ? 34 : 30)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
     }
 
     private func keyButton(_ key: PinyinKeyboardKey) -> some View {
@@ -170,6 +260,7 @@ private struct ChinesePinyinKeyboardView: View {
         case .character(let value):
             if mode == .letters, value.rangeOfCharacter(from: .letters) != nil {
                 engine.insertLetter(isShifted ? value.uppercased() : value.lowercased())
+                isCandidatePageVisible = false
             } else {
                 commitCompositionIfNeeded()
                 insertText(value)
@@ -179,6 +270,9 @@ private struct ChinesePinyinKeyboardView: View {
         case .backspace:
             if !engine.deleteBackward() {
                 deleteBackward()
+            }
+            if engine.candidates.isEmpty {
+                isCandidatePageVisible = false
             }
         case .space:
             if let first = engine.candidates.first {
@@ -197,6 +291,7 @@ private struct ChinesePinyinKeyboardView: View {
             commitCompositionIfNeeded()
             mode = target
             isShifted = false
+            isCandidatePageVisible = false
         }
     }
 
@@ -204,11 +299,85 @@ private struct ChinesePinyinKeyboardView: View {
         if let committedText = engine.select(candidate) {
             insertText(committedText)
         }
+        if engine.candidates.isEmpty {
+            isCandidatePageVisible = false
+        }
     }
 
     private func commitCompositionIfNeeded() {
         if let text = engine.commitCompositionAsText() {
             insertText(text)
+        }
+        isCandidatePageVisible = false
+    }
+}
+
+private struct CandidateFlowLayout: Layout {
+    var spacing: CGFloat
+
+    func sizeThatFits(
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) -> CGSize {
+        let maxWidth = max(56, proposal.width ?? 320)
+        var rowWidth: CGFloat = 0
+        var rowHeight: CGFloat = 0
+        var totalHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            let width = min(max(size.width, 56), maxWidth)
+            let height = max(size.height, 34)
+            let candidateSpacing = rowWidth == 0 ? 0 : spacing
+
+            if rowWidth > 0 && rowWidth + candidateSpacing + width > maxWidth {
+                totalHeight += rowHeight + spacing
+                rowWidth = 0
+                rowHeight = 0
+            }
+
+            rowWidth += (rowWidth == 0 ? 0 : spacing) + width
+            rowHeight = max(rowHeight, height)
+        }
+
+        if rowHeight > 0 {
+            totalHeight += rowHeight
+        }
+        return CGSize(width: maxWidth, height: totalHeight)
+    }
+
+    func placeSubviews(
+        in bounds: CGRect,
+        proposal: ProposedViewSize,
+        subviews: Subviews,
+        cache: inout ()
+    ) {
+        let maxWidth = max(56, bounds.width)
+        var x = bounds.minX
+        var y = bounds.minY
+        var rowHeight: CGFloat = 0
+
+        for subview in subviews {
+            let size = subview.sizeThatFits(.unspecified)
+            let width = min(max(size.width, 56), maxWidth)
+            let height = max(size.height, 34)
+            let candidateSpacing = x == bounds.minX ? 0 : spacing
+
+            if x > bounds.minX && x + candidateSpacing + width > bounds.maxX {
+                x = bounds.minX
+                y += rowHeight + spacing
+                rowHeight = 0
+            } else if x > bounds.minX {
+                x += spacing
+            }
+
+            subview.place(
+                at: CGPoint(x: x, y: y),
+                proposal: ProposedViewSize(width: width, height: height)
+            )
+            x += width
+            rowHeight = max(rowHeight, height)
         }
     }
 }
@@ -270,7 +439,7 @@ private enum PinyinKeyboardKey: Identifiable, Equatable {
         case .character(let value):
             return isShifted ? value.uppercased() : value
         case .shift:
-            return isShifted ? "⇧" : "⇧"
+            return isShifted ? "⇪" : "⇧"
         case .backspace:
             return "⌫"
         case .space:
