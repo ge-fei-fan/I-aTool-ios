@@ -10,12 +10,12 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-KEYBOARD_SOURCE = REPO_ROOT / "SimpaninKeyboard" / "KeyboardViewController.swift"
+KEYBOARD_SOURCE = REPO_ROOT / "SimpaninKeyboard" / "KeyboardViewControllerLegacy.swift"
 PREVIEW_SOURCE = REPO_ROOT / "docs" / "previews" / "keyboard-letter-layout-preview.html"
 LANGUAGE_PREVIEW_SOURCE = REPO_ROOT / "docs" / "previews" / "language-switch-icon-preview.html"
-SHIFT_UPPER_IMAGE = REPO_ROOT / "ios-icon" / "大写图标.png"
-SHIFT_LOWER_IMAGE = REPO_ROOT / "ios-icon" / "小写图标.png"
-TRANSLATE_IMAGE = REPO_ROOT / "ios-icon" / "翻译.png"
+SHIFT_UPPER_IMAGE = REPO_ROOT / "ios-icon" / "澶у啓鍥炬爣.png"
+SHIFT_LOWER_IMAGE = REPO_ROOT / "ios-icon" / "灏忓啓鍥炬爣.png"
+TRANSLATE_IMAGE = REPO_ROOT / "ios-icon" / "缈昏瘧.png"
 
 
 def function_body(source: str, signature: str) -> str:
@@ -197,8 +197,8 @@ def main() -> int:
             isinstance(shift_lower_image.get("corner_alpha"), list)
             and shift_lower_image.get("corner_alpha")[:3] == [0, 0, 0]
         ),
-        "shift upper asset maps to uppercase icon": 'return "大写图标"' in source,
-        "shift lower asset maps to lowercase icon": 'return "小写图标"' in source,
+        "shift upper asset maps to uppercase icon": 'return "澶у啓鍥炬爣"' in source,
+        "shift lower asset maps to lowercase icon": 'return "灏忓啓鍥炬爣"' in source,
         "backspace uses clear-symbol asset": 'return "icons8-clear-symbol-48"' in source,
         "shift primary path uses state-specific keyboard key asset": "let shiftAsset: KeyboardKeyIconAsset = shiftState == .on ? .shiftUpper : .shiftLower" in source and "button.setImage(keyboardKeyIcon(shiftAsset" in source,
         "backspace primary path uses keyboard key asset": 'button.setImage(keyboardKeyIcon(.backspace' in source,
@@ -208,8 +208,8 @@ def main() -> int:
         "keyboard image resizer supports aspect fill focus": "verticalAlignment: CGFloat = 0.5" in source and "let maxOffsetY = max(0, scaledSize.height - size.height)" in source and "let clampedVerticalAlignment = min(max(verticalAlignment, 0), 1)" in source and "y: -maxOffsetY * clampedVerticalAlignment" in source,
         "preview shift image keeps key background visible": ".key__icon--shift {" in preview and "inset: 4px;" in preview,
         "preview shift image keeps original colors": ".key__icon--shift .key__icon-image {" in preview and "filter: none;" in preview,
-        "preview shift image defaults to lowercase icon": 'src="../../ios-icon/小写图标.png"' in preview,
-        "preview shift image switches to uppercase icon": 'shiftIconImage.src = shiftOn ? "../../ios-icon/大写图标.png" : "../../ios-icon/小写图标.png"' in preview,
+        "preview shift image defaults to lowercase icon": 'src="../../ios-icon/灏忓啓鍥炬爣.png"' in preview,
+        "preview shift image switches to uppercase icon": 'shiftIconImage.src = shiftOn ? "../../ios-icon/澶у啓鍥炬爣.png" : "../../ios-icon/灏忓啓鍥炬爣.png"' in preview,
         "language switch preview exists": bool(language_preview),
         "language switch preview renders both states": 'data-state="chinese"' in language_preview and 'data-state="english"' in language_preview,
         "language switch preview uses stacked glyph icon": "language-icon__glyph language-icon__glyph--chinese" in language_preview and "language-icon__glyph language-icon__glyph--english" in language_preview,
@@ -223,7 +223,7 @@ def main() -> int:
         "language switch preserves current shift state": "preferredShiftState(for: inputLanguage)" not in key_handler,
         "translate icon asset exists": TRANSLATE_IMAGE.exists(),
         "translate icon image is a png": translate_image.get("is_png") is True,
-        "translate keyboard icon asset exists": "case translate" in source and 'return "翻译"' in source,
+        "translate keyboard icon asset exists": "case translate" in source and 'return "缈昏瘧"' in source,
         "candidate bar third visible utility icon uses translate asset": '(asset: .heart, fallbackSystemName: "heart", label: "Quick fill", dismissesKeyboard: false, opensQuickFill: true, opensTranslation: false),\n            (asset: .translate, fallbackSystemName: "text.translate", label: "Translate", dismissesKeyboard: false, opensQuickFill: false, opensTranslation: true),' in source,
         "translate utility icon shares unified styling": "configureUtilityIconButton(\n                button,\n                asset: item.asset," in source and "button.setImage(keyboardIcon(asset, fallbackSystemName: fallbackSystemName), for: .normal)" in source,
     }

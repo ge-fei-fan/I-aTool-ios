@@ -7,7 +7,7 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-KEYBOARD_SOURCE = REPO_ROOT / "SimpaninKeyboard" / "KeyboardViewController.swift"
+KEYBOARD_SOURCE = REPO_ROOT / "SimpaninKeyboard" / "KeyboardViewControllerLegacy.swift"
 
 
 def main() -> int:

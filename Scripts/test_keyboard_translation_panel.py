@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-KEYBOARD_SOURCE = REPO_ROOT / "SimpaninKeyboard" / "KeyboardViewController.swift"
+KEYBOARD_SOURCE = REPO_ROOT / "SimpaninKeyboard" / "KeyboardViewControllerLegacy.swift"
 
 
 def method_body(source: str, name: str) -> str:
@@ -47,10 +47,10 @@ def main() -> int:
         "cancelled translation callbacks cannot clear current request": "activeTranslationRequestID += 1" in cancel_translation
         and "guard self.activeTranslationRequestID == requestID else { return }" in request_translation,
         "prompt only returns Chinese": "natural English" not in source
-        and "自动识别" in source
-        and "简体中文" in source
-        and "中文原文" in source
-        and "只返回译文" in source,
+        and "鑷姩璇嗗埆" in source
+        and "绠€浣撲腑鏂? in source
+        and "涓枃鍘熸枃" in source
+        and "鍙繑鍥炶瘧鏂? in source,
     }
 
     failed = [name for name, passed in checks.items() if not passed]

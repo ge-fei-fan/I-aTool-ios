@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-KEYBOARD_SOURCE = REPO_ROOT / "SimpaninKeyboard" / "KeyboardViewController.swift"
+KEYBOARD_SOURCE = REPO_ROOT / "SimpaninKeyboard" / "KeyboardViewControllerLegacy.swift"
 
 
 def function_body(source: str, name: str) -> str:
@@ -80,8 +80,8 @@ def main() -> int:
             and "onExpand" in make_row
         ),
         "swipe row exposes edit and delete buttons": (
-            'editButton.setTitle("编辑", for: .normal)' in row_class
-            and 'deleteButton.setTitle("删除", for: .normal)' in row_class
+            'editButton.setTitle("缂栬緫", for: .normal)' in row_class
+            and 'deleteButton.setTitle("鍒犻櫎", for: .normal)' in row_class
         ),
         "swipe row handles horizontal pan": (
             "UIPanGestureRecognizer(target: self, action: #selector(handlePan(_:)))" in row_class
@@ -97,7 +97,7 @@ def main() -> int:
         "edit window prefills selected text": (
             "quickFillEditingIndex = index" in show_add
             and "quickFillAddDraftText = quickFillItems[index]" in show_add
-            and 'quickFillAddTitleLabel.text = quickFillEditingIndex == nil ? "添加常用语" : "编辑常用语"' in show_add
+            and 'quickFillAddTitleLabel.text = quickFillEditingIndex == nil ? "娣诲姞甯哥敤璇? : "缂栬緫甯哥敤璇?' in show_add
         ),
         "editing save preserves original position": (
             "if let editingIndex = quickFillEditingIndex" in save_text

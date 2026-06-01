@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-KEYBOARD_SOURCE = REPO_ROOT / "SimpaninKeyboard" / "KeyboardViewController.swift"
+KEYBOARD_SOURCE = REPO_ROOT / "SimpaninKeyboard" / "KeyboardViewControllerLegacy.swift"
 
 
 def function_body(source: str, name: str) -> str:
@@ -138,7 +138,7 @@ def main() -> int:
         ),
         "add mode clears edit state and draft": (
             "quickFillEditingIndex = nil" in show_add_window
-            and 'quickFillAddTitleLabel.text = quickFillEditingIndex == nil ? "添加常用语" : "编辑常用语"'
+            and 'quickFillAddTitleLabel.text = quickFillEditingIndex == nil ? "娣诲姞甯哥敤璇? : "缂栬緫甯哥敤璇?'
             in show_add_window
             and 'quickFillAddDraftText = ""' in show_add_window
         ),
@@ -148,7 +148,7 @@ def main() -> int:
         ),
         "hiding add window clears edit mode": (
             "quickFillEditingIndex = nil" in set_add_window_visible
-            and 'quickFillAddTitleLabel.text = "添加常用语"' in set_add_window_visible
+            and 'quickFillAddTitleLabel.text = "娣诲姞甯哥敤璇?' in set_add_window_visible
         ),
         "editing persists replacement at original index": (
             "if let editingIndex = quickFillEditingIndex" in save_add_text
