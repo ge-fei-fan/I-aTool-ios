@@ -17,6 +17,7 @@ final class KeyboardViewController: KeyboardInputViewController {
     }
 
     override func viewWillSetupKeyboardView() {
+        setKeyboardCase(.lowercased)
         setupKeyboardView { [pinyinState] controller in
             PinyinKeyboardView(
                 services: controller.services,
@@ -31,6 +32,9 @@ final class KeyboardViewController: KeyboardInputViewController {
 
 private enum PinyinKeyboardMetrics {
     static let candidateToolbarHeight: CGFloat = 75
+    static let candidateExpandHitWidth: CGFloat = 48
+    static let candidateExpandHitHeight: CGFloat = 44
+    static let candidatePanelAnimationDuration: TimeInterval = 0.22
 }
 
 private final class PinyinKeyboardInputState: ObservableObject {
@@ -78,12 +82,13 @@ private final class PinyinKeyboardInputState: ObservableObject {
 }
 
 private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
-    private weak var controller: (any KeyboardController)?
+    private weak var controller: KeyboardInputViewController?
     private let standardActionHandler: any KeyboardActionHandler
     private let pinyinState: PinyinKeyboardInputState
+    private var isManualUppercaseEnabled = false
 
     init(
-        controller: any KeyboardController,
+        controller: KeyboardInputViewController,
         standardActionHandler: any KeyboardActionHandler,
         pinyinState: PinyinKeyboardInputState
     ) {
@@ -97,7 +102,12 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
     }
 
     func handle(_ action: KeyboardAction) {
+        if case .shift(let keyboardCase) = action {
+            handleShift(keyboardCase)
+            return
+        }
         standardActionHandler.handle(action)
+        applyDefaultLowercaseIfNeeded()
     }
 
     func handle(_ gesture: Keyboard.Gesture, on action: KeyboardAction) {
@@ -107,40 +117,45 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
         }
 
         switch action {
+        case .shift(let keyboardCase):
+            handleShift(keyboardCase)
         case .character(let value):
             guard isPinyinLetter(value) else {
-                standardActionHandler.handle(gesture, on: action)
+                handleStandardAction(gesture, on: action)
                 return
             }
             pinyinState.insertLetter(value)
+            applyDefaultLowercaseIfNeeded()
         case .backspace:
             guard pinyinState.hasComposition else {
-                standardActionHandler.handle(gesture, on: action)
+                handleStandardAction(gesture, on: action)
                 return
             }
             if !pinyinState.deleteBackward() {
-                standardActionHandler.handle(gesture, on: action)
+                handleStandardAction(gesture, on: action)
             }
+            applyDefaultLowercaseIfNeeded()
         case .space:
             guard let first = pinyinState.candidates.first else {
-                standardActionHandler.handle(gesture, on: action)
+                handleStandardAction(gesture, on: action)
                 return
             }
             if let text = pinyinState.select(first) {
                 controller?.insertText(text)
             }
+            applyDefaultLowercaseIfNeeded()
         case .primary:
             if pinyinState.hasComposition,
                let text = pinyinState.commitCompositionAsText() {
                 controller?.insertText(text)
             }
-            standardActionHandler.handle(gesture, on: action)
+            handleStandardAction(gesture, on: action)
         default:
             if pinyinState.hasComposition,
                let text = pinyinState.commitCompositionAsText() {
                 controller?.insertText(text)
             }
-            standardActionHandler.handle(gesture, on: action)
+            handleStandardAction(gesture, on: action)
         }
     }
 
@@ -170,6 +185,28 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
 
     private func isPinyinLetter(_ value: String) -> Bool {
         value.count == 1 && value.rangeOfCharacter(from: .letters) != nil
+    }
+
+    private func handleShift(_ keyboardCase: Keyboard.KeyboardCase) {
+        switch keyboardCase {
+        case .lowercased:
+            isManualUppercaseEnabled = true
+            controller?.setKeyboardCase(.uppercased)
+        case .uppercased, .capsLocked:
+            isManualUppercaseEnabled = false
+            controller?.setKeyboardCase(.lowercased)
+        }
+    }
+
+    private func handleStandardAction(_ gesture: Keyboard.Gesture, on action: KeyboardAction) {
+        standardActionHandler.handle(gesture, on: action)
+        applyDefaultLowercaseIfNeeded()
+    }
+
+    private func applyDefaultLowercaseIfNeeded() {
+        if !isManualUppercaseEnabled {
+            controller?.setKeyboardCase(.lowercased)
+        }
     }
 }
 
@@ -201,6 +238,7 @@ private struct PinyinKeyboardView: View {
         .overlay(alignment: .top) {
             expandedCandidateOverlay
         }
+        .animation(.easeOut(duration: PinyinKeyboardMetrics.candidatePanelAnimationDuration), value: pinyinState.isCandidatePageVisible)
         .clipped()
     }
 
@@ -211,7 +249,7 @@ private struct PinyinKeyboardView: View {
                 pinyinState: pinyinState,
                 insertText: insertText
             )
-            .padding(.top, PinyinKeyboardMetrics.candidateToolbarHeight)
+            .transition(.move(edge: .top).combined(with: .opacity))
         }
     }
 }
@@ -272,9 +310,14 @@ private struct PinyinCandidateToolbar: View {
     private let candidateBatchSize = 30
 
     var body: some View {
-        candidateInputArea
+        ZStack {
+            if !pinyinState.isCandidatePageVisible {
+                candidateInputArea
+            }
+        }
             .frame(maxWidth: .infinity)
             .frame(height: PinyinKeyboardMetrics.candidateToolbarHeight)
+            .allowsHitTesting(!pinyinState.isCandidatePageVisible)
     }
 
     private var candidateInputArea: some View {
@@ -326,12 +369,15 @@ private struct PinyinCandidateToolbar: View {
     private var candidateExpandButton: some View {
         Button {
             guard !pinyinState.candidates.isEmpty else { return }
-            pinyinState.isCandidatePageVisible.toggle()
+            withAnimation(.easeOut(duration: PinyinKeyboardMetrics.candidatePanelAnimationDuration)) {
+                pinyinState.isCandidatePageVisible.toggle()
+            }
         } label: {
             Image(systemName: pinyinState.isCandidatePageVisible ? "chevron.up" : "chevron.down")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(.primary)
                 .frame(width: 34, height: 32)
+                .frame(width: PinyinKeyboardMetrics.candidateExpandHitWidth, height: PinyinKeyboardMetrics.candidateExpandHitHeight)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -360,6 +406,8 @@ private struct PinyinExpandedCandidateOverlay: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            collapseHeader
+
             ScrollView(.vertical, showsIndicators: false) {
                 CandidateFlowLayout(spacing: 6) {
                     ForEach(Array(pinyinState.candidates.enumerated()), id: \.element.id) { index, candidate in
@@ -376,9 +424,36 @@ private struct PinyinExpandedCandidateOverlay: View {
                 .padding(.bottom, 8)
             }
         }
-        .frame(maxWidth: .infinity)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .background(Color(.secondarySystemBackground))
         .clipped()
+    }
+
+    private var collapseHeader: some View {
+        HStack(spacing: 8) {
+            Text(pinyinState.displayText)
+                .font(.system(size: 15, weight: .regular))
+                .foregroundStyle(pinyinState.hasComposition ? .primary : .secondary)
+                .lineLimit(1)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+            Button {
+                withAnimation(.easeOut(duration: PinyinKeyboardMetrics.candidatePanelAnimationDuration)) {
+                    pinyinState.isCandidatePageVisible = false
+                }
+            } label: {
+                Image(systemName: "chevron.up")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.primary)
+                    .frame(width: PinyinKeyboardMetrics.candidateExpandHitWidth, height: PinyinKeyboardMetrics.candidateExpandHitHeight)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.leading, 10)
+        .padding(.trailing, 4)
+        .frame(height: PinyinKeyboardMetrics.candidateExpandHitHeight)
+        .background(Color(.secondarySystemBackground))
     }
 }
 

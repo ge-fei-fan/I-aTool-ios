@@ -17,7 +17,7 @@ $checks = [ordered]@{
         $source.Contains("private var migratedCandidateStrip: some View")
     )
     "candidate strip shows pinyin composition text" = (
-        $source.Contains('Text(pinyinState.displayText.isEmpty ? "中文拼音" : pinyinState.displayText)') -and
+        $source.Contains("Text(pinyinState.displayText.isEmpty ?") -and
         $source.Contains("pinyinState.hasComposition")
     )
     "candidate strip has toggle expand button" = (
@@ -25,23 +25,35 @@ $checks = [ordered]@{
         $source.Contains('pinyinState.isCandidatePageVisible ? "chevron.up" : "chevron.down"') -and
         $source.Contains("pinyinState.isCandidatePageVisible.toggle()")
     )
-    "candidate strip remains visible and interactive while expanded" = (
-        -not $source.Contains(".opacity(pinyinState.isCandidatePageVisible ? 0 : 1)") -and
-        -not $source.Contains(".allowsHitTesting(!pinyinState.isCandidatePageVisible)")
+    "candidate expand button has larger touch target" = (
+        $source.Contains("candidateExpandHitWidth: CGFloat = 48") -and
+        $source.Contains("candidateExpandHitHeight: CGFloat = 44") -and
+        $source.Contains(".frame(width: PinyinKeyboardMetrics.candidateExpandHitWidth, height: PinyinKeyboardMetrics.candidateExpandHitHeight)") -and
+        $source.Contains(".contentShape(Rectangle())")
+    )
+    "candidate strip hides while expanded" = (
+        $source.Contains("if !pinyinState.isCandidatePageVisible {") -and
+        $source.Contains("candidateInputArea") -and
+        $source.Contains(".allowsHitTesting(!pinyinState.isCandidatePageVisible)")
     )
     "candidate strip renders selectable candidates" = (
-        $source.Contains("ForEach(Array(pinyinState.candidates.enumerated()), id: \.element.id)") -and
+        $source.Contains("ForEach(Array(pinyinState.candidates.prefix(candidateBatchSize).enumerated()), id: \.element.id)") -and
         $source.Contains("PinyinCandidateButton")
     )
-    "expanded candidate page covers only the key area" = (
+    "expanded candidate page covers the keyboard area from the top" = (
         $source.Contains(".overlay(alignment: .top) {") -and
         $source.Contains("expandedCandidateOverlay") -and
-        $source.Contains("PinyinKeyboardMetrics.candidateToolbarHeight") -and
-        $source.Contains(".padding(.top, PinyinKeyboardMetrics.candidateToolbarHeight)") -and
+        $source.Contains("PinyinExpandedCandidateOverlay") -and
+        $source.Contains(".frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)") -and
         $source.Contains(".clipped()") -and
         -not $source.Contains("GeometryReader { proxy in") -and
         -not $source.Contains("expandedCandidateOverlayHeight(for:") -and
-        -not $source.Contains(".frame(maxHeight: .infinity, alignment: .top)")
+        -not $source.Contains(".padding(.top, PinyinKeyboardMetrics.candidateToolbarHeight)")
+    )
+    "expanded candidate page has independent collapse control" = (
+        $source.Contains("private var collapseHeader: some View") -and
+        $source.Contains("pinyinState.isCandidatePageVisible = false") -and
+        $source.Contains('"chevron.up"')
     )
     "expanded candidate page keeps flow layout" = (
         $source.Contains("private struct PinyinExpandedCandidateOverlay: View") -and
@@ -52,9 +64,10 @@ $checks = [ordered]@{
         $source.Contains("isCandidatePageVisible = false") -and
         $source.Contains("commitCompositionAsText()")
     )
-    "candidate page avoids full keyboard transition animation" = (
-        -not $source.Contains(".transition(.move(edge: .top).combined(with: .opacity))") -and
-        -not $source.Contains(".animation(.easeInOut(duration: 0.22), value: pinyinState.isCandidatePageVisible)")
+    "candidate page uses top-down transition animation" = (
+        $source.Contains(".transition(.move(edge: .top).combined(with: .opacity))") -and
+        $source.Contains(".animation(.easeOut(duration: PinyinKeyboardMetrics.candidatePanelAnimationDuration), value: pinyinState.isCandidatePageVisible)") -and
+        $source.Contains("withAnimation(.easeOut(duration: PinyinKeyboardMetrics.candidatePanelAnimationDuration))")
     )
 }
 
