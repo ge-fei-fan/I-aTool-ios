@@ -7,6 +7,7 @@ final class KeyboardViewController: KeyboardInputViewController {
 
     override func viewDidLoad() {
         super.viewDidLoad()
+        setKeyboardCase(.lowercased)
         let standardActionHandler = services.actionHandler
         services.actionHandler = PinyinKeyboardActionHandler(
             controller: self,
@@ -174,19 +175,56 @@ private struct PinyinKeyboardView: View {
     let insertText: (String) -> Void
 
     var body: some View {
-        KeyboardView(
-            services: services,
-            buttonContent: { $0.view },
-            buttonView: { $0.view },
-            collapsedView: { $0.view },
-            emojiKeyboard: { $0.view },
-            toolbar: { _ in
-                PinyinCandidateToolbar(
+        ZStack(alignment: .top) {
+            KeyboardView(
+                services: services,
+                buttonContent: { params in
+                    if case .shift(let keyboardCase) = params.item.action {
+                        PinyinShiftButtonContent(keyboardCase: keyboardCase)
+                    } else {
+                        params.view
+                    }
+                },
+                buttonView: { $0.view },
+                collapsedView: { $0.view },
+                emojiKeyboard: { $0.view },
+                toolbar: { _ in
+                    PinyinCandidateToolbar(
+                        pinyinState: pinyinState,
+                        insertText: insertText
+                    )
+                }
+            )
+
+            if pinyinState.isCandidatePageVisible {
+                PinyinExpandedCandidateOverlay(
                     pinyinState: pinyinState,
                     insertText: insertText
                 )
+                .transition(.move(edge: .top).combined(with: .opacity))
             }
-        )
+        }
+        .animation(.easeInOut(duration: 0.22), value: pinyinState.isCandidatePageVisible)
+    }
+}
+
+private struct PinyinShiftButtonContent: View {
+    let keyboardCase: Keyboard.KeyboardCase
+
+    var body: some View {
+        Image(imageName)
+            .resizable()
+            .scaledToFit()
+            .frame(width: 24, height: 24)
+    }
+
+    private var imageName: String {
+        switch keyboardCase {
+        case .uppercased:
+            return "ios-icon/大写图标"
+        case .lowercased:
+            return "ios-icon/小写图标"
+        }
     }
 }
 
@@ -197,18 +235,10 @@ private struct PinyinCandidateToolbar: View {
     private let candidateBatchSize = 30
 
     var body: some View {
-        ZStack(alignment: .top) {
-            candidateInputArea
-                .opacity(pinyinState.isCandidatePageVisible ? 0 : 1)
-                .allowsHitTesting(!pinyinState.isCandidatePageVisible)
-
-            if pinyinState.isCandidatePageVisible {
-                candidateExpandedPage
-                    .transition(.move(edge: .top).combined(with: .opacity))
-            }
-        }
+        candidateInputArea
+            .opacity(pinyinState.isCandidatePageVisible ? 0 : 1)
+            .allowsHitTesting(!pinyinState.isCandidatePageVisible)
         .frame(maxWidth: .infinity)
-        .animation(.easeInOut(duration: 0.22), value: pinyinState.isCandidatePageVisible)
     }
 
     private var candidateInputArea: some View {
@@ -273,7 +303,26 @@ private struct PinyinCandidateToolbar: View {
         .allowsHitTesting(!pinyinState.candidates.isEmpty)
     }
 
-    private var candidateExpandedPage: some View {
+    private func candidateButton(
+        _ candidate: PinyinInputEngine.Candidate,
+        index: Int,
+        expanded: Bool
+    ) -> some View {
+        PinyinCandidateButton(
+            candidate: candidate,
+            index: index,
+            expanded: expanded,
+            pinyinState: pinyinState,
+            insertText: insertText
+        )
+    }
+}
+
+private struct PinyinExpandedCandidateOverlay: View {
+    @ObservedObject var pinyinState: PinyinKeyboardInputState
+    let insertText: (String) -> Void
+
+    var body: some View {
         VStack(spacing: 0) {
             HStack {
                 Spacer()
@@ -294,7 +343,13 @@ private struct PinyinCandidateToolbar: View {
             ScrollView(.vertical, showsIndicators: false) {
                 CandidateFlowLayout(spacing: 6) {
                     ForEach(Array(pinyinState.candidates.enumerated()), id: \.element.id) { index, candidate in
-                        candidateButton(candidate, index: index, expanded: true)
+                        PinyinCandidateButton(
+                            candidate: candidate,
+                            index: index,
+                            expanded: true,
+                            pinyinState: pinyinState,
+                            insertText: insertText
+                        )
                     }
                 }
                 .padding(.horizontal, 6)
@@ -302,20 +357,25 @@ private struct PinyinCandidateToolbar: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .frame(minHeight: 204, alignment: .top)
+        .frame(maxHeight: .infinity, alignment: .top)
         .background(Color(.secondarySystemBackground))
         .clipped()
     }
+}
 
-    private func candidateButton(
-        _ candidate: PinyinInputEngine.Candidate,
-        index: Int,
-        expanded: Bool
-    ) -> some View {
+private struct PinyinCandidateButton: View {
+    let candidate: PinyinInputEngine.Candidate
+    let index: Int
+    let expanded: Bool
+    @ObservedObject var pinyinState: PinyinKeyboardInputState
+    let insertText: (String) -> Void
+
+    var body: some View {
         Button {
             if let committedText = pinyinState.select(candidate) {
                 insertText(committedText)
             }
+            pinyinState.isCandidatePageVisible = false
         } label: {
             Text(candidate.text)
                 .font(.system(size: 19, weight: index == 0 ? .semibold : .regular))
