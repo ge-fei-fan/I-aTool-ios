@@ -222,6 +222,8 @@ private struct PinyinShiftButtonContent: View {
         switch keyboardCase {
         case .uppercased:
             return "ios-icon/大写图标"
+        case .capsLocked:
+            return "ios-icon/大写图标"
         case .lowercased:
             return "ios-icon/小写图标"
         }
