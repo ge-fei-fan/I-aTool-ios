@@ -7,7 +7,7 @@ $source = Get-Content -Path $keyboardSource -Raw
 $checks = [ordered]@{
     "active keyboard uses KeyboardKit setupKeyboardView lifecycle" = (
         $source.Contains("override func viewWillSetupKeyboardView()") -and
-        $source.Contains("setupKeyboardView { controller in") -and
+        $source.Contains("setupKeyboardView { [pinyinState] controller in") -and
         -not $source.Contains("UIHostingController(rootView:") -and
         -not $source.Contains("addChild(hostingController)") -and
         -not $source.Contains("view.addSubview(hostingController.view)")
@@ -17,25 +17,42 @@ $checks = [ordered]@{
         $source.Contains("private var migratedCandidateStrip: some View")
     )
     "candidate strip shows pinyin composition text" = (
-        $source.Contains('Text(engine.displayText.isEmpty ? "中文拼音" : engine.displayText)') -and
-        $source.Contains("engine.hasComposition")
+        $source.Contains('Text(pinyinState.displayText.isEmpty ? "中文拼音" : pinyinState.displayText)') -and
+        $source.Contains("pinyinState.hasComposition")
     )
-    "candidate strip has old-style expand button" = (
+    "candidate strip has toggle expand button" = (
         $source.Contains("candidateExpandButton") -and
-        $source.Contains("chevron.down")
+        $source.Contains('pinyinState.isCandidatePageVisible ? "chevron.up" : "chevron.down"') -and
+        $source.Contains("pinyinState.isCandidatePageVisible.toggle()")
+    )
+    "candidate strip remains visible and interactive while expanded" = (
+        -not $source.Contains(".opacity(pinyinState.isCandidatePageVisible ? 0 : 1)") -and
+        -not $source.Contains(".allowsHitTesting(!pinyinState.isCandidatePageVisible)")
     )
     "candidate strip renders selectable candidates" = (
-        $source.Contains("ForEach(Array(engine.candidates.enumerated()), id: \.element.id)") -and
-        $source.Contains("selectCandidate(candidate)")
+        $source.Contains("ForEach(Array(pinyinState.candidates.enumerated()), id: \.element.id)") -and
+        $source.Contains("PinyinCandidateButton")
     )
-    "expanded candidate page is restored" = (
-        $source.Contains("private var candidateExpandedPage: some View") -and
+    "expanded candidate page covers only the key area" = (
+        $source.Contains("GeometryReader { proxy in") -and
+        $source.Contains("PinyinKeyboardMetrics.candidateToolbarHeight") -and
+        $source.Contains("expandedCandidateOverlayHeight(for: proxy.size.height)") -and
+        $source.Contains(".offset(y: PinyinKeyboardMetrics.candidateToolbarHeight)") -and
+        $source.Contains(".clipped()") -and
+        -not $source.Contains(".frame(maxHeight: .infinity, alignment: .top)")
+    )
+    "expanded candidate page keeps flow layout" = (
+        $source.Contains("private struct PinyinExpandedCandidateOverlay: View") -and
         $source.Contains("CandidateFlowLayout") -and
-        $source.Contains("isCandidatePageVisible")
+        $source.Contains("pinyinState.isCandidatePageVisible")
     )
     "candidate page hides when composition is committed or cleared" = (
         $source.Contains("isCandidatePageVisible = false") -and
-        $source.Contains("commitCompositionIfNeeded()")
+        $source.Contains("commitCompositionAsText()")
+    )
+    "candidate page avoids full keyboard transition animation" = (
+        -not $source.Contains(".transition(.move(edge: .top).combined(with: .opacity))") -and
+        -not $source.Contains(".animation(.easeInOut(duration: 0.22), value: pinyinState.isCandidatePageVisible)")
     )
 }
 

@@ -24,12 +24,13 @@ $checks = [ordered]@{
     )
     "active keyboard installs custom SwiftUI keyboard through KeyboardKit" = (
         $keyboard.Contains("override func viewWillSetupKeyboardView()") -and
-        $keyboard.Contains("setupKeyboardView { controller in") -and
-        $keyboard.Contains("ChinesePinyinKeyboardView") -and
-        -not $keyboard.Contains("UIHostingController<ChinesePinyinKeyboardView>")
+        $keyboard.Contains("setupKeyboardView { [pinyinState] controller in") -and
+        $keyboard.Contains("PinyinKeyboardView") -and
+        -not $keyboard.Contains("UIHostingController<")
     )
     "active keyboard routes pinyin through extracted engine" = (
-        $keyboard.Contains("@State private var engine = PinyinInputEngine()") -and
+        $keyboard.Contains("private let pinyinState = PinyinKeyboardInputState()") -and
+        $keyboard.Contains("@Published private(set) var engine = PinyinInputEngine()") -and
         $keyboard.Contains("engine.insertLetter") -and
         $keyboard.Contains("engine.candidates") -and
         $keyboard.Contains("engine.select")

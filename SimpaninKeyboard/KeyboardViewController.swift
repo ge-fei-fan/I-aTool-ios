@@ -29,6 +29,10 @@ final class KeyboardViewController: KeyboardInputViewController {
     }
 }
 
+private enum PinyinKeyboardMetrics {
+    static let candidateToolbarHeight: CGFloat = 75
+}
+
 private final class PinyinKeyboardInputState: ObservableObject {
     @Published private(set) var engine = PinyinInputEngine()
     @Published var isCandidatePageVisible = false
@@ -175,36 +179,44 @@ private struct PinyinKeyboardView: View {
     let insertText: (String) -> Void
 
     var body: some View {
-        ZStack(alignment: .top) {
-            KeyboardView(
-                services: services,
-                buttonContent: { params in
-                    if case .shift(let keyboardCase) = params.item.action {
-                        PinyinShiftButtonContent(keyboardCase: keyboardCase)
-                    } else {
-                        params.view
+        GeometryReader { proxy in
+            ZStack(alignment: .top) {
+                KeyboardView(
+                    services: services,
+                    buttonContent: { params in
+                        if case .shift(let keyboardCase) = params.item.action {
+                            PinyinShiftButtonContent(keyboardCase: keyboardCase)
+                        } else {
+                            params.view
+                        }
+                    },
+                    buttonView: { $0.view },
+                    collapsedView: { $0.view },
+                    emojiKeyboard: { $0.view },
+                    toolbar: { _ in
+                        PinyinCandidateToolbar(
+                            pinyinState: pinyinState,
+                            insertText: insertText
+                        )
                     }
-                },
-                buttonView: { $0.view },
-                collapsedView: { $0.view },
-                emojiKeyboard: { $0.view },
-                toolbar: { _ in
-                    PinyinCandidateToolbar(
+                )
+
+                if pinyinState.isCandidatePageVisible {
+                    PinyinExpandedCandidateOverlay(
                         pinyinState: pinyinState,
                         insertText: insertText
                     )
+                    .frame(height: expandedCandidateOverlayHeight(for: proxy.size.height), alignment: .top)
+                    .offset(y: PinyinKeyboardMetrics.candidateToolbarHeight)
                 }
-            )
-
-            if pinyinState.isCandidatePageVisible {
-                PinyinExpandedCandidateOverlay(
-                    pinyinState: pinyinState,
-                    insertText: insertText
-                )
-                .transition(.move(edge: .top).combined(with: .opacity))
             }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .top)
+            .clipped()
         }
-        .animation(.easeInOut(duration: 0.22), value: pinyinState.isCandidatePageVisible)
+    }
+
+    private func expandedCandidateOverlayHeight(for keyboardHeight: CGFloat) -> CGFloat {
+        max(0, keyboardHeight - PinyinKeyboardMetrics.candidateToolbarHeight)
     }
 }
 
@@ -212,20 +224,47 @@ private struct PinyinShiftButtonContent: View {
     let keyboardCase: Keyboard.KeyboardCase
 
     var body: some View {
-        Image(imageName)
-            .resizable()
-            .scaledToFit()
-            .frame(width: 24, height: 24)
+        icon
+        .resizable()
+        .scaledToFit()
+        .frame(width: 24, height: 24)
+    }
+
+    private var icon: Image {
+        if let image = bundleImage {
+            return Image(uiImage: image)
+        }
+        return Image(systemName: fallbackSystemName)
+    }
+
+    private var bundleImage: UIImage? {
+        guard let url = Bundle(for: KeyboardViewController.self).url(
+            forResource: imageName,
+            withExtension: "png",
+            subdirectory: "ios-icon"
+        ) else {
+            return nil
+        }
+        return UIImage(contentsOfFile: url.path)
     }
 
     private var imageName: String {
         switch keyboardCase {
         case .uppercased:
-            return "ios-icon/大写图标"
+            return "大写图标"
         case .capsLocked:
-            return "ios-icon/大写图标"
+            return "大写图标"
         case .lowercased:
-            return "ios-icon/小写图标"
+            return "小写图标"
+        }
+    }
+
+    private var fallbackSystemName: String {
+        switch keyboardCase {
+        case .uppercased, .capsLocked:
+            return "shift.fill"
+        case .lowercased:
+            return "shift"
         }
     }
 }
@@ -238,9 +277,8 @@ private struct PinyinCandidateToolbar: View {
 
     var body: some View {
         candidateInputArea
-            .opacity(pinyinState.isCandidatePageVisible ? 0 : 1)
-            .allowsHitTesting(!pinyinState.isCandidatePageVisible)
-        .frame(maxWidth: .infinity)
+            .frame(maxWidth: .infinity)
+            .frame(height: PinyinKeyboardMetrics.candidateToolbarHeight)
     }
 
     private var candidateInputArea: some View {
@@ -292,9 +330,9 @@ private struct PinyinCandidateToolbar: View {
     private var candidateExpandButton: some View {
         Button {
             guard !pinyinState.candidates.isEmpty else { return }
-            pinyinState.isCandidatePageVisible = true
+            pinyinState.isCandidatePageVisible.toggle()
         } label: {
-            Image(systemName: "chevron.down")
+            Image(systemName: pinyinState.isCandidatePageVisible ? "chevron.up" : "chevron.down")
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(.primary)
                 .frame(width: 34, height: 32)
@@ -326,22 +364,6 @@ private struct PinyinExpandedCandidateOverlay: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                Spacer()
-                Button {
-                    pinyinState.isCandidatePageVisible = false
-                } label: {
-                    Image(systemName: "chevron.up")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundStyle(.primary)
-                        .frame(width: 34, height: 32)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-            }
-            .frame(height: 32)
-            .padding(.trailing, 1)
-
             ScrollView(.vertical, showsIndicators: false) {
                 CandidateFlowLayout(spacing: 6) {
                     ForEach(Array(pinyinState.candidates.enumerated()), id: \.element.id) { index, candidate in
@@ -359,7 +381,6 @@ private struct PinyinExpandedCandidateOverlay: View {
             }
         }
         .frame(maxWidth: .infinity)
-        .frame(maxHeight: .infinity, alignment: .top)
         .background(Color(.secondarySystemBackground))
         .clipped()
     }
