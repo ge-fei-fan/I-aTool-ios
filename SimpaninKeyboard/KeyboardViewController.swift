@@ -3,69 +3,159 @@ import SwiftUI
 import UIKit
 
 final class KeyboardViewController: KeyboardInputViewController {
+    private let pinyinState = PinyinKeyboardInputState()
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+    }
+
+    override func performKeyboardAction(
+        _ action: KeyboardAction,
+        with gesture: Keyboard.Gesture
+    ) {
+        guard gesture == .release else {
+            super.performKeyboardAction(action, with: gesture)
+            return
+        }
+
+        switch action {
+        case .character(let value):
+            if isPinyinLetter(value) {
+                pinyinState.insertLetter(value)
+                return
+            }
+        case .backspace:
+            if pinyinState.hasComposition {
+                if !pinyinState.deleteBackward() {
+                    textDocumentProxy.deleteBackward()
+                }
+                return
+            }
+        case .space:
+            if let first = pinyinState.candidates.first,
+               let text = pinyinState.select(first) {
+                textDocumentProxy.insertText(text)
+                return
+            }
+        case .primary:
+            if pinyinState.hasComposition {
+                if let text = pinyinState.commitCompositionAsText() {
+                    textDocumentProxy.insertText(text)
+                }
+            }
+        default:
+            if pinyinState.hasComposition {
+                if let text = pinyinState.commitCompositionAsText() {
+                    textDocumentProxy.insertText(text)
+                }
+            }
+        }
+
+        super.performKeyboardAction(action, with: gesture)
+    }
+
     override func viewWillSetupKeyboardView() {
-        setupKeyboardView { controller in
-            ChinesePinyinKeyboardView(
+        setupKeyboardView { [pinyinState] controller in
+            PinyinKeyboardView(
+                services: controller.services,
+                pinyinState: pinyinState,
                 insertText: { [weak controller] text in
                     controller?.textDocumentProxy.insertText(text)
-                },
-                deleteBackward: { [weak controller] in
-                    controller?.textDocumentProxy.deleteBackward()
-                },
-                submitReturn: { [weak controller] in
-                    controller?.textDocumentProxy.insertText("\n")
-                },
-                advanceToNextInputMode: { [weak controller] in
-                    controller?.advanceToNextInputMode()
                 }
             )
         }
     }
+
+    private func isPinyinLetter(_ value: String) -> Bool {
+        value.count == 1 && value.rangeOfCharacter(from: .letters) != nil
+    }
 }
 
-private enum PinyinKeyboardMode {
-    case letters
-    case numbers
-    case symbols
+private final class PinyinKeyboardInputState: ObservableObject {
+    @Published private(set) var engine = PinyinInputEngine()
+    @Published var isCandidatePageVisible = false
+
+    var hasComposition: Bool {
+        engine.hasComposition
+    }
+
+    var candidates: [PinyinInputEngine.Candidate] {
+        engine.candidates
+    }
+
+    var displayText: String {
+        engine.displayText
+    }
+
+    func insertLetter(_ letter: String) {
+        engine.insertLetter(letter.lowercased())
+        isCandidatePageVisible = false
+    }
+
+    func deleteBackward() -> Bool {
+        let didDelete = engine.deleteBackward()
+        if engine.candidates.isEmpty {
+            isCandidatePageVisible = false
+        }
+        return didDelete
+    }
+
+    func select(_ candidate: PinyinInputEngine.Candidate) -> String? {
+        let committedText = engine.select(candidate)
+        if engine.candidates.isEmpty {
+            isCandidatePageVisible = false
+        }
+        return committedText
+    }
+
+    func commitCompositionAsText() -> String? {
+        let text = engine.commitCompositionAsText()
+        isCandidatePageVisible = false
+        return text
+    }
 }
 
-private struct ChinesePinyinKeyboardView: View {
+private struct PinyinKeyboardView: View {
+    let services: Keyboard.Services
+    @ObservedObject var pinyinState: PinyinKeyboardInputState
     let insertText: (String) -> Void
-    let deleteBackward: () -> Void
-    let submitReturn: () -> Void
-    let advanceToNextInputMode: () -> Void
 
-    @State private var engine = PinyinInputEngine()
-    @State private var mode: PinyinKeyboardMode = .letters
-    @State private var isShifted = false
-    @State private var isCandidatePageVisible = false
+    var body: some View {
+        KeyboardView(
+            services: services,
+            buttonContent: { $0.view },
+            buttonView: { $0.view },
+            collapsedView: { $0.view },
+            emojiKeyboard: { $0.view },
+            toolbar: { _ in
+                PinyinCandidateToolbar(
+                    pinyinState: pinyinState,
+                    insertText: insertText
+                )
+            }
+        )
+    }
+}
+
+private struct PinyinCandidateToolbar: View {
+    @ObservedObject var pinyinState: PinyinKeyboardInputState
+    let insertText: (String) -> Void
 
     private let candidateBatchSize = 30
 
     var body: some View {
-        VStack(spacing: 7) {
+        ZStack(alignment: .top) {
             candidateInputArea
-            ZStack(alignment: .top) {
-                keyRows
-                    .opacity(isCandidatePageVisible ? 0 : 1)
-                    .offset(y: isCandidatePageVisible ? 120 : 0)
-                    .allowsHitTesting(!isCandidatePageVisible)
+                .opacity(pinyinState.isCandidatePageVisible ? 0 : 1)
+                .allowsHitTesting(!pinyinState.isCandidatePageVisible)
 
-                if isCandidatePageVisible {
-                    candidateExpandedPage
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                }
+            if pinyinState.isCandidatePageVisible {
+                candidateExpandedPage
+                    .transition(.move(edge: .top).combined(with: .opacity))
             }
         }
-        .padding(.horizontal, 4)
-        .padding(.vertical, 6)
-        .background(.regularMaterial)
-        .animation(.easeInOut(duration: 0.22), value: isCandidatePageVisible)
-        .onChange(of: engine.candidates) { candidates in
-            if candidates.isEmpty {
-                isCandidatePageVisible = false
-            }
-        }
+        .frame(maxWidth: .infinity)
+        .animation(.easeInOut(duration: 0.22), value: pinyinState.isCandidatePageVisible)
     }
 
     private var candidateInputArea: some View {
@@ -73,13 +163,16 @@ private struct ChinesePinyinKeyboardView: View {
             compositionBar
             migratedCandidateStrip
         }
+        .padding(.horizontal, 4)
+        .padding(.top, 4)
+        .padding(.bottom, 2)
     }
 
     private var compositionBar: some View {
         HStack(spacing: 8) {
-            Text(engine.displayText.isEmpty ? "中文拼音" : engine.displayText)
+            Text(pinyinState.displayText.isEmpty ? "中文拼音" : pinyinState.displayText)
                 .font(.system(size: 15, weight: .regular))
-                .foregroundStyle(engine.hasComposition ? .primary : .secondary)
+                .foregroundStyle(pinyinState.hasComposition ? .primary : .secondary)
                 .lineLimit(1)
                 .frame(maxWidth: .infinity, alignment: .leading)
         }
@@ -93,18 +186,18 @@ private struct ChinesePinyinKeyboardView: View {
         HStack(spacing: 6) {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    ForEach(Array(engine.candidates.prefix(candidateBatchSize).enumerated()), id: \.element.id) { index, candidate in
+                    ForEach(Array(pinyinState.candidates.prefix(candidateBatchSize).enumerated()), id: \.element.id) { index, candidate in
                         candidateButton(candidate, index: index, expanded: false)
                     }
 
-                    if engine.candidates.isEmpty {
+                    if pinyinState.candidates.isEmpty {
                         Color.clear.frame(width: 1, height: 30)
                     }
                 }
                 .frame(minWidth: 0, alignment: .leading)
                 .padding(.bottom, 1)
             }
-            .scrollDisabled(engine.candidates.count <= 3)
+            .scrollDisabled(pinyinState.candidates.count <= 3)
 
             candidateExpandButton
         }
@@ -113,8 +206,8 @@ private struct ChinesePinyinKeyboardView: View {
 
     private var candidateExpandButton: some View {
         Button {
-            guard !engine.candidates.isEmpty else { return }
-            isCandidatePageVisible = true
+            guard !pinyinState.candidates.isEmpty else { return }
+            pinyinState.isCandidatePageVisible = true
         } label: {
             Image(systemName: "chevron.down")
                 .font(.system(size: 15, weight: .semibold))
@@ -123,8 +216,8 @@ private struct ChinesePinyinKeyboardView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-        .opacity(engine.candidates.isEmpty ? 0 : 1)
-        .allowsHitTesting(!engine.candidates.isEmpty)
+        .opacity(pinyinState.candidates.isEmpty ? 0 : 1)
+        .allowsHitTesting(!pinyinState.candidates.isEmpty)
     }
 
     private var candidateExpandedPage: some View {
@@ -132,7 +225,7 @@ private struct ChinesePinyinKeyboardView: View {
             HStack {
                 Spacer()
                 Button {
-                    isCandidatePageVisible = false
+                    pinyinState.isCandidatePageVisible = false
                 } label: {
                     Image(systemName: "chevron.up")
                         .font(.system(size: 15, weight: .semibold))
@@ -147,7 +240,7 @@ private struct ChinesePinyinKeyboardView: View {
 
             ScrollView(.vertical, showsIndicators: false) {
                 CandidateFlowLayout(spacing: 6) {
-                    ForEach(Array(engine.candidates.enumerated()), id: \.element.id) { index, candidate in
+                    ForEach(Array(pinyinState.candidates.enumerated()), id: \.element.id) { index, candidate in
                         candidateButton(candidate, index: index, expanded: true)
                     }
                 }
@@ -161,52 +254,15 @@ private struct ChinesePinyinKeyboardView: View {
         .clipped()
     }
 
-    private var keyRows: some View {
-        VStack(spacing: 12) {
-            ForEach(rows.indices, id: \.self) { rowIndex in
-                HStack(spacing: 6) {
-                    ForEach(rows[rowIndex]) { key in
-                        keyButton(key)
-                    }
-                }
-                .frame(height: 42)
-            }
-        }
-    }
-
-    private var rows: [[PinyinKeyboardKey]] {
-        switch mode {
-        case .letters:
-            return [
-                "qwertyuiop".map { .character(String($0)) },
-                "asdfghjkl".map { .character(String($0)) },
-                [.shift] + "zxcvbnm".map { .character(String($0)) } + [.backspace],
-                [.modeSwitch("123", .numbers), .nextKeyboard, .space, .returnKey]
-            ]
-        case .numbers:
-            return [
-                "1234567890".map { .character(String($0)) },
-                "-/:;()$&@\"".map { .character(String($0)) },
-                [.modeSwitch("#+=", .symbols)] + ".,?!'".map { .character(String($0)) } + [.backspace],
-                [.modeSwitch("ABC", .letters), .nextKeyboard, .space, .returnKey]
-            ]
-        case .symbols:
-            return [
-                "[]{}#%^*+=".map { .character(String($0)) },
-                "_\\|~<>€£¥".map { .character(String($0)) },
-                [.modeSwitch("123", .numbers)] + ".,?!'".map { .character(String($0)) } + [.backspace],
-                [.modeSwitch("ABC", .letters), .nextKeyboard, .space, .returnKey]
-            ]
-        }
-    }
-
     private func candidateButton(
         _ candidate: PinyinInputEngine.Candidate,
         index: Int,
         expanded: Bool
     ) -> some View {
         Button {
-            selectCandidate(candidate)
+            if let committedText = pinyinState.select(candidate) {
+                insertText(committedText)
+            }
         } label: {
             Text(candidate.text)
                 .font(.system(size: 19, weight: index == 0 ? .semibold : .regular))
@@ -219,76 +275,6 @@ private struct ChinesePinyinKeyboardView: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
-    }
-
-    private func keyButton(_ key: PinyinKeyboardKey) -> some View {
-        Button {
-            handle(key)
-        } label: {
-            Text(key.title(isShifted: isShifted))
-                .font(.system(size: key.fontSize, weight: key.isPrimary ? .regular : .semibold))
-                .foregroundStyle(.primary)
-                .frame(maxWidth: key.width == nil ? .infinity : key.width, minHeight: 42, maxHeight: 42)
-                .background(key.backgroundColor)
-                .clipShape(RoundedRectangle(cornerRadius: 7, style: .continuous))
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func handle(_ key: PinyinKeyboardKey) {
-        switch key {
-        case .character(let value):
-            if mode == .letters, value.rangeOfCharacter(from: .letters) != nil {
-                engine.insertLetter(isShifted ? value.uppercased() : value.lowercased())
-                isCandidatePageVisible = false
-            } else {
-                commitCompositionIfNeeded()
-                insertText(value)
-            }
-        case .shift:
-            isShifted.toggle()
-        case .backspace:
-            if !engine.deleteBackward() {
-                deleteBackward()
-            }
-            if engine.candidates.isEmpty {
-                isCandidatePageVisible = false
-            }
-        case .space:
-            if let first = engine.candidates.first {
-                selectCandidate(first)
-            } else {
-                commitCompositionIfNeeded()
-                insertText(" ")
-            }
-        case .returnKey:
-            commitCompositionIfNeeded()
-            submitReturn()
-        case .nextKeyboard:
-            commitCompositionIfNeeded()
-            advanceToNextInputMode()
-        case .modeSwitch(_, let target):
-            commitCompositionIfNeeded()
-            mode = target
-            isShifted = false
-            isCandidatePageVisible = false
-        }
-    }
-
-    private func selectCandidate(_ candidate: PinyinInputEngine.Candidate) {
-        if let committedText = engine.select(candidate) {
-            insertText(committedText)
-        }
-        if engine.candidates.isEmpty {
-            isCandidatePageVisible = false
-        }
-    }
-
-    private func commitCompositionIfNeeded() {
-        if let text = engine.commitCompositionAsText() {
-            insertText(text)
-        }
-        isCandidatePageVisible = false
     }
 }
 
@@ -358,78 +344,6 @@ private struct CandidateFlowLayout: Layout {
             )
             x += width
             rowHeight = max(rowHeight, height)
-        }
-    }
-}
-
-private enum PinyinKeyboardKey: Identifiable, Equatable {
-    case character(String)
-    case shift
-    case backspace
-    case space
-    case returnKey
-    case nextKeyboard
-    case modeSwitch(String, PinyinKeyboardMode)
-
-    var id: String {
-        switch self {
-        case .character(let value): return "char-\(value)"
-        case .shift: return "shift"
-        case .backspace: return "backspace"
-        case .space: return "space"
-        case .returnKey: return "return"
-        case .nextKeyboard: return "next"
-        case .modeSwitch(let title, _): return "mode-\(title)"
-        }
-    }
-
-    var isPrimary: Bool {
-        if case .character = self { return true }
-        return false
-    }
-
-    var width: CGFloat? {
-        switch self {
-        case .space:
-            return 150
-        case .shift, .backspace, .returnKey, .nextKeyboard, .modeSwitch:
-            return 48
-        case .character:
-            return nil
-        }
-    }
-
-    var fontSize: CGFloat {
-        switch self {
-        case .character:
-            return 22
-        case .space:
-            return 15
-        default:
-            return 14
-        }
-    }
-
-    var backgroundColor: Color {
-        isPrimary ? Color(.systemBackground) : Color(.secondarySystemBackground)
-    }
-
-    func title(isShifted: Bool) -> String {
-        switch self {
-        case .character(let value):
-            return isShifted ? value.uppercased() : value
-        case .shift:
-            return isShifted ? "⇪" : "⇧"
-        case .backspace:
-            return "⌫"
-        case .space:
-            return "空格"
-        case .returnKey:
-            return "确认"
-        case .nextKeyboard:
-            return "🌐"
-        case .modeSwitch(let title, _):
-            return title
         }
     }
 }
