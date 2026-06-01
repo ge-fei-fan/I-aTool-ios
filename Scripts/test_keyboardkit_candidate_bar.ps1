@@ -5,6 +5,13 @@ $keyboardSource = Join-Path $repoRoot "SimpaninKeyboard\KeyboardViewController.s
 $source = Get-Content -Path $keyboardSource -Raw
 
 $checks = [ordered]@{
+    "active keyboard uses KeyboardKit setupKeyboardView lifecycle" = (
+        $source.Contains("override func viewWillSetupKeyboardView()") -and
+        $source.Contains("setupKeyboardView { controller in") -and
+        -not $source.Contains("UIHostingController(rootView:") -and
+        -not $source.Contains("addChild(hostingController)") -and
+        -not $source.Contains("view.addSubview(hostingController.view)")
+    )
     "active keyboard renders migrated candidate strip" = (
         $source.Contains("private var candidateInputArea: some View") -and
         $source.Contains("private var migratedCandidateStrip: some View")

@@ -22,9 +22,11 @@ $checks = [ordered]@{
         $keyboard.Contains("import KeyboardKit") -and
         $keyboard.Contains("final class KeyboardViewController: KeyboardInputViewController")
     )
-    "active keyboard is SwiftUI hosted" = (
-        $keyboard.Contains("UIHostingController<ChinesePinyinKeyboardView>") -and
-        $keyboard.Contains("ChinesePinyinKeyboardView")
+    "active keyboard installs custom SwiftUI keyboard through KeyboardKit" = (
+        $keyboard.Contains("override func viewWillSetupKeyboardView()") -and
+        $keyboard.Contains("setupKeyboardView { controller in") -and
+        $keyboard.Contains("ChinesePinyinKeyboardView") -and
+        -not $keyboard.Contains("UIHostingController<ChinesePinyinKeyboardView>")
     )
     "active keyboard routes pinyin through extracted engine" = (
         $keyboard.Contains("@State private var engine = PinyinInputEngine()") -and

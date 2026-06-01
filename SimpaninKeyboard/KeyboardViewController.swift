@@ -3,43 +3,23 @@ import SwiftUI
 import UIKit
 
 final class KeyboardViewController: KeyboardInputViewController {
-    private var hostingController: UIHostingController<ChinesePinyinKeyboardView>?
-
-    override func viewDidLoad() {
-        super.viewDidLoad()
-        installKeyboardView()
-    }
-
-    private func installKeyboardView() {
-        let keyboardView = ChinesePinyinKeyboardView(
-            insertText: { [weak self] text in
-                self?.textDocumentProxy.insertText(text)
-            },
-            deleteBackward: { [weak self] in
-                self?.textDocumentProxy.deleteBackward()
-            },
-            submitReturn: { [weak self] in
-                self?.textDocumentProxy.insertText("\n")
-            },
-            advanceToNextInputMode: { [weak self] in
-                self?.advanceToNextInputMode()
-            }
-        )
-
-        let hostingController = UIHostingController(rootView: keyboardView)
-        hostingController.view.translatesAutoresizingMaskIntoConstraints = false
-        hostingController.view.backgroundColor = .clear
-        addChild(hostingController)
-        view.addSubview(hostingController.view)
-        NSLayoutConstraint.activate([
-            hostingController.view.leadingAnchor.constraint(equalTo: view.leadingAnchor),
-            hostingController.view.trailingAnchor.constraint(equalTo: view.trailingAnchor),
-            hostingController.view.topAnchor.constraint(equalTo: view.topAnchor),
-            hostingController.view.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-            view.heightAnchor.constraint(greaterThanOrEqualToConstant: 258)
-        ])
-        hostingController.didMove(toParent: self)
-        self.hostingController = hostingController
+    override func viewWillSetupKeyboardView() {
+        setupKeyboardView { controller in
+            ChinesePinyinKeyboardView(
+                insertText: { [weak controller] text in
+                    controller?.textDocumentProxy.insertText(text)
+                },
+                deleteBackward: { [weak controller] in
+                    controller?.textDocumentProxy.deleteBackward()
+                },
+                submitReturn: { [weak controller] in
+                    controller?.textDocumentProxy.insertText("\n")
+                },
+                advanceToNextInputMode: { [weak controller] in
+                    controller?.advanceToNextInputMode()
+                }
+            )
+        }
     }
 }
 
