@@ -25,6 +25,9 @@ final class KeyboardViewController: KeyboardInputViewController {
                 pinyinState: pinyinState,
                 insertText: { [weak controller] text in
                     controller?.textDocumentProxy.insertText(text)
+                },
+                dismissKeyboard: { [weak controller] in
+                    controller?.dismissKeyboard()
                 }
             )
         }
@@ -59,6 +62,7 @@ private enum PinyinKeyboardMetrics {
     static let expandedCandidateMinHitHeight: CGFloat = 44
     static let expandedCandidateVerticalPadding: CGFloat = 10
     static let candidatePanelAnimationDuration: TimeInterval = 0.22
+    static let utilityIconPointSize: CGFloat = 24
 }
 
 private final class PinyinKeyboardInputState: ObservableObject {
@@ -271,6 +275,8 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
             if pinyinState.hasComposition,
                let text = pinyinState.commitCompositionAsText() {
                 controller?.insertText(text)
+                applyLockedKeyboardCaseDeferred()
+                return
             }
             standardActionHandler.handle(action)
             applyLockedKeyboardCaseDeferred()
@@ -324,6 +330,8 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
             if pinyinState.hasComposition,
                let text = pinyinState.commitCompositionAsText() {
                 controller?.insertText(text)
+                applyLockedKeyboardCaseDeferred()
+                return
             }
             handleStandardAction(gesture, on: action)
             applyLockedKeyboardCaseDeferred()
@@ -387,6 +395,8 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
             return shouldRouteLetterToPinyin(value)
         case .backspace:
             return true
+        case .primary:
+            return pinyinState.hasComposition
         default:
             return false
         }
@@ -435,6 +445,7 @@ private struct PinyinKeyboardView: View {
     let services: Keyboard.Services
     @ObservedObject var pinyinState: PinyinKeyboardInputState
     let insertText: (String) -> Void
+    let dismissKeyboard: () -> Void
 
     var body: some View {
         KeyboardView(
@@ -445,6 +456,8 @@ private struct PinyinKeyboardView: View {
                     PinyinShiftButtonContent(keyboardCase: keyboardCase)
                 } else if case .custom(named: Self.languageSwitchActionName) = params.item.action {
                     PinyinLanguageSwitchButtonContent(isChineseInputEnabled: pinyinState.isChineseInputEnabled)
+                } else if case .primary = params.item.action, pinyinState.hasComposition {
+                    PinyinPrimaryConfirmButtonContent()
                 } else {
                     params.view
                 }
@@ -455,7 +468,8 @@ private struct PinyinKeyboardView: View {
             toolbar: { _ in
                 PinyinCandidateToolbar(
                     pinyinState: pinyinState,
-                    insertText: insertText
+                    insertText: insertText,
+                    dismissKeyboard: dismissKeyboard
                 )
             }
         )
@@ -524,7 +538,7 @@ private struct PinyinKeyboardView: View {
     }
 
     private func languageSwitchItem(side: CGFloat) -> KeyboardLayout.Item {
-        let adjustedSide = max(0, side - 5)
+        let adjustedSide = max(0, side - 10)
         return KeyboardLayout.Item(
             action: .custom(named: Self.languageSwitchActionName),
             size: .init(width: .points(adjustedSide), height: adjustedSide)
@@ -609,6 +623,15 @@ private struct PinyinLanguageSwitchButtonContent: View {
     }
 }
 
+private struct PinyinPrimaryConfirmButtonContent: View {
+    var body: some View {
+        Text("确认")
+            .font(.system(size: 16, weight: .semibold))
+            .minimumScaleFactor(0.75)
+            .lineLimit(1)
+    }
+}
+
 private struct PinyinShiftButtonContent: View {
     let keyboardCase: Keyboard.KeyboardCase
 
@@ -661,6 +684,7 @@ private struct PinyinShiftButtonContent: View {
 private struct PinyinCandidateToolbar: View {
     @ObservedObject var pinyinState: PinyinKeyboardInputState
     let insertText: (String) -> Void
+    let dismissKeyboard: () -> Void
 
     private let candidateBatchSize = 30
 
@@ -705,38 +729,51 @@ private struct PinyinCandidateToolbar: View {
             ) { offset in
                 pinyinState.setDisplayCursorOffset(offset)
             }
+            .frame(maxWidth: .infinity)
+
+            PinyinMascotButton()
         }
         .padding(.horizontal, 10)
         .frame(height: PinyinKeyboardMetrics.compositionBarHeight)
-        .background(Color(.secondarySystemBackground).opacity(0.75))
-        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+        .background(Color.clear)
+    }
+
+    private var shouldShowUtilityIconStrip: Bool {
+        pinyinState.isChineseInputEnabled
+            && !pinyinState.hasComposition
+            && pinyinState.candidates.isEmpty
+            && !pinyinState.isCandidateRefreshPending
     }
 
     private var migratedCandidateStrip: some View {
         HStack(spacing: 6) {
-            GeometryReader { proxy in
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 6) {
-                        ForEach(Array(pinyinState.candidates.prefix(candidateBatchSize).enumerated()), id: \.element.id) { index, candidate in
-                            candidateButton(candidate, index: index, expanded: false)
-                        }
+            if shouldShowUtilityIconStrip {
+                PinyinCandidateUtilityIconStrip(dismissKeyboard: dismissKeyboard)
+            } else {
+                GeometryReader { proxy in
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ForEach(Array(pinyinState.candidates.prefix(candidateBatchSize).enumerated()), id: \.element.id) { index, candidate in
+                                candidateButton(candidate, index: index, expanded: false)
+                            }
 
-                        if pinyinState.candidates.isEmpty {
-                            Color.clear.frame(width: 1, height: 30)
+                            if pinyinState.candidates.isEmpty {
+                                Color.clear.frame(width: 1, height: 30)
+                            }
                         }
+                        .frame(minWidth: proxy.size.width, alignment: .leading)
+                        .background(Color.primary.opacity(0.001))
+                        .contentShape(Rectangle())
+                        .padding(.bottom, 1)
                     }
-                    .frame(minWidth: proxy.size.width, alignment: .leading)
-                    .background(Color.primary.opacity(0.001))
                     .contentShape(Rectangle())
-                    .padding(.bottom, 1)
+                    .background(Color.primary.opacity(0.001))
+                    .scrollDisabled(pinyinState.candidates.count <= 3)
                 }
-                .contentShape(Rectangle())
-                .background(Color.primary.opacity(0.001))
-                .scrollDisabled(pinyinState.candidates.count <= 3)
-            }
-            .frame(height: 32)
+                .frame(height: 32)
 
-            candidateExpandButton
+                candidateExpandButton
+            }
         }
         .frame(height: 32)
     }
@@ -774,6 +811,215 @@ private struct PinyinCandidateToolbar: View {
             pinyinState: pinyinState,
             insertText: insertText
         )
+    }
+}
+
+private struct PinyinMascotButton: View {
+    @State private var animationToken = 0
+    @State private var isAnimating = false
+
+    var body: some View {
+        Button {
+            playAnimation()
+        } label: {
+            ZStack {
+                PinyinHeartBurstView(trigger: animationToken)
+                    .frame(width: 72, height: 58)
+                    .offset(x: -10, y: -12)
+                    .allowsHitTesting(false)
+
+                mascotImage
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 32, height: 38)
+                    .offset(y: -3)
+                    .scaleEffect(isAnimating ? 1.08 : 1)
+                    .rotationEffect(.degrees(isAnimating ? -3.5 : 0))
+                    .offset(x: isAnimating ? -1 : 0, y: isAnimating ? -5 : 0)
+            }
+            .frame(width: 56, height: 42)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel("Cat")
+    }
+
+    private var mascotImage: Image {
+        if let image = PinyinKeyboardImageLoader.image(named: "猫") {
+            return Image(uiImage: image)
+        }
+        return Image(systemName: "cat")
+    }
+
+    private func playAnimation() {
+        animationToken += 1
+        withAnimation(.easeOut(duration: 0.28)) {
+            isAnimating = true
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.38) {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                isAnimating = false
+            }
+        }
+    }
+}
+
+private struct PinyinHeartBurstView: View {
+    let trigger: Int
+    @State private var isExpanded = false
+
+    private let particles: [PinyinHeartParticle] = [
+        .init(x: -34, y: -32, rotation: 14, delay: 0, scale: 0.76, size: 13, color: UIColor(red: 1.00, green: 0.35, blue: 0.58, alpha: 1)),
+        .init(x: -22, y: -48, rotation: -8, delay: 0.03, scale: 0.88, size: 11, color: UIColor(red: 1.00, green: 0.48, blue: 0.66, alpha: 1)),
+        .init(x: -8, y: -58, rotation: 10, delay: 0.055, scale: 0.72, size: 9, color: UIColor(red: 1.00, green: 0.27, blue: 0.44, alpha: 1)),
+        .init(x: 8, y: -58, rotation: -12, delay: 0.075, scale: 0.80, size: 10, color: UIColor(red: 0.96, green: 0.25, blue: 0.52, alpha: 1)),
+        .init(x: 24, y: -46, rotation: 16, delay: 0.095, scale: 0.92, size: 12, color: UIColor(red: 1.00, green: 0.62, blue: 0.74, alpha: 1)),
+        .init(x: 36, y: -30, rotation: -10, delay: 0.12, scale: 0.78, size: 10, color: UIColor(red: 1.00, green: 0.35, blue: 0.58, alpha: 1)),
+        .init(x: -38, y: -14, rotation: -18, delay: 0.07, scale: 0.68, size: 8, color: UIColor(red: 1.00, green: 0.48, blue: 0.66, alpha: 1)),
+        .init(x: 40, y: -12, rotation: 20, delay: 0.14, scale: 0.70, size: 8, color: UIColor(red: 1.00, green: 0.27, blue: 0.44, alpha: 1)),
+        .init(x: -18, y: -26, rotation: 8, delay: 0.11, scale: 0.62, size: 7, color: UIColor(red: 0.96, green: 0.25, blue: 0.52, alpha: 1)),
+        .init(x: 18, y: -26, rotation: -8, delay: 0.155, scale: 0.66, size: 7, color: UIColor(red: 1.00, green: 0.62, blue: 0.74, alpha: 1)),
+        .init(x: -6, y: -42, rotation: 22, delay: 0.17, scale: 0.58, size: 8, color: UIColor(red: 1.00, green: 0.35, blue: 0.58, alpha: 1)),
+        .init(x: 6, y: -42, rotation: -22, delay: 0.195, scale: 0.58, size: 8, color: UIColor(red: 1.00, green: 0.48, blue: 0.66, alpha: 1))
+    ]
+
+    var body: some View {
+        ZStack {
+            ForEach(particles) { particle in
+                PinyinHeartShape()
+                    .fill(Color(particle.color))
+                    .frame(width: particle.size, height: particle.size)
+                    .rotationEffect(.degrees(isExpanded ? particle.rotation + 45 : 45))
+                    .scaleEffect(isExpanded ? particle.scale : 0.35)
+                    .opacity(isExpanded ? 0 : (trigger == 0 ? 0 : 1))
+                    .offset(x: isExpanded ? particle.x : 0, y: isExpanded ? particle.y : 0)
+                    .animation(
+                        .easeOut(duration: 0.76).delay(particle.delay),
+                        value: isExpanded
+                    )
+            }
+        }
+        .onChange(of: trigger) { _ in
+            guard trigger > 0 else { return }
+            isExpanded = false
+            DispatchQueue.main.async {
+                isExpanded = true
+            }
+        }
+    }
+}
+
+private struct PinyinHeartParticle: Identifiable {
+    let id = UUID()
+    let x: CGFloat
+    let y: CGFloat
+    let rotation: CGFloat
+    let delay: TimeInterval
+    let scale: CGFloat
+    let size: CGFloat
+    let color: UIColor
+}
+
+private struct PinyinHeartShape: Shape {
+    func path(in rect: CGRect) -> Path {
+        var path = Path()
+        path.move(to: CGPoint(x: rect.midX, y: rect.maxY))
+        path.addCurve(
+            to: CGPoint(x: rect.minX, y: rect.midY - rect.height * 0.08),
+            control1: CGPoint(x: rect.minX + rect.width * 0.18, y: rect.maxY - rect.height * 0.18),
+            control2: CGPoint(x: rect.minX, y: rect.midY + rect.height * 0.18)
+        )
+        path.addCurve(
+            to: CGPoint(x: rect.midX, y: rect.minY + rect.height * 0.24),
+            control1: CGPoint(x: rect.minX, y: rect.minY + rect.height * 0.12),
+            control2: CGPoint(x: rect.midX - rect.width * 0.24, y: rect.minY)
+        )
+        path.addCurve(
+            to: CGPoint(x: rect.maxX, y: rect.midY - rect.height * 0.08),
+            control1: CGPoint(x: rect.midX + rect.width * 0.24, y: rect.minY),
+            control2: CGPoint(x: rect.maxX, y: rect.minY + rect.height * 0.12)
+        )
+        path.addCurve(
+            to: CGPoint(x: rect.midX, y: rect.maxY),
+            control1: CGPoint(x: rect.maxX, y: rect.midY + rect.height * 0.18),
+            control2: CGPoint(x: rect.maxX - rect.width * 0.18, y: rect.maxY - rect.height * 0.18)
+        )
+        path.closeSubpath()
+        return path
+    }
+}
+
+private struct PinyinCandidateUtilityIconStrip: View {
+    let dismissKeyboard: () -> Void
+
+    private var items: [PinyinUtilityIconItem] {
+        [
+            .init(assetName: "icons8-diversity-50", fallbackSystemName: "person.2", accessibilityLabel: "Function", action: nil),
+            .init(assetName: "文本", fallbackSystemName: "textformat", accessibilityLabel: "Quick fill", action: nil),
+            .init(assetName: "翻译", fallbackSystemName: "text.translate", accessibilityLabel: "Translate", action: nil),
+            .init(assetName: "icons8-happy-50", fallbackSystemName: "face.smiling", accessibilityLabel: "Cursor", action: nil),
+            .init(assetName: "icons8-happy-50", fallbackSystemName: "face.smiling", accessibilityLabel: "Emoji", action: nil),
+            .init(assetName: "icons8-expand-arrow-50", fallbackSystemName: "chevron.down", accessibilityLabel: "Dismiss keyboard", action: dismissKeyboard)
+        ]
+    }
+
+    var body: some View {
+        HStack(alignment: .top) {
+            ForEach(items) { item in
+                PinyinUtilityIconButton(item: item)
+            }
+        }
+        .frame(maxWidth: .infinity, minHeight: 32, maxHeight: 32, alignment: .top)
+        .padding(.horizontal, 5)
+    }
+}
+
+private struct PinyinUtilityIconItem: Identifiable {
+    let id = UUID()
+    let assetName: String
+    let fallbackSystemName: String
+    let accessibilityLabel: String
+    let action: (() -> Void)?
+}
+
+private struct PinyinUtilityIconButton: View {
+    let item: PinyinUtilityIconItem
+
+    var body: some View {
+        Button {
+            item.action?()
+        } label: {
+            icon
+                .resizable()
+                .scaledToFit()
+                .frame(width: PinyinKeyboardMetrics.utilityIconPointSize, height: PinyinKeyboardMetrics.utilityIconPointSize)
+                .foregroundStyle(.secondary)
+                .frame(width: 34, height: 32, alignment: .top)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(item.action == nil)
+        .accessibilityLabel(item.accessibilityLabel)
+    }
+
+    private var icon: Image {
+        if let image = PinyinKeyboardImageLoader.image(named: item.assetName) {
+            return Image(uiImage: image.withRenderingMode(.alwaysTemplate))
+        }
+        return Image(systemName: item.fallbackSystemName)
+    }
+}
+
+private enum PinyinKeyboardImageLoader {
+    static func image(named name: String) -> UIImage? {
+        if let url = Bundle(for: KeyboardViewController.self).url(
+            forResource: name,
+            withExtension: "png",
+            subdirectory: "ios-icon"
+        ) {
+            return UIImage(contentsOfFile: url.path)
+        }
+        return UIImage(named: name)
     }
 }
 
