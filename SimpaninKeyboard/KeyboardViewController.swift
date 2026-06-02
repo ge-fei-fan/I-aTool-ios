@@ -17,7 +17,7 @@ final class KeyboardViewController: KeyboardInputViewController {
     }
 
     override func viewWillSetupKeyboardView() {
-        applyLockedKeyboardCase()
+        applyLockedKeyboardCaseDeferred()
         setupKeyboardView { [pinyinState] controller in
             PinyinKeyboardView(
                 keyboardContext: controller.state.keyboardContext,
@@ -32,11 +32,18 @@ final class KeyboardViewController: KeyboardInputViewController {
 
     override func textDidChange(_ textInput: UITextInput?) {
         super.textDidChange(textInput)
-        applyLockedKeyboardCase()
+        applyLockedKeyboardCaseDeferred()
     }
 
     private func applyLockedKeyboardCase() {
         setKeyboardCase(pinyinState.isUppercaseLocked ? .uppercased : .lowercased)
+    }
+
+    private func applyLockedKeyboardCaseDeferred() {
+        applyLockedKeyboardCase()
+        DispatchQueue.main.async { [weak self] in
+            self?.applyLockedKeyboardCase()
+        }
     }
 }
 
@@ -64,6 +71,7 @@ private final class PinyinKeyboardInputState: ObservableObject {
     private var appliedCandidateGeneration = 0
 
     @Published private(set) var displayText = ""
+    @Published private(set) var displayCursorOffset = 0
     @Published private(set) var hasComposition = false
     @Published private(set) var candidates: [PinyinInputEngine.Candidate] = []
     @Published private(set) var isCandidateRefreshPending = false
@@ -87,6 +95,13 @@ private final class PinyinKeyboardInputState: ObservableObject {
         refreshPublishedComposition()
         scheduleCandidateRefresh(resetCandidatesWhenEmpty: !engine.hasComposition)
         return didDelete
+    }
+
+    func setDisplayCursorOffset(_ offset: Int) {
+        engine.setDisplayCursorOffset(offset)
+        hideCandidatePageIfNeeded()
+        refreshPublishedComposition()
+        scheduleCandidateRefresh(resetCandidatesWhenEmpty: !engine.hasComposition)
     }
 
     func select(_ candidate: PinyinInputEngine.Candidate) -> String? {
@@ -184,6 +199,11 @@ private final class PinyinKeyboardInputState: ObservableObject {
         let nextDisplayText = engine.displayText
         if displayText != nextDisplayText {
             displayText = nextDisplayText
+        }
+
+        let nextDisplayCursorOffset = engine.displayCursorOffset
+        if displayCursorOffset != nextDisplayCursorOffset {
+            displayCursorOffset = nextDisplayCursorOffset
         }
 
         let nextHasComposition = engine.hasComposition
@@ -392,14 +412,8 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
     }
 
     private func handlePlainBackspace() {
-        if canDeleteBackwardInDocument {
-            controller?.textDocumentProxy.deleteBackward()
-        }
+        controller?.textDocumentProxy.deleteBackward()
         applyLockedKeyboardCase()
-    }
-
-    private var canDeleteBackwardInDocument: Bool {
-        controller?.textDocumentProxy.documentContextBeforeInput?.isEmpty == false
     }
 
     private func applyLockedKeyboardCase() {
@@ -510,7 +524,7 @@ private struct PinyinKeyboardView: View {
     }
 
     private func languageSwitchItem(side: CGFloat) -> KeyboardLayout.Item {
-        let adjustedSide = max(0, side - 2)
+        let adjustedSide = max(0, side - 5)
         return KeyboardLayout.Item(
             action: .custom(named: Self.languageSwitchActionName),
             size: .init(width: .points(adjustedSide), height: adjustedSide)
@@ -684,11 +698,13 @@ private struct PinyinCandidateToolbar: View {
 
     private var compositionBar: some View {
         HStack(spacing: 8) {
-            Text(pinyinState.displayText.isEmpty ? "" : pinyinState.displayText)
-                .font(.system(size: 15, weight: .regular))
-                .foregroundStyle(pinyinState.hasComposition ? .primary : .secondary)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
+            PinyinCompositionCursorText(
+                text: pinyinState.displayText,
+                cursorOffset: pinyinState.displayCursorOffset,
+                hasComposition: pinyinState.hasComposition
+            ) { offset in
+                pinyinState.setDisplayCursorOffset(offset)
+            }
         }
         .padding(.horizontal, 10)
         .frame(height: PinyinKeyboardMetrics.compositionBarHeight)
@@ -840,6 +856,83 @@ private struct PinyinCandidateButton: View {
         }
         .buttonStyle(.plain)
         .allowsHitTesting(!pinyinState.isCandidateRefreshPending)
+    }
+}
+
+private struct PinyinCompositionCursorText: View {
+    let text: String
+    let cursorOffset: Int
+    let hasComposition: Bool
+    let setCursorOffset: (Int) -> Void
+
+    private let fontSize: CGFloat = 15
+
+    var body: some View {
+        GeometryReader { proxy in
+            HStack(spacing: 0) {
+                Text(prefixText)
+                    .font(.system(size: fontSize, weight: .regular))
+                    .foregroundStyle(hasComposition ? .primary : .secondary)
+                    .lineLimit(1)
+
+                if hasComposition {
+                    Rectangle()
+                        .fill(Color.primary)
+                        .frame(width: 1.5, height: 18)
+                }
+
+                Text(suffixText)
+                    .font(.system(size: fontSize, weight: .regular))
+                    .foregroundStyle(hasComposition ? .primary : .secondary)
+                    .lineLimit(1)
+
+                Spacer(minLength: 0)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 0)
+                    .onEnded { value in
+                        guard hasComposition else { return }
+                        setCursorOffset(nearestCursorOffset(for: value.location.x))
+                    }
+            )
+        }
+    }
+
+    private var clampedCursorOffset: Int {
+        max(0, min(cursorOffset, text.count))
+    }
+
+    private var prefixText: String {
+        let end = text.index(text.startIndex, offsetBy: clampedCursorOffset)
+        return String(text[..<end])
+    }
+
+    private var suffixText: String {
+        let start = text.index(text.startIndex, offsetBy: clampedCursorOffset)
+        return String(text[start...])
+    }
+
+    private func nearestCursorOffset(for x: CGFloat) -> Int {
+        guard !text.isEmpty else { return 0 }
+        let font = UIFont.systemFont(ofSize: fontSize, weight: .regular)
+        let attributes: [NSAttributedString.Key: Any] = [.font: font]
+        let characters = Array(text)
+        var bestOffset = 0
+        var bestDistance = CGFloat.greatestFiniteMagnitude
+
+        for offset in 0...characters.count {
+            let prefix = String(characters.prefix(offset)) as NSString
+            let width = prefix.size(withAttributes: attributes).width
+            let distance = abs(width - x)
+            if distance < bestDistance {
+                bestDistance = distance
+                bestOffset = offset
+            }
+        }
+
+        return bestOffset
     }
 }
 

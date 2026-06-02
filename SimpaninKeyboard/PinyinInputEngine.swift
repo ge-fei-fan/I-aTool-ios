@@ -18,15 +18,18 @@ struct PinyinInputEngine {
     private let associationProvider = PinyinAssociationProvider()
     private var selectedSegments: [SelectedSegment] = []
     private var compositionBuffer = ""
+    private var compositionCursorOffset = 0
     private var associationContext: String?
 
     var rawPinyin: String { selectedSegments.map(\.pinyin).joined() + compositionBuffer }
     var displayText: String { selectedSegments.map(\.text).joined() + compositionBuffer }
     var hasComposition: Bool { !selectedSegments.isEmpty || !compositionBuffer.isEmpty }
+    var displayCursorOffset: Int { selectedSegments.map(\.text).joined().count + compositionCursorOffset }
 
     var candidates: [Candidate] {
-        if !compositionBuffer.isEmpty {
-            return candidateProvider.candidates(for: compositionBuffer).map {
+        let candidateInput = String(compositionBuffer.prefix(compositionCursorOffset))
+        if !candidateInput.isEmpty {
+            return candidateProvider.candidates(for: candidateInput).map {
                 Candidate(text: $0.text, consumeLength: $0.consumeLength)
             }
         }
@@ -41,16 +44,22 @@ struct PinyinInputEngine {
     mutating func insertLetter(_ letter: String) {
         guard !letter.isEmpty else { return }
         associationContext = nil
-        compositionBuffer += letter
+        let index = compositionBuffer.index(compositionBuffer.startIndex, offsetBy: compositionCursorOffset)
+        compositionBuffer.insert(contentsOf: letter, at: index)
+        compositionCursorOffset += letter.count
     }
 
     mutating func deleteBackward() -> Bool {
-        if !compositionBuffer.isEmpty {
-            compositionBuffer.removeLast()
+        if compositionCursorOffset > 0 {
+            let removeEnd = compositionBuffer.index(compositionBuffer.startIndex, offsetBy: compositionCursorOffset)
+            let removeStart = compositionBuffer.index(before: removeEnd)
+            compositionBuffer.removeSubrange(removeStart..<removeEnd)
+            compositionCursorOffset -= 1
             return true
         }
         if let segment = selectedSegments.popLast() {
             compositionBuffer = segment.pinyin
+            compositionCursorOffset = compositionBuffer.count
             return true
         }
         associationContext = nil
@@ -60,6 +69,14 @@ struct PinyinInputEngine {
     mutating func clearComposition() {
         selectedSegments.removeAll()
         compositionBuffer = ""
+        compositionCursorOffset = 0
+    }
+
+    mutating func setDisplayCursorOffset(_ offset: Int) {
+        let selectedTextLength = selectedSegments.map(\.text).joined().count
+        let editableOffset = max(0, min(offset - selectedTextLength, compositionBuffer.count))
+        guard compositionCursorOffset != editableOffset else { return }
+        compositionCursorOffset = editableOffset
     }
 
     mutating func select(_ candidate: Candidate) -> String? {
@@ -68,11 +85,13 @@ struct PinyinInputEngine {
             return candidate.text
         }
 
-        let consumeLength = candidate.consumeLength > 0 ? candidate.consumeLength : compositionBuffer.count
-        let prefixLength = max(0, min(consumeLength, compositionBuffer.count))
+        let candidateInputLength = compositionCursorOffset
+        let consumeLength = candidate.consumeLength > 0 ? candidate.consumeLength : candidateInputLength
+        let prefixLength = max(0, min(consumeLength, candidateInputLength, compositionBuffer.count))
         let end = compositionBuffer.index(compositionBuffer.startIndex, offsetBy: prefixLength)
         let consumedPinyin = String(compositionBuffer[..<end])
         compositionBuffer.removeSubrange(compositionBuffer.startIndex..<end)
+        compositionCursorOffset = max(0, compositionCursorOffset - prefixLength)
         selectedSegments.append(SelectedSegment(
             pinyin: consumedPinyin,
             text: candidate.text,
@@ -1869,4 +1888,5 @@ private final class PinyinCandidateProvider {
         "zhong": ["中", "种"]
     ]
 }
+
 
