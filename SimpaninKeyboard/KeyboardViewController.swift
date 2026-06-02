@@ -511,7 +511,7 @@ private struct PinyinKeyboardView: View {
 
     private func languageSwitchItem(side: CGFloat) -> KeyboardLayout.Item {
         let adjustedSide = max(0, side - 2)
-        KeyboardLayout.Item(
+        return KeyboardLayout.Item(
             action: .custom(named: Self.languageSwitchActionName),
             size: .init(width: .points(adjustedSide), height: adjustedSide)
         )
