@@ -231,10 +231,16 @@ private final class PinyinKeyboardInputState: ObservableObject {
 
 private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
     private static let languageSwitchActionName = "simpanin.inputMode.toggleChineseEnglish"
+    private static let spaceCursorHorizontalStep: CGFloat = 7
+    private static let spaceCursorVerticalStep: CGFloat = 10
+    private static let spaceCursorVerticalCharacterOffset = 12
 
     private weak var controller: KeyboardInputViewController?
     private let standardActionHandler: any KeyboardActionHandler
     private let pinyinState: PinyinKeyboardInputState
+    private var lastSpaceCursorDragLocation: CGPoint?
+    private var accumulatedSpaceCursorDrag = CGSize.zero
+    private var didMoveCursorWithSpaceDrag = false
 
     init(
         controller: KeyboardInputViewController,
@@ -318,6 +324,11 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
                 handleStandardAction(gesture, on: action)
             }
         case .space:
+            if didMoveCursorWithSpaceDrag {
+                resetSpaceCursorDrag()
+                applyLockedKeyboardCase()
+                return
+            }
             guard let first = pinyinState.firstFreshCandidateForCommit() else {
                 handleStandardAction(gesture, on: action)
                 return
@@ -353,7 +364,47 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
         from startLocation: CGPoint,
         to currentLocation: CGPoint
     ) {
-        standardActionHandler.handleDrag(on: action, from: startLocation, to: currentLocation)
+        guard case .space = action else {
+            resetSpaceCursorDrag()
+            standardActionHandler.handleDrag(on: action, from: startLocation, to: currentLocation)
+            return
+        }
+        handleSpaceCursorDrag(from: startLocation, to: currentLocation)
+    }
+
+    private func handleSpaceCursorDrag(
+        from startLocation: CGPoint,
+        to currentLocation: CGPoint
+    ) {
+        let previousLocation = lastSpaceCursorDragLocation ?? startLocation
+        lastSpaceCursorDragLocation = currentLocation
+
+        accumulatedSpaceCursorDrag.width += currentLocation.x - previousLocation.x
+        accumulatedSpaceCursorDrag.height += currentLocation.y - previousLocation.y
+
+        var offset = 0
+
+        let horizontalSteps = Int(accumulatedSpaceCursorDrag.width / Self.spaceCursorHorizontalStep)
+        if horizontalSteps != 0 {
+            offset += horizontalSteps
+            accumulatedSpaceCursorDrag.width -= CGFloat(horizontalSteps) * Self.spaceCursorHorizontalStep
+        }
+
+        let verticalSteps = Int(accumulatedSpaceCursorDrag.height / Self.spaceCursorVerticalStep)
+        if verticalSteps != 0 {
+            offset += verticalSteps * Self.spaceCursorVerticalCharacterOffset
+            accumulatedSpaceCursorDrag.height -= CGFloat(verticalSteps) * Self.spaceCursorVerticalStep
+        }
+
+        guard offset != 0 else { return }
+        didMoveCursorWithSpaceDrag = true
+        controller?.textDocumentProxy.adjustTextPosition(byCharacterOffset: offset)
+    }
+
+    private func resetSpaceCursorDrag() {
+        lastSpaceCursorDragLocation = nil
+        accumulatedSpaceCursorDrag = .zero
+        didMoveCursorWithSpaceDrag = false
     }
 
     func triggerFeedback(for gesture: Keyboard.Gesture, on action: KeyboardAction) {
