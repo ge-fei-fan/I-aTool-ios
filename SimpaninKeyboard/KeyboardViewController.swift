@@ -17,7 +17,7 @@ final class KeyboardViewController: KeyboardInputViewController {
     }
 
     override func viewWillSetupKeyboardView() {
-        setKeyboardCase(.lowercased)
+        applyLockedKeyboardCase()
         setupKeyboardView { [pinyinState] controller in
             PinyinKeyboardView(
                 keyboardContext: controller.state.keyboardContext,
@@ -28,6 +28,15 @@ final class KeyboardViewController: KeyboardInputViewController {
                 }
             )
         }
+    }
+
+    override func textDidChange(_ textInput: UITextInput?) {
+        super.textDidChange(textInput)
+        applyLockedKeyboardCase()
+    }
+
+    private func applyLockedKeyboardCase() {
+        setKeyboardCase(pinyinState.isUppercaseLocked ? .uppercased : .lowercased)
     }
 }
 
@@ -60,6 +69,7 @@ private final class PinyinKeyboardInputState: ObservableObject {
     @Published private(set) var isCandidateRefreshPending = false
     @Published var isChineseInputEnabled = true
     @Published var isCandidatePageVisible = false
+    @Published var isUppercaseLocked = false
 
     deinit {
         candidateRefreshWorkItem?.cancel()
@@ -201,7 +211,6 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
     private weak var controller: KeyboardInputViewController?
     private let standardActionHandler: any KeyboardActionHandler
     private let pinyinState: PinyinKeyboardInputState
-    private var isManualUppercaseEnabled = false
 
     init(
         controller: KeyboardInputViewController,
@@ -228,25 +237,26 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
             handleShift(keyboardCase)
         case .character(let value) where shouldRouteLetterToPinyin(value):
             pinyinState.insertLetter(value)
+            applyLockedKeyboardCase()
         case .backspace where pinyinState.hasComposition:
             if pinyinState.deleteBackward() {
-                applyLowercaseIfCompositionCleared()
+                applyLockedKeyboardCase()
             } else {
                 standardActionHandler.handle(action)
-                applyLowercaseState()
+                applyLockedKeyboardCase()
             }
         case .backspace:
-            handlePlainBackspaceLowercasing()
+            handlePlainBackspace()
         case .primary:
             if pinyinState.hasComposition,
                let text = pinyinState.commitCompositionAsText() {
                 controller?.insertText(text)
             }
             standardActionHandler.handle(action)
-            applyLowercaseStateDeferred()
+            applyLockedKeyboardCaseDeferred()
         default:
             standardActionHandler.handle(action)
-            applyDefaultLowercaseIfNeeded()
+            applyLockedKeyboardCase()
         }
     }
 
@@ -270,13 +280,14 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
                 return
             }
             pinyinState.insertLetter(value)
+            applyLockedKeyboardCase()
         case .backspace:
             guard pinyinState.hasComposition else {
-                handlePlainBackspaceLowercasing()
+                handlePlainBackspace()
                 return
             }
             if pinyinState.deleteBackward() {
-                applyLowercaseIfCompositionCleared()
+                applyLockedKeyboardCase()
             } else {
                 handleStandardAction(gesture, on: action)
             }
@@ -288,14 +299,14 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
             if let text = pinyinState.select(first) {
                 controller?.insertText(text)
             }
-            applyDefaultLowercaseIfNeeded()
+            applyLockedKeyboardCase()
         case .primary:
             if pinyinState.hasComposition,
                let text = pinyinState.commitCompositionAsText() {
                 controller?.insertText(text)
             }
             handleStandardAction(gesture, on: action)
-            applyLowercaseStateDeferred()
+            applyLockedKeyboardCaseDeferred()
         default:
             if pinyinState.hasComposition,
                let text = pinyinState.commitCompositionAsText() {
@@ -362,14 +373,8 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
     }
 
     private func handleShift(_ keyboardCase: Keyboard.KeyboardCase) {
-        switch keyboardCase {
-        case .lowercased:
-            isManualUppercaseEnabled = true
-            controller?.setKeyboardCase(.uppercased)
-        case .uppercased, .capsLocked:
-            isManualUppercaseEnabled = false
-            controller?.setKeyboardCase(.lowercased)
-        }
+        pinyinState.isUppercaseLocked.toggle()
+        applyLockedKeyboardCase()
     }
 
     private func handleLanguageSwitch() {
@@ -378,46 +383,33 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
             controller?.insertText(text)
         }
         pinyinState.toggleChineseInput()
-        applyLowercaseState()
+        applyLockedKeyboardCase()
     }
 
     private func handleStandardAction(_ gesture: Keyboard.Gesture, on action: KeyboardAction) {
         standardActionHandler.handle(gesture, on: action)
-        applyDefaultLowercaseIfNeeded()
+        applyLockedKeyboardCase()
     }
 
-    private func handlePlainBackspaceLowercasing() {
+    private func handlePlainBackspace() {
         if canDeleteBackwardInDocument {
             controller?.textDocumentProxy.deleteBackward()
         }
-        applyLowercaseState()
+        applyLockedKeyboardCase()
     }
 
     private var canDeleteBackwardInDocument: Bool {
         controller?.textDocumentProxy.documentContextBeforeInput?.isEmpty == false
     }
 
-    private func applyDefaultLowercaseIfNeeded() {
-        if !isManualUppercaseEnabled {
-            controller?.setKeyboardCase(.lowercased)
-        }
+    private func applyLockedKeyboardCase() {
+        controller?.setKeyboardCase(pinyinState.isUppercaseLocked ? .uppercased : .lowercased)
     }
 
-    private func applyLowercaseIfCompositionCleared() {
-        if !pinyinState.hasComposition {
-            applyLowercaseState()
-        }
-    }
-
-    private func applyLowercaseState() {
-        isManualUppercaseEnabled = false
-        controller?.setKeyboardCase(.lowercased)
-    }
-
-    private func applyLowercaseStateDeferred() {
-        applyLowercaseState()
+    private func applyLockedKeyboardCaseDeferred() {
+        applyLockedKeyboardCase()
         DispatchQueue.main.async { [weak self] in
-            self?.applyLowercaseState()
+            self?.applyLockedKeyboardCase()
         }
     }
 }
@@ -456,8 +448,20 @@ private struct PinyinKeyboardView: View {
         .overlay(alignment: .top) {
             expandedCandidateOverlay
         }
+        .overlay(alignment: .topLeading) {
+            edgeBlankTapOverlay
+        }
         .animation(.easeOut(duration: PinyinKeyboardMetrics.candidatePanelAnimationDuration), value: pinyinState.isCandidatePageVisible)
         .clipped()
+    }
+
+    @ViewBuilder
+    private var edgeBlankTapOverlay: some View {
+        if pinyinState.isChineseInputEnabled && !pinyinState.isCandidatePageVisible {
+            PinyinKeyboardEdgeBlankTapOverlay(isUppercaseLocked: pinyinState.isUppercaseLocked) { letter in
+                pinyinState.insertLetter(letter)
+            }
+        }
     }
 
     private var keyboardLayout: KeyboardLayout {
@@ -506,9 +510,10 @@ private struct PinyinKeyboardView: View {
     }
 
     private func languageSwitchItem(side: CGFloat) -> KeyboardLayout.Item {
+        let adjustedSide = max(0, side - 2)
         KeyboardLayout.Item(
             action: .custom(named: Self.languageSwitchActionName),
-            size: .init(width: .points(side), height: side)
+            size: .init(width: .points(adjustedSide), height: adjustedSide)
         )
     }
 
@@ -522,6 +527,48 @@ private struct PinyinKeyboardView: View {
             .padding(.top, PinyinKeyboardMetrics.expandedCandidateOverlayTopOffset)
             .transition(.move(edge: .top).combined(with: .opacity))
         }
+    }
+}
+
+private struct PinyinKeyboardEdgeBlankTapOverlay: View {
+    let isUppercaseLocked: Bool
+    let insertLetter: (String) -> Void
+
+    private let rowCount: CGFloat = 4
+    private let secondLetterRowIndex: CGFloat = 1
+    private let sideHitWidthRatio: CGFloat = 0.085
+    private let sideHitWidthRange: ClosedRange<CGFloat> = 24...42
+
+    var body: some View {
+        GeometryReader { proxy in
+            let keyboardTop = PinyinKeyboardMetrics.candidateToolbarHeight
+            let keyboardHeight = max(0, proxy.size.height - keyboardTop)
+            let rowHeight = keyboardHeight / rowCount
+            let hitWidth = min(
+                sideHitWidthRange.upperBound,
+                max(sideHitWidthRange.lowerBound, proxy.size.width * sideHitWidthRatio)
+            )
+            let rowTop = keyboardTop + rowHeight * secondLetterRowIndex
+
+            ZStack(alignment: .topLeading) {
+                edgeHitArea(letter: isUppercaseLocked ? "A" : "a")
+                    .frame(width: hitWidth, height: rowHeight)
+                    .offset(x: 0, y: rowTop)
+
+                edgeHitArea(letter: isUppercaseLocked ? "L" : "l")
+                    .frame(width: hitWidth, height: rowHeight)
+                    .offset(x: proxy.size.width - hitWidth, y: rowTop)
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
+        }
+    }
+
+    private func edgeHitArea(letter: String) -> some View {
+        Color.primary.opacity(0.001)
+            .contentShape(Rectangle())
+            .onTapGesture {
+                insertLetter(letter)
+            }
     }
 }
 
