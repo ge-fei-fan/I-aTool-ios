@@ -474,8 +474,10 @@ private struct PinyinKeyboardView: View {
 
     private func utilityKeySide(in layout: KeyboardLayout) -> CGFloat {
         for row in layout.itemRows {
-            for item in row where item.action == .primary {
-                return item.size.height
+            for item in row {
+                if isPrimaryAction(item.action) {
+                    return item.size.height
+                }
             }
         }
         return CGFloat(layout.idealItemHeight)
@@ -485,8 +487,22 @@ private struct PinyinKeyboardView: View {
         _ item: KeyboardLayout.Item,
         side: CGFloat
     ) -> KeyboardLayout.Item {
-        guard item.action == .keyboardType(.numeric) else { return item }
+        guard isNumericKeyboardTypeAction(item.action) else { return item }
         return item.withWidth(.points(side))
+    }
+
+    private func isPrimaryAction(_ action: KeyboardAction) -> Bool {
+        if case .primary = action {
+            return true
+        }
+        return false
+    }
+
+    private func isNumericKeyboardTypeAction(_ action: KeyboardAction) -> Bool {
+        if case .keyboardType(.numeric) = action {
+            return true
+        }
+        return false
     }
 
     private func languageSwitchItem(side: CGFloat) -> KeyboardLayout.Item {
