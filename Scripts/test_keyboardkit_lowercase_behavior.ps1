@@ -7,7 +7,7 @@ $source = Get-Content -Path $keyboardSource -Raw
 $engine = Get-Content -Path $engineSource -Raw
 $directPinyinCharacterCase = [regex]::Match(
     $source,
-    "case \.character\(let value\) where isPinyinLetter\(value\):[\s\S]*?case \.backspace where"
+    "case \.character\(let value\) where shouldRouteLetterToPinyin\(value\):[\s\S]*?case \.backspace where"
 ).Value
 $releasePinyinCharacterCase = [regex]::Match(
     $source,

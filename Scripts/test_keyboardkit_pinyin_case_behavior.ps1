@@ -50,13 +50,16 @@ $checks = [ordered]@{
         $shouldHandlePinyinAction.Contains("case .character(let value):") -and
         $shouldHandlePinyinAction.Contains("return shouldRouteLetterToPinyin(value)")
     )
-    "Chinese English toggle key is inserted after reduced 123 key" = (
+    "Chinese English toggle key sits between space and return with square utility keys" = (
         $keyboard.Contains("languageSwitchActionName") -and
         $keyboard.Contains(".custom(named: Self.languageSwitchActionName)") -and
         $keyboard.Contains("PinyinLanguageSwitchButtonContent(isChineseInputEnabled: pinyinState.isChineseInputEnabled)") -and
+        $keyboard.Contains("let squareKeySide = CGFloat(layout.idealItemHeight)") -and
         $keyboard.Contains("guard item.action == .keyboardType(.numeric) else { return item }") -and
-        $keyboard.Contains("return item.withWidth(.inputPercentage(0.88))") -and
-        $keyboard.Contains("layout.itemRows.insert(languageSwitchItem(height: CGFloat(layout.idealItemHeight)), after: .keyboardType(.numeric))") -and
+        $keyboard.Contains("return item.withWidth(.points(squareKeySide))") -and
+        $keyboard.Contains("layout.itemRows.insert(languageSwitchItem(side: squareKeySide), after: .space)") -and
+        $keyboard.Contains("private func languageSwitchItem(side: CGFloat) -> KeyboardLayout.Item") -and
+        $keyboard.Contains("size: .init(width: .points(side), height: side)") -and
         $keyboard.Contains("Text(isChineseInputEnabled ?")
     )
     "pinyin engine stores raw typed letter casing" = (

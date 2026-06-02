@@ -11,6 +11,10 @@ $candidateButtonAction = [regex]::Match(
     $source,
     "private struct PinyinCandidateButton: View \{[\s\S]*?Button \{[\s\S]*?\n        \} label:"
 ).Value
+$toggleHitAreaDebugBackgrounds = [regex]::Matches(
+    $source,
+    "\.frame\(width: PinyinKeyboardMetrics\.candidateExpandHitWidth, height: PinyinKeyboardMetrics\.candidateExpandHitHeight\)\s*\.background\(Color\.red\.opacity\(PinyinKeyboardMetrics\.candidateToggleHitAreaDebugOpacity\)\)\s*\.contentShape\(Rectangle\(\)\)"
+)
 
 $checks = [ordered]@{
     "active keyboard uses KeyboardKit setupKeyboardView lifecycle" = (
@@ -38,6 +42,10 @@ $checks = [ordered]@{
         $source.Contains("candidateExpandHitHeight: CGFloat = 44") -and
         $source.Contains(".frame(width: PinyinKeyboardMetrics.candidateExpandHitWidth, height: PinyinKeyboardMetrics.candidateExpandHitHeight)") -and
         $source.Contains(".contentShape(Rectangle())")
+    )
+    "candidate expand and collapse hit areas show red debug background" = (
+        $source.Contains("candidateToggleHitAreaDebugOpacity: Double = 0.35") -and
+        $toggleHitAreaDebugBackgrounds.Count -ge 2
     )
     "candidate strip keeps composition visible while expanded" = (
         $source.Contains("if pinyinState.isCandidatePageVisible {") -and

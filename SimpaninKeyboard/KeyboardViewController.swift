@@ -39,6 +39,7 @@ private enum PinyinKeyboardMetrics {
     static let expandedCandidateOverlayTopOffset: CGFloat = candidateInputTopPadding + compositionBarHeight + compositionCandidateSpacing
     static let candidateExpandHitWidth: CGFloat = 48
     static let candidateExpandHitHeight: CGFloat = 44
+    static let candidateToggleHitAreaDebugOpacity: Double = 0.35
     static let expandedCandidateMinHitHeight: CGFloat = 44
     static let expandedCandidateVerticalPadding: CGFloat = 10
     static let candidatePanelAnimationDuration: TimeInterval = 0.22
@@ -363,20 +364,21 @@ private struct PinyinKeyboardView: View {
 
     private var keyboardLayout: KeyboardLayout {
         var layout = KeyboardLayout.standard(for: keyboardContext)
+        let squareKeySide = CGFloat(layout.idealItemHeight)
         layout.itemRows = layout.itemRows.map { row in
             row.map { item in
                 guard item.action == .keyboardType(.numeric) else { return item }
-                return item.withWidth(.inputPercentage(0.88))
+                return item.withWidth(.points(squareKeySide))
             }
         }
-        layout.itemRows.insert(languageSwitchItem(height: CGFloat(layout.idealItemHeight)), after: .keyboardType(.numeric))
+        layout.itemRows.insert(languageSwitchItem(side: squareKeySide), after: .space)
         return layout
     }
 
-    private func languageSwitchItem(height: CGFloat) -> KeyboardLayout.Item {
+    private func languageSwitchItem(side: CGFloat) -> KeyboardLayout.Item {
         KeyboardLayout.Item(
             action: .custom(named: Self.languageSwitchActionName),
-            size: .init(width: .inputPercentage(0.88), height: height)
+            size: .init(width: .points(side), height: side)
         )
     }
 
@@ -558,6 +560,7 @@ private struct PinyinCandidateToolbar: View {
                 .foregroundStyle(.primary)
                 .frame(width: 34, height: 32)
                 .frame(width: PinyinKeyboardMetrics.candidateExpandHitWidth, height: PinyinKeyboardMetrics.candidateExpandHitHeight)
+                .background(Color.red.opacity(PinyinKeyboardMetrics.candidateToggleHitAreaDebugOpacity))
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -621,6 +624,7 @@ private struct PinyinExpandedCandidateOverlay: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.primary)
                     .frame(width: PinyinKeyboardMetrics.candidateExpandHitWidth, height: PinyinKeyboardMetrics.candidateExpandHitHeight)
+                    .background(Color.red.opacity(PinyinKeyboardMetrics.candidateToggleHitAreaDebugOpacity))
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
