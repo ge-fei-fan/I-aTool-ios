@@ -997,8 +997,9 @@ private struct PinyinCandidateToolbar: View {
                 .font(.system(size: 15, weight: .semibold))
                 .foregroundStyle(.primary)
                 .frame(width: 34, height: 32)
+                .background(Color(.systemGray5), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .frame(width: PinyinKeyboardMetrics.candidateExpandHitWidth, height: PinyinKeyboardMetrics.candidateExpandHitHeight)
-                .background(Color.clear)
+                // .background(Color.clear)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -1370,8 +1371,10 @@ private struct PinyinExpandedCandidateOverlay: View {
                 Image(systemName: "chevron.up")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.primary)
+                    .frame(width: 34, height: 32)
+                    .background(Color(.systemGray5), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                     .frame(width: PinyinKeyboardMetrics.candidateExpandHitWidth, height: PinyinKeyboardMetrics.candidateExpandHitHeight)
-                    .background(Color.clear)
+                    // .background(Color.clear)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
