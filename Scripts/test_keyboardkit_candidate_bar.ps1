@@ -31,24 +31,37 @@ $checks = [ordered]@{
         $source.Contains(".frame(width: PinyinKeyboardMetrics.candidateExpandHitWidth, height: PinyinKeyboardMetrics.candidateExpandHitHeight)") -and
         $source.Contains(".contentShape(Rectangle())")
     )
-    "candidate strip hides while expanded" = (
-        $source.Contains("if !pinyinState.isCandidatePageVisible {") -and
+    "candidate strip keeps composition visible while expanded" = (
+        $source.Contains("if pinyinState.isCandidatePageVisible {") -and
+        $source.Contains("expandedCompositionArea") -and
         $source.Contains("candidateInputArea") -and
+        $source.Contains("private var expandedCompositionArea: some View") -and
         $source.Contains(".allowsHitTesting(!pinyinState.isCandidatePageVisible)")
     )
     "candidate strip renders selectable candidates" = (
         $source.Contains("ForEach(Array(pinyinState.candidates.prefix(candidateBatchSize).enumerated()), id: \.element.id)") -and
         $source.Contains("PinyinCandidateButton")
     )
-    "expanded candidate page covers the keyboard area from the top" = (
+    "candidate strip whitespace can start horizontal drag" = (
+        $source.Contains("private var migratedCandidateStrip: some View") -and
+        $source.Contains(".frame(minWidth: 0, alignment: .leading)") -and
+        $source.Contains(".contentShape(Rectangle())") -and
+        $source.Contains(".scrollDisabled(pinyinState.candidates.count <= 3)")
+    )
+    "expanded candidate page starts below pinyin composition bar" = (
         $source.Contains(".overlay(alignment: .top) {") -and
         $source.Contains("expandedCandidateOverlay") -and
         $source.Contains("PinyinExpandedCandidateOverlay") -and
+        $source.Contains("expandedCandidateOverlayTopOffset") -and
+        $source.Contains(".padding(.top, PinyinKeyboardMetrics.expandedCandidateOverlayTopOffset)") -and
         $source.Contains(".frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)") -and
         $source.Contains(".clipped()") -and
         -not $source.Contains("GeometryReader { proxy in") -and
-        -not $source.Contains("expandedCandidateOverlayHeight(for:") -and
-        -not $source.Contains(".padding(.top, PinyinKeyboardMetrics.candidateToolbarHeight)")
+        -not $source.Contains("expandedCandidateOverlayHeight(for:")
+    )
+    "expanded candidate page does not show pinyin text" = (
+        $source.Contains("private var collapseHeader: some View") -and
+        -not $source.Contains("Text(pinyinState.displayText)")
     )
     "expanded candidate page has independent collapse control" = (
         $source.Contains("private var collapseHeader: some View") -and
