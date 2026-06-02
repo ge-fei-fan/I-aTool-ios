@@ -3,11 +3,15 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $keyboardSource = Join-Path $repoRoot "SimpaninKeyboard\KeyboardViewController.swift"
 $source = Get-Content -Path $keyboardSource -Raw
+$plainBackspaceHandler = [regex]::Match(
+    $source,
+    "private func handlePlainBackspacePreservingCase\(\) \{[\s\S]*?\n    \}"
+).Value
 
 $checks = [ordered]@{
     "plain backspace has a dedicated case-preserving handler" = (
-        $source.Contains("private func handlePlainBackspacePreservingCase()") -and
-        $source.Contains("controller?.textDocumentProxy.deleteBackward()")
+        $plainBackspaceHandler.Contains("private func handlePlainBackspacePreservingCase()") -and
+        $plainBackspaceHandler.Contains("controller?.textDocumentProxy.deleteBackward()")
     )
     "action backspace without pinyin avoids KeyboardKit standard handler" = (
         $source.Contains("case .backspace where pinyinState.hasComposition:") -and
@@ -20,9 +24,14 @@ $checks = [ordered]@{
         ($source -match "case \.backspace:\s*return true")
     )
     "plain backspace preserves manual uppercase state" = (
-        $source.Contains("handlePlainBackspacePreservingCase()") -and
-        $source.Contains("applyDefaultLowercaseIfNeeded()") -and
-        $source.Contains("if !isManualUppercaseEnabled {")
+        $plainBackspaceHandler.Contains("handlePlainBackspacePreservingCase()") -and
+        $source.Contains("private var isManualUppercaseEnabled = false") -and
+        -not ($plainBackspaceHandler -match "applyDefaultLowercaseIfNeeded|applyPinyinLowercaseState|setKeyboardCase")
+    )
+    "plain backspace does not change keyboard case" = (
+        ($plainBackspaceHandler -match "private func handlePlainBackspacePreservingCase\(\) \{\s*controller\?\.textDocumentProxy\.deleteBackward\(\)\s*\}") -and
+        $source.Contains("applyPreReleaseCaseStateIfNeeded(on: action)") -and
+        -not ($source -match "if shouldConsumePreReleaseGesture\(on: action\) \{\s*applyPinyinLowercaseState\(\)")
     )
 }
 

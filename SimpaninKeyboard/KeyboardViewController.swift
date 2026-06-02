@@ -130,7 +130,7 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
     func handle(_ gesture: Keyboard.Gesture, on action: KeyboardAction) {
         guard gesture == .release else {
             if shouldConsumePreReleaseGesture(on: action) {
-                applyPinyinLowercaseState()
+                applyPreReleaseCaseStateIfNeeded(on: action)
                 return
             }
             standardActionHandler.handle(gesture, on: action)
@@ -219,6 +219,17 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
         }
     }
 
+    private func applyPreReleaseCaseStateIfNeeded(on action: KeyboardAction) {
+        switch action {
+        case .character(let value) where isPinyinLetter(value):
+            applyPinyinLowercaseState()
+        case .backspace where pinyinState.hasComposition:
+            applyPinyinLowercaseState()
+        default:
+            break
+        }
+    }
+
     private func handleShift(_ keyboardCase: Keyboard.KeyboardCase) {
         switch keyboardCase {
         case .lowercased:
@@ -237,7 +248,6 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
 
     private func handlePlainBackspacePreservingCase() {
         controller?.textDocumentProxy.deleteBackward()
-        applyDefaultLowercaseIfNeeded()
     }
 
     private func applyDefaultLowercaseIfNeeded() {
