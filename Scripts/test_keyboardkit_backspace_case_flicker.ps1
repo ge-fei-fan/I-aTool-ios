@@ -5,33 +5,37 @@ $keyboardSource = Join-Path $repoRoot "SimpaninKeyboard\KeyboardViewController.s
 $source = Get-Content -Path $keyboardSource -Raw
 $plainBackspaceHandler = [regex]::Match(
     $source,
-    "private func handlePlainBackspacePreservingCase\(\) \{[\s\S]*?\n    \}"
+    "private func handlePlainBackspaceLowercasing\(\) \{[\s\S]*?\n    \}"
 ).Value
 
 $checks = [ordered]@{
-    "plain backspace has a dedicated case-preserving handler" = (
-        $plainBackspaceHandler.Contains("private func handlePlainBackspacePreservingCase()") -and
+    "plain backspace has a dedicated lowercase-restoring handler" = (
+        $plainBackspaceHandler.Contains("private func handlePlainBackspaceLowercasing()") -and
         $plainBackspaceHandler.Contains("controller?.textDocumentProxy.deleteBackward()")
     )
     "action backspace without pinyin avoids KeyboardKit standard handler" = (
         $source.Contains("case .backspace where pinyinState.hasComposition:") -and
-        ($source -match "case \.backspace:\s*handlePlainBackspacePreservingCase\(\)")
+        ($source -match "case \.backspace:\s*handlePlainBackspaceLowercasing\(\)")
     )
     "release backspace without pinyin avoids standard action path" = (
-        ($source -match "guard pinyinState\.hasComposition else \{\s*handlePlainBackspacePreservingCase\(\)\s*return\s*\}")
+        ($source -match "guard pinyinState\.hasComposition else \{\s*handlePlainBackspaceLowercasing\(\)\s*return\s*\}")
     )
     "backspace pre-release gestures are consumed to avoid default case refresh" = (
-        ($source -match "case \.backspace:\s*return true")
-    )
-    "plain backspace preserves manual uppercase state" = (
-        $plainBackspaceHandler.Contains("handlePlainBackspacePreservingCase()") -and
-        $source.Contains("private var isManualUppercaseEnabled = false") -and
-        -not ($plainBackspaceHandler -match "applyDefaultLowercaseIfNeeded|applyPinyinLowercaseState|setKeyboardCase")
-    )
-    "plain backspace does not change keyboard case" = (
-        ($plainBackspaceHandler -match "private func handlePlainBackspacePreservingCase\(\) \{\s*controller\?\.textDocumentProxy\.deleteBackward\(\)\s*\}") -and
-        $source.Contains("applyPreReleaseCaseStateIfNeeded(on: action)") -and
+        ($source -match "case \.backspace:\s*return true") -and
         -not ($source -match "if shouldConsumePreReleaseGesture\(on: action\) \{\s*applyPinyinLowercaseState\(\)")
+    )
+    "plain backspace clears manual uppercase state" = (
+        $plainBackspaceHandler.Contains("handlePlainBackspaceLowercasing()") -and
+        $source.Contains("private var isManualUppercaseEnabled = false") -and
+        $plainBackspaceHandler.Contains("applyLowercaseState()")
+    )
+    "plain backspace restores lowercase without KeyboardKit standard action" = (
+        ($plainBackspaceHandler -match "private func handlePlainBackspaceLowercasing\(\) \{\s*controller\?\.textDocumentProxy\.deleteBackward\(\)\s*applyLowercaseState\(\)\s*\}") -and
+        -not ($source -match "case \.backspace:\s*standardActionHandler\.handle\(action\)") -and
+        -not ($source -match "guard pinyinState\.hasComposition else \{\s*handleStandardAction\(gesture, on: action\)")
+    )
+    "lowercase state helper resets manual uppercase flag" = (
+        ($source -match "private func applyLowercaseState\(\) \{\s*isManualUppercaseEnabled = false\s*controller\?\.setKeyboardCase\(\.lowercased\)\s*\}")
     )
 }
 

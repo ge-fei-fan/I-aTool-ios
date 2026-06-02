@@ -41,7 +41,7 @@ struct PinyinInputEngine {
     mutating func insertLetter(_ letter: String) {
         guard !letter.isEmpty else { return }
         associationContext = nil
-        compositionBuffer += letter.lowercased()
+        compositionBuffer += letter
     }
 
     mutating func deleteBackward() -> Bool {
@@ -79,22 +79,18 @@ struct PinyinInputEngine {
             recordsSelection: candidate.consumeLength > 0
         ))
 
-        if compositionBuffer.isEmpty {
-            let committedText = selectedSegments.map(\.text).joined()
-            let committedPinyin = selectedSegments.map(\.pinyin).joined()
-            if selectedSegments.count > 1, selectedSegments.allSatisfy({ $0.recordsSelection }) {
-                candidateProvider.recordSelection(committedText, for: committedPinyin)
-            }
-            selectedSegments.removeAll()
-            associationContext = limitedAssociationContext(committedText)
-            return committedText
-        }
         return nil
     }
 
     mutating func commitCompositionAsText() -> String? {
         guard hasComposition else { return nil }
         let text = displayText
+        if compositionBuffer.isEmpty,
+           selectedSegments.count > 1,
+           selectedSegments.allSatisfy(\.recordsSelection) {
+            let committedPinyin = selectedSegments.map(\.pinyin).joined()
+            candidateProvider.recordSelection(text, for: committedPinyin)
+        }
         associationContext = limitedAssociationContext(text)
         clearComposition()
         return text

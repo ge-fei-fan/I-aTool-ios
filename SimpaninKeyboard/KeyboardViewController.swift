@@ -60,7 +60,7 @@ private final class PinyinKeyboardInputState: ObservableObject {
     }
 
     func insertLetter(_ letter: String) {
-        engine.insertLetter(letter.lowercased())
+        engine.insertLetter(letter)
         isCandidatePageVisible = false
     }
 
@@ -113,14 +113,22 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
             handleShift(keyboardCase)
         case .character(let value) where isPinyinLetter(value):
             pinyinState.insertLetter(value)
-            applyPinyinLowercaseState()
         case .backspace where pinyinState.hasComposition:
-            if !pinyinState.deleteBackward() {
+            if pinyinState.deleteBackward() {
+                applyLowercaseIfCompositionCleared()
+            } else {
                 standardActionHandler.handle(action)
+                applyLowercaseState()
             }
-            applyPinyinLowercaseState()
         case .backspace:
-            handlePlainBackspacePreservingCase()
+            handlePlainBackspaceLowercasing()
+        case .primary:
+            if pinyinState.hasComposition,
+               let text = pinyinState.commitCompositionAsText() {
+                controller?.insertText(text)
+            }
+            standardActionHandler.handle(action)
+            applyLowercaseState()
         default:
             standardActionHandler.handle(action)
             applyDefaultLowercaseIfNeeded()
@@ -130,7 +138,6 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
     func handle(_ gesture: Keyboard.Gesture, on action: KeyboardAction) {
         guard gesture == .release else {
             if shouldConsumePreReleaseGesture(on: action) {
-                applyPreReleaseCaseStateIfNeeded(on: action)
                 return
             }
             standardActionHandler.handle(gesture, on: action)
@@ -146,16 +153,16 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
                 return
             }
             pinyinState.insertLetter(value)
-            applyPinyinLowercaseState()
         case .backspace:
             guard pinyinState.hasComposition else {
-                handlePlainBackspacePreservingCase()
+                handlePlainBackspaceLowercasing()
                 return
             }
-            if !pinyinState.deleteBackward() {
+            if pinyinState.deleteBackward() {
+                applyLowercaseIfCompositionCleared()
+            } else {
                 handleStandardAction(gesture, on: action)
             }
-            applyPinyinLowercaseState()
         case .space:
             guard let first = pinyinState.candidates.first else {
                 handleStandardAction(gesture, on: action)
@@ -171,6 +178,7 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
                 controller?.insertText(text)
             }
             handleStandardAction(gesture, on: action)
+            applyLowercaseState()
         default:
             if pinyinState.hasComposition,
                let text = pinyinState.commitCompositionAsText() {
@@ -219,17 +227,6 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
         }
     }
 
-    private func applyPreReleaseCaseStateIfNeeded(on action: KeyboardAction) {
-        switch action {
-        case .character(let value) where isPinyinLetter(value):
-            applyPinyinLowercaseState()
-        case .backspace where pinyinState.hasComposition:
-            applyPinyinLowercaseState()
-        default:
-            break
-        }
-    }
-
     private func handleShift(_ keyboardCase: Keyboard.KeyboardCase) {
         switch keyboardCase {
         case .lowercased:
@@ -246,8 +243,9 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
         applyDefaultLowercaseIfNeeded()
     }
 
-    private func handlePlainBackspacePreservingCase() {
+    private func handlePlainBackspaceLowercasing() {
         controller?.textDocumentProxy.deleteBackward()
+        applyLowercaseState()
     }
 
     private func applyDefaultLowercaseIfNeeded() {
@@ -256,7 +254,13 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
         }
     }
 
-    private func applyPinyinLowercaseState() {
+    private func applyLowercaseIfCompositionCleared() {
+        if !pinyinState.hasComposition {
+            applyLowercaseState()
+        }
+    }
+
+    private func applyLowercaseState() {
         isManualUppercaseEnabled = false
         controller?.setKeyboardCase(.lowercased)
     }
