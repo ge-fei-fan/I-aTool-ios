@@ -46,54 +46,152 @@ private enum PinyinKeyboardMetrics {
 }
 
 private final class PinyinKeyboardInputState: ObservableObject {
-    @Published private(set) var engine = PinyinInputEngine()
+    private static let candidateRefreshDelay: TimeInterval = 0.012
+
+    private var engine = PinyinInputEngine()
+    private let candidateQueue = DispatchQueue(label: "com.local.simpanin.keyboard.candidates", qos: .userInitiated)
+    private var candidateRefreshWorkItem: DispatchWorkItem?
+    private var candidateRefreshGeneration = 0
+    private var appliedCandidateGeneration = 0
+
+    @Published private(set) var displayText = ""
+    @Published private(set) var hasComposition = false
+    @Published private(set) var candidates: [PinyinInputEngine.Candidate] = []
+    @Published private(set) var isCandidateRefreshPending = false
     @Published var isChineseInputEnabled = true
     @Published var isCandidatePageVisible = false
 
-    var hasComposition: Bool {
-        engine.hasComposition
-    }
-
-    var candidates: [PinyinInputEngine.Candidate] {
-        engine.candidates
-    }
-
-    var displayText: String {
-        engine.displayText
+    deinit {
+        candidateRefreshWorkItem?.cancel()
     }
 
     func insertLetter(_ letter: String) {
         engine.insertLetter(letter)
-        isCandidatePageVisible = false
+        hideCandidatePageIfNeeded()
+        refreshPublishedComposition()
+        scheduleCandidateRefresh(resetCandidatesWhenEmpty: false)
     }
 
     func deleteBackward() -> Bool {
         let didDelete = engine.deleteBackward()
-        if engine.candidates.isEmpty {
-            isCandidatePageVisible = false
-        }
+        refreshPublishedComposition()
+        scheduleCandidateRefresh(resetCandidatesWhenEmpty: !engine.hasComposition)
         return didDelete
     }
 
     func select(_ candidate: PinyinInputEngine.Candidate) -> String? {
+        guard !isCandidateRefreshPending else { return nil }
         let committedText = engine.select(candidate)
+        refreshPublishedComposition()
         if committedText != nil {
-            isCandidatePageVisible = false
-        } else if engine.candidates.isEmpty {
-            isCandidatePageVisible = false
+            hideCandidatePageIfNeeded()
         }
+        scheduleCandidateRefresh(resetCandidatesWhenEmpty: false)
         return committedText
     }
 
     func commitCompositionAsText() -> String? {
         let text = engine.commitCompositionAsText()
-        isCandidatePageVisible = false
+        hideCandidatePageIfNeeded()
+        refreshPublishedComposition()
+        scheduleCandidateRefresh(resetCandidatesWhenEmpty: false)
         return text
     }
 
     func toggleChineseInput() {
         isChineseInputEnabled.toggle()
-        isCandidatePageVisible = false
+        hideCandidatePageIfNeeded()
+        refreshPublishedComposition()
+        scheduleCandidateRefresh(resetCandidatesWhenEmpty: true)
+    }
+
+    func firstFreshCandidateForCommit() -> PinyinInputEngine.Candidate? {
+        guard isChineseInputEnabled else { return nil }
+        if isCandidateRefreshPending || appliedCandidateGeneration != candidateRefreshGeneration {
+            candidateRefreshWorkItem?.cancel()
+            candidateRefreshWorkItem = nil
+            candidateRefreshGeneration += 1
+            let generation = candidateRefreshGeneration
+            applyCandidateRefreshResult(engine.candidates, generation: generation)
+        }
+        return candidates.first
+    }
+
+    private func scheduleCandidateRefresh(resetCandidatesWhenEmpty: Bool) {
+        candidateRefreshGeneration += 1
+        candidateRefreshWorkItem?.cancel()
+        let generation = candidateRefreshGeneration
+
+        guard isChineseInputEnabled else {
+            applyCandidateRefreshResult([], generation: generation)
+            return
+        }
+
+        if resetCandidatesWhenEmpty, !engine.hasComposition {
+            applyCandidateRefreshResult([], generation: generation)
+            return
+        }
+
+        let engineSnapshot = engine
+        setCandidateRefreshPending(true)
+
+        var workItem: DispatchWorkItem!
+        workItem = DispatchWorkItem {
+            guard !workItem.isCancelled else { return }
+            let refreshedCandidates = engineSnapshot.candidates
+            guard !workItem.isCancelled else { return }
+
+            DispatchQueue.main.async { [weak self] in
+                guard let self,
+                      self.candidateRefreshGeneration == generation,
+                      !workItem.isCancelled else {
+                    return
+                }
+                self.applyCandidateRefreshResult(refreshedCandidates, generation: generation)
+            }
+        }
+        candidateRefreshWorkItem = workItem
+        candidateQueue.asyncAfter(deadline: .now() + Self.candidateRefreshDelay, execute: workItem)
+    }
+
+    private func applyCandidateRefreshResult(
+        _ refreshedCandidates: [PinyinInputEngine.Candidate],
+        generation: Int
+    ) {
+        guard generation == candidateRefreshGeneration else { return }
+        candidateRefreshWorkItem = nil
+        setCandidateRefreshPending(false)
+        appliedCandidateGeneration = generation
+        if candidates != refreshedCandidates {
+            candidates = refreshedCandidates
+        }
+        if refreshedCandidates.isEmpty {
+            hideCandidatePageIfNeeded()
+        }
+    }
+
+    private func refreshPublishedComposition() {
+        let nextDisplayText = engine.displayText
+        if displayText != nextDisplayText {
+            displayText = nextDisplayText
+        }
+
+        let nextHasComposition = engine.hasComposition
+        if hasComposition != nextHasComposition {
+            hasComposition = nextHasComposition
+        }
+    }
+
+    private func setCandidateRefreshPending(_ isPending: Bool) {
+        if isCandidateRefreshPending != isPending {
+            isCandidateRefreshPending = isPending
+        }
+    }
+
+    private func hideCandidatePageIfNeeded() {
+        if isCandidatePageVisible {
+            isCandidatePageVisible = false
+        }
     }
 }
 
@@ -183,7 +281,7 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
                 handleStandardAction(gesture, on: action)
             }
         case .space:
-            guard let first = pinyinState.candidates.first else {
+            guard let first = pinyinState.firstFreshCandidateForCommit() else {
                 handleStandardAction(gesture, on: action)
                 return
             }
@@ -364,14 +462,17 @@ private struct PinyinKeyboardView: View {
 
     private var keyboardLayout: KeyboardLayout {
         var layout = KeyboardLayout.standard(for: keyboardContext)
-        let squareKeySide = CGFloat(layout.idealItemHeight)
+        let utilityKeySide = layout.itemRows
+            .flatMap { $0 }
+            .first { $0.action == .primary }?
+            .size.height ?? CGFloat(layout.idealItemHeight)
         layout.itemRows = layout.itemRows.map { row in
             row.map { item in
                 guard item.action == .keyboardType(.numeric) else { return item }
-                return item.withWidth(.points(squareKeySide))
+                return item.withWidth(.points(utilityKeySide))
             }
         }
-        layout.itemRows.insert(languageSwitchItem(side: squareKeySide), after: .space)
+        layout.itemRows.insert(languageSwitchItem(side: utilityKeySide), after: .space)
         return layout
     }
 
@@ -550,7 +651,8 @@ private struct PinyinCandidateToolbar: View {
 
     private var candidateExpandButton: some View {
         Button {
-            guard !pinyinState.candidates.isEmpty else { return }
+            guard !pinyinState.candidates.isEmpty,
+                  !pinyinState.isCandidateRefreshPending else { return }
             withAnimation(.easeOut(duration: PinyinKeyboardMetrics.candidatePanelAnimationDuration)) {
                 pinyinState.isCandidatePageVisible.toggle()
             }
@@ -560,12 +662,12 @@ private struct PinyinCandidateToolbar: View {
                 .foregroundStyle(.primary)
                 .frame(width: 34, height: 32)
                 .frame(width: PinyinKeyboardMetrics.candidateExpandHitWidth, height: PinyinKeyboardMetrics.candidateExpandHitHeight)
-                .background(Color.red.opacity(PinyinKeyboardMetrics.candidateToggleHitAreaDebugOpacity))
+                .background(Color.clear)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .opacity(pinyinState.candidates.isEmpty ? 0 : 1)
-        .allowsHitTesting(!pinyinState.candidates.isEmpty)
+        .allowsHitTesting(!pinyinState.candidates.isEmpty && !pinyinState.isCandidateRefreshPending)
     }
 
     private func candidateButton(
@@ -624,7 +726,7 @@ private struct PinyinExpandedCandidateOverlay: View {
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundStyle(.primary)
                     .frame(width: PinyinKeyboardMetrics.candidateExpandHitWidth, height: PinyinKeyboardMetrics.candidateExpandHitHeight)
-                    .background(Color.red.opacity(PinyinKeyboardMetrics.candidateToggleHitAreaDebugOpacity))
+                    .background(Color.clear)
                     .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -644,6 +746,7 @@ private struct PinyinCandidateButton: View {
 
     var body: some View {
         Button {
+            guard !pinyinState.isCandidateRefreshPending else { return }
             if let committedText = pinyinState.select(candidate) {
                 insertText(committedText)
             }
@@ -660,6 +763,7 @@ private struct PinyinCandidateButton: View {
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
+        .allowsHitTesting(!pinyinState.isCandidateRefreshPending)
     }
 }
 
