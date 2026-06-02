@@ -364,12 +364,21 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
         from startLocation: CGPoint,
         to currentLocation: CGPoint
     ) {
-        guard case .space = action else {
+        if isSpaceAction(action) {
+            handleSpaceCursorDrag(from: startLocation, to: currentLocation)
+        } else {
             resetSpaceCursorDrag()
             standardActionHandler.handleDrag(on: action, from: startLocation, to: currentLocation)
-            return
         }
-        handleSpaceCursorDrag(from: startLocation, to: currentLocation)
+    }
+
+    private func isSpaceAction(_ action: KeyboardAction) -> Bool {
+        switch action {
+        case .space:
+            return true
+        default:
+            return false
+        }
     }
 
     private func handleSpaceCursorDrag(
