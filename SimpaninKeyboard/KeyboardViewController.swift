@@ -118,7 +118,7 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
         if shouldHandlePinyinAction(action) {
             return true
         }
-        standardActionHandler.canHandle(gesture, on: action)
+        return standardActionHandler.canHandle(gesture, on: action)
     }
 
     func handle(_ action: KeyboardAction) {

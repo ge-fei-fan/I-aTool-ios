@@ -4,3 +4,6 @@
 *.xcuserstate
 xcuserdata/
 .superpowers/
+
+# Local dependency/download scratch space
+.gh-tmp/
