@@ -462,18 +462,31 @@ private struct PinyinKeyboardView: View {
 
     private var keyboardLayout: KeyboardLayout {
         var layout = KeyboardLayout.standard(for: keyboardContext)
-        let utilityKeySide = layout.itemRows
-            .flatMap { $0 }
-            .first { $0.action == .primary }?
-            .size.height ?? CGFloat(layout.idealItemHeight)
+        let utilityKeySide = utilityKeySide(in: layout)
         layout.itemRows = layout.itemRows.map { row in
             row.map { item in
-                guard item.action == .keyboardType(.numeric) else { return item }
-                return item.withWidth(.points(utilityKeySide))
+                resizedUtilityItem(item, side: utilityKeySide)
             }
         }
         layout.itemRows.insert(languageSwitchItem(side: utilityKeySide), after: .space)
         return layout
+    }
+
+    private func utilityKeySide(in layout: KeyboardLayout) -> CGFloat {
+        for row in layout.itemRows {
+            for item in row where item.action == .primary {
+                return item.size.height
+            }
+        }
+        return CGFloat(layout.idealItemHeight)
+    }
+
+    private func resizedUtilityItem(
+        _ item: KeyboardLayout.Item,
+        side: CGFloat
+    ) -> KeyboardLayout.Item {
+        guard item.action == .keyboardType(.numeric) else { return item }
+        return item.withWidth(.points(side))
     }
 
     private func languageSwitchItem(side: CGFloat) -> KeyboardLayout.Item {
