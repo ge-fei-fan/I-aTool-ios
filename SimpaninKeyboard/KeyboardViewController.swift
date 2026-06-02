@@ -38,6 +38,8 @@ private enum PinyinKeyboardMetrics {
     static let expandedCandidateOverlayTopOffset: CGFloat = candidateInputTopPadding + compositionBarHeight + compositionCandidateSpacing
     static let candidateExpandHitWidth: CGFloat = 48
     static let candidateExpandHitHeight: CGFloat = 44
+    static let expandedCandidateMinHitHeight: CGFloat = 44
+    static let expandedCandidateVerticalPadding: CGFloat = 10
     static let candidatePanelAnimationDuration: TimeInterval = 0.22
 }
 
@@ -117,6 +119,8 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
                 standardActionHandler.handle(action)
             }
             applyPinyinLowercaseState()
+        case .backspace:
+            handlePlainBackspacePreservingCase()
         default:
             standardActionHandler.handle(action)
             applyDefaultLowercaseIfNeeded()
@@ -145,7 +149,7 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
             applyPinyinLowercaseState()
         case .backspace:
             guard pinyinState.hasComposition else {
-                handleStandardAction(gesture, on: action)
+                handlePlainBackspacePreservingCase()
                 return
             }
             if !pinyinState.deleteBackward() {
@@ -209,7 +213,7 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
         case .character(let value):
             return isPinyinLetter(value)
         case .backspace:
-            return pinyinState.hasComposition
+            return true
         default:
             return false
         }
@@ -228,6 +232,11 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
 
     private func handleStandardAction(_ gesture: Keyboard.Gesture, on action: KeyboardAction) {
         standardActionHandler.handle(gesture, on: action)
+        applyDefaultLowercaseIfNeeded()
+    }
+
+    private func handlePlainBackspacePreservingCase() {
+        controller?.textDocumentProxy.deleteBackward()
         applyDefaultLowercaseIfNeeded()
     }
 
@@ -391,22 +400,27 @@ private struct PinyinCandidateToolbar: View {
 
     private var migratedCandidateStrip: some View {
         HStack(spacing: 6) {
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    ForEach(Array(pinyinState.candidates.prefix(candidateBatchSize).enumerated()), id: \.element.id) { index, candidate in
-                        candidateButton(candidate, index: index, expanded: false)
-                    }
+            GeometryReader { proxy in
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: 6) {
+                        ForEach(Array(pinyinState.candidates.prefix(candidateBatchSize).enumerated()), id: \.element.id) { index, candidate in
+                            candidateButton(candidate, index: index, expanded: false)
+                        }
 
-                    if pinyinState.candidates.isEmpty {
-                        Color.clear.frame(width: 1, height: 30)
+                        if pinyinState.candidates.isEmpty {
+                            Color.clear.frame(width: 1, height: 30)
+                        }
                     }
+                    .frame(minWidth: proxy.size.width, alignment: .leading)
+                    .background(Color.primary.opacity(0.001))
+                    .contentShape(Rectangle())
+                    .padding(.bottom, 1)
                 }
-                .frame(minWidth: 0, alignment: .leading)
                 .contentShape(Rectangle())
-                .padding(.bottom, 1)
+                .background(Color.primary.opacity(0.001))
+                .scrollDisabled(pinyinState.candidates.count <= 3)
             }
-            .contentShape(Rectangle())
-            .scrollDisabled(pinyinState.candidates.count <= 3)
+            .frame(height: 32)
 
             candidateExpandButton
         }
@@ -518,8 +532,9 @@ private struct PinyinCandidateButton: View {
                 .lineLimit(1)
                 .truncationMode(.tail)
                 .padding(.horizontal, 12)
-                .padding(.vertical, expanded ? 6 : 2)
-                .frame(minWidth: expanded ? 56 : 48, minHeight: expanded ? 34 : 30)
+                .padding(.vertical, expanded ? PinyinKeyboardMetrics.expandedCandidateVerticalPadding : 2)
+                .frame(minWidth: expanded ? 56 : 48, minHeight: expanded ? PinyinKeyboardMetrics.expandedCandidateMinHitHeight : 30)
+                .background(expanded ? Color.primary.opacity(0.001) : Color.clear)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)

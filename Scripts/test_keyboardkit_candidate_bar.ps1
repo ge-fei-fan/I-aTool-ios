@@ -44,7 +44,9 @@ $checks = [ordered]@{
     )
     "candidate strip whitespace can start horizontal drag" = (
         $source.Contains("private var migratedCandidateStrip: some View") -and
-        $source.Contains(".frame(minWidth: 0, alignment: .leading)") -and
+        $source.Contains("GeometryReader { proxy in") -and
+        $source.Contains(".frame(minWidth: proxy.size.width, alignment: .leading)") -and
+        $source.Contains(".background(Color.primary.opacity(0.001))") -and
         $source.Contains(".contentShape(Rectangle())") -and
         $source.Contains(".scrollDisabled(pinyinState.candidates.count <= 3)")
     )
@@ -56,7 +58,6 @@ $checks = [ordered]@{
         $source.Contains(".padding(.top, PinyinKeyboardMetrics.expandedCandidateOverlayTopOffset)") -and
         $source.Contains(".frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)") -and
         $source.Contains(".clipped()") -and
-        -not $source.Contains("GeometryReader { proxy in") -and
         -not $source.Contains("expandedCandidateOverlayHeight(for:")
     )
     "expanded candidate page does not show pinyin text" = (
@@ -72,6 +73,14 @@ $checks = [ordered]@{
         $source.Contains("private struct PinyinExpandedCandidateOverlay: View") -and
         $source.Contains("CandidateFlowLayout") -and
         $source.Contains("pinyinState.isCandidatePageVisible")
+    )
+    "expanded candidate buttons have larger reliable hit targets" = (
+        $source.Contains("expandedCandidateMinHitHeight: CGFloat = 44") -and
+        $source.Contains("expandedCandidateVerticalPadding: CGFloat = 10") -and
+        $source.Contains(".padding(.vertical, expanded ? PinyinKeyboardMetrics.expandedCandidateVerticalPadding : 2)") -and
+        $source.Contains(".frame(minWidth: expanded ? 56 : 48, minHeight: expanded ? PinyinKeyboardMetrics.expandedCandidateMinHitHeight : 30)") -and
+        $source.Contains(".background(expanded ? Color.primary.opacity(0.001) : Color.clear)") -and
+        $source.Contains(".contentShape(Rectangle())")
     )
     "candidate page hides when composition is committed or cleared" = (
         $source.Contains("isCandidatePageVisible = false") -and
