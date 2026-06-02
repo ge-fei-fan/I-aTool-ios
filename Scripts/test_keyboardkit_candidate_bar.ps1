@@ -3,6 +3,14 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $keyboardSource = Join-Path $repoRoot "SimpaninKeyboard\KeyboardViewController.swift"
 $source = Get-Content -Path $keyboardSource -Raw
+$stateSelect = [regex]::Match(
+    $source,
+    "func select\(_ candidate: PinyinInputEngine\.Candidate\) -> String\? \{[\s\S]*?\n    \}"
+).Value
+$candidateButtonAction = [regex]::Match(
+    $source,
+    "private struct PinyinCandidateButton: View \{[\s\S]*?Button \{[\s\S]*?\n        \} label:"
+).Value
 
 $checks = [ordered]@{
     "active keyboard uses KeyboardKit setupKeyboardView lifecycle" = (
@@ -85,6 +93,18 @@ $checks = [ordered]@{
     "candidate page hides when composition is committed or cleared" = (
         $source.Contains("isCandidatePageVisible = false") -and
         $source.Contains("commitCompositionAsText()")
+    )
+    "candidate state closes expanded page after committed selection" = (
+        $stateSelect.Contains("let committedText = engine.select(candidate)") -and
+        ($stateSelect -match "if committedText != nil \{\s*isCandidatePageVisible = false\s*\}")
+    )
+    "candidate state closes expanded page only when partial selection has no remaining candidates" = (
+        $stateSelect.Contains("if committedText != nil {") -and
+        ($stateSelect -match "else if engine\.candidates\.isEmpty \{\s*isCandidatePageVisible = false\s*\}")
+    )
+    "candidate button does not close expanded page unconditionally" = (
+        $candidateButtonAction.Contains("pinyinState.select(candidate)") -and
+        -not $candidateButtonAction.Contains("pinyinState.isCandidatePageVisible = false")
     )
     "candidate page uses top-down transition animation" = (
         $source.Contains(".transition(.move(edge: .top).combined(with: .opacity))") -and

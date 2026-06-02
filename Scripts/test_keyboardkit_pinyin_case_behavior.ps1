@@ -19,7 +19,19 @@ $engineSelect = [regex]::Match(
 ).Value
 $candidateButtonAction = [regex]::Match(
     $keyboard,
-    "Button \{[\s\S]*?if let committedText = pinyinState\.select\(candidate\) \{[\s\S]*?\n        \}"
+    "private struct PinyinCandidateButton: View \{[\s\S]*?Button \{[\s\S]*?\n        \} label:"
+).Value
+$canHandleAction = [regex]::Match(
+    $keyboard,
+    "func canHandle\(_ gesture: Keyboard\.Gesture, on action: KeyboardAction\) -> Bool \{[\s\S]*?\n    \}"
+).Value
+$shouldHandlePinyinAction = [regex]::Match(
+    $keyboard,
+    "private func shouldHandlePinyinAction\(_ action: KeyboardAction\) -> Bool \{[\s\S]*?\n    \}"
+).Value
+$shouldRouteLetterToPinyin = [regex]::Match(
+    $keyboard,
+    "private func shouldRouteLetterToPinyin\(_ value: String\) -> Bool \{[\s\S]*?\n    \}"
 ).Value
 
 $checks = [ordered]@{
@@ -27,6 +39,25 @@ $checks = [ordered]@{
         $keyboard.Contains("func insertLetter(_ letter: String)") -and
         $keyboard.Contains("engine.insertLetter(letter)") -and
         -not $keyboard.Contains("engine.insertLetter(letter.lowercased())")
+    )
+    "pinyin letters are handled by custom action handler in Chinese mode" = (
+        $canHandleAction.Contains("if shouldHandlePinyinAction(action) {") -and
+        $canHandleAction.Contains("return true") -and
+        $keyboard.Contains("@Published var isChineseInputEnabled = true") -and
+        $keyboard.Contains("func toggleChineseInput()") -and
+        $keyboard.Contains("pinyinState.toggleChineseInput()") -and
+        $shouldRouteLetterToPinyin.Contains("pinyinState.isChineseInputEnabled && isPinyinLetter(value)") -and
+        $shouldHandlePinyinAction.Contains("case .character(let value):") -and
+        $shouldHandlePinyinAction.Contains("return shouldRouteLetterToPinyin(value)")
+    )
+    "Chinese English toggle key is inserted after reduced 123 key" = (
+        $keyboard.Contains("languageSwitchActionName") -and
+        $keyboard.Contains(".custom(named: Self.languageSwitchActionName)") -and
+        $keyboard.Contains("PinyinLanguageSwitchButtonContent(isChineseInputEnabled: pinyinState.isChineseInputEnabled)") -and
+        $keyboard.Contains("guard item.action == .keyboardType(.numeric) else { return item }") -and
+        $keyboard.Contains("return item.withWidth(.inputPercentage(0.88))") -and
+        $keyboard.Contains("layout.itemRows.insert(languageSwitchItem(height: CGFloat(layout.idealItemHeight)), after: .keyboardType(.numeric))") -and
+        $keyboard.Contains("Text(isChineseInputEnabled ?")
     )
     "pinyin engine stores raw typed letter casing" = (
         $engineInsertLetter.Contains("compositionBuffer += letter") -and
@@ -65,7 +96,8 @@ $checks = [ordered]@{
     "candidate button inserts only when select returns committed text" = (
         $candidateButtonAction.Contains("pinyinState.select(candidate)") -and
         $candidateButtonAction.Contains("if let committedText = pinyinState.select(candidate)") -and
-        $candidateButtonAction.Contains("insertText(committedText)")
+        $candidateButtonAction.Contains("insertText(committedText)") -and
+        -not $candidateButtonAction.Contains("pinyinState.isCandidatePageVisible = false")
     )
     "deleting a selected segment restores its original-case pinyin" = (
         $engine.Contains("compositionBuffer = segment.pinyin")

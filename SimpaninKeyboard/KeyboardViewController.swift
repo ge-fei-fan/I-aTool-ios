@@ -20,6 +20,7 @@ final class KeyboardViewController: KeyboardInputViewController {
         setKeyboardCase(.lowercased)
         setupKeyboardView { [pinyinState] controller in
             PinyinKeyboardView(
+                keyboardContext: controller.state.keyboardContext,
                 services: controller.services,
                 pinyinState: pinyinState,
                 insertText: { [weak controller] text in
@@ -45,6 +46,7 @@ private enum PinyinKeyboardMetrics {
 
 private final class PinyinKeyboardInputState: ObservableObject {
     @Published private(set) var engine = PinyinInputEngine()
+    @Published var isChineseInputEnabled = true
     @Published var isCandidatePageVisible = false
 
     var hasComposition: Bool {
@@ -74,7 +76,9 @@ private final class PinyinKeyboardInputState: ObservableObject {
 
     func select(_ candidate: PinyinInputEngine.Candidate) -> String? {
         let committedText = engine.select(candidate)
-        if engine.candidates.isEmpty {
+        if committedText != nil {
+            isCandidatePageVisible = false
+        } else if engine.candidates.isEmpty {
             isCandidatePageVisible = false
         }
         return committedText
@@ -85,9 +89,16 @@ private final class PinyinKeyboardInputState: ObservableObject {
         isCandidatePageVisible = false
         return text
     }
+
+    func toggleChineseInput() {
+        isChineseInputEnabled.toggle()
+        isCandidatePageVisible = false
+    }
 }
 
 private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
+    private static let languageSwitchActionName = "simpanin.inputMode.toggleChineseEnglish"
+
     private weak var controller: KeyboardInputViewController?
     private let standardActionHandler: any KeyboardActionHandler
     private let pinyinState: PinyinKeyboardInputState
@@ -104,14 +115,19 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
     }
 
     func canHandle(_ gesture: Keyboard.Gesture, on action: KeyboardAction) -> Bool {
+        if shouldHandlePinyinAction(action) {
+            return true
+        }
         standardActionHandler.canHandle(gesture, on: action)
     }
 
     func handle(_ action: KeyboardAction) {
         switch action {
+        case .custom(named: Self.languageSwitchActionName):
+            handleLanguageSwitch()
         case .shift(let keyboardCase):
             handleShift(keyboardCase)
-        case .character(let value) where isPinyinLetter(value):
+        case .character(let value) where shouldRouteLetterToPinyin(value):
             pinyinState.insertLetter(value)
         case .backspace where pinyinState.hasComposition:
             if pinyinState.deleteBackward() {
@@ -128,7 +144,7 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
                 controller?.insertText(text)
             }
             standardActionHandler.handle(action)
-            applyLowercaseState()
+            applyLowercaseStateDeferred()
         default:
             standardActionHandler.handle(action)
             applyDefaultLowercaseIfNeeded()
@@ -145,10 +161,12 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
         }
 
         switch action {
+        case .custom(named: Self.languageSwitchActionName):
+            handleLanguageSwitch()
         case .shift(let keyboardCase):
             handleShift(keyboardCase)
         case .character(let value):
-            guard isPinyinLetter(value) else {
+            guard shouldRouteLetterToPinyin(value) else {
                 handleStandardAction(gesture, on: action)
                 return
             }
@@ -178,7 +196,7 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
                 controller?.insertText(text)
             }
             handleStandardAction(gesture, on: action)
-            applyLowercaseState()
+            applyLowercaseStateDeferred()
         default:
             if pinyinState.hasComposition,
                let text = pinyinState.commitCompositionAsText() {
@@ -216,10 +234,27 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
         value.count == 1 && value.rangeOfCharacter(from: .letters) != nil
     }
 
+    private func shouldRouteLetterToPinyin(_ value: String) -> Bool {
+        pinyinState.isChineseInputEnabled && isPinyinLetter(value)
+    }
+
+    private func shouldHandlePinyinAction(_ action: KeyboardAction) -> Bool {
+        switch action {
+        case .custom(named: Self.languageSwitchActionName):
+            return true
+        case .character(let value):
+            return shouldRouteLetterToPinyin(value)
+        case .backspace, .shift, .space, .primary:
+            return true
+        default:
+            return false
+        }
+    }
+
     private func shouldConsumePreReleaseGesture(on action: KeyboardAction) -> Bool {
         switch action {
         case .character(let value):
-            return isPinyinLetter(value)
+            return shouldRouteLetterToPinyin(value)
         case .backspace:
             return true
         default:
@@ -236,6 +271,15 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
             isManualUppercaseEnabled = false
             controller?.setKeyboardCase(.lowercased)
         }
+    }
+
+    private func handleLanguageSwitch() {
+        if pinyinState.hasComposition,
+           let text = pinyinState.commitCompositionAsText() {
+            controller?.insertText(text)
+        }
+        pinyinState.toggleChineseInput()
+        applyLowercaseState()
     }
 
     private func handleStandardAction(_ gesture: Keyboard.Gesture, on action: KeyboardAction) {
@@ -270,19 +314,32 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
         isManualUppercaseEnabled = false
         controller?.setKeyboardCase(.lowercased)
     }
+
+    private func applyLowercaseStateDeferred() {
+        applyLowercaseState()
+        DispatchQueue.main.async { [weak self] in
+            self?.applyLowercaseState()
+        }
+    }
 }
 
 private struct PinyinKeyboardView: View {
+    private static let languageSwitchActionName = "simpanin.inputMode.toggleChineseEnglish"
+
+    @ObservedObject var keyboardContext: KeyboardContext
     let services: Keyboard.Services
     @ObservedObject var pinyinState: PinyinKeyboardInputState
     let insertText: (String) -> Void
 
     var body: some View {
         KeyboardView(
+            layout: keyboardLayout,
             services: services,
             buttonContent: { params in
                 if case .shift(let keyboardCase) = params.item.action {
                     PinyinShiftButtonContent(keyboardCase: keyboardCase)
+                } else if case .custom(named: Self.languageSwitchActionName) = params.item.action {
+                    PinyinLanguageSwitchButtonContent(isChineseInputEnabled: pinyinState.isChineseInputEnabled)
                 } else {
                     params.view
                 }
@@ -304,6 +361,25 @@ private struct PinyinKeyboardView: View {
         .clipped()
     }
 
+    private var keyboardLayout: KeyboardLayout {
+        var layout = KeyboardLayout.standard(for: keyboardContext)
+        layout.itemRows = layout.itemRows.map { row in
+            row.map { item in
+                guard item.action == .keyboardType(.numeric) else { return item }
+                return item.withWidth(.inputPercentage(0.88))
+            }
+        }
+        layout.itemRows.insert(languageSwitchItem(height: CGFloat(layout.idealItemHeight)), after: .keyboardType(.numeric))
+        return layout
+    }
+
+    private func languageSwitchItem(height: CGFloat) -> KeyboardLayout.Item {
+        KeyboardLayout.Item(
+            action: .custom(named: Self.languageSwitchActionName),
+            size: .init(width: .inputPercentage(0.88), height: height)
+        )
+    }
+
     @ViewBuilder
     private var expandedCandidateOverlay: some View {
         if pinyinState.isCandidatePageVisible {
@@ -314,6 +390,29 @@ private struct PinyinKeyboardView: View {
             .padding(.top, PinyinKeyboardMetrics.expandedCandidateOverlayTopOffset)
             .transition(.move(edge: .top).combined(with: .opacity))
         }
+    }
+}
+
+private extension KeyboardLayout.Item {
+    func withWidth(_ width: KeyboardLayout.ItemWidth) -> KeyboardLayout.Item {
+        KeyboardLayout.Item(
+            action: action,
+            secondaryAction: secondaryAction,
+            size: .init(width: width, height: size.height),
+            alignment: alignment,
+            edgeInsets: edgeInsets
+        )
+    }
+}
+
+private struct PinyinLanguageSwitchButtonContent: View {
+    let isChineseInputEnabled: Bool
+
+    var body: some View {
+        Text(isChineseInputEnabled ? "中" : "英")
+            .font(.system(size: 16, weight: .semibold))
+            .minimumScaleFactor(0.8)
+            .lineLimit(1)
     }
 }
 
@@ -544,7 +643,6 @@ private struct PinyinCandidateButton: View {
             if let committedText = pinyinState.select(candidate) {
                 insertText(committedText)
             }
-            pinyinState.isCandidatePageVisible = false
         } label: {
             Text(candidate.text)
                 .font(.system(size: 19, weight: index == 0 ? .semibold : .regular))
