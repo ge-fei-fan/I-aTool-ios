@@ -79,6 +79,9 @@ struct PinyinInputEngine {
             recordsSelection: candidate.consumeLength > 0
         ))
 
+        if compositionBuffer.isEmpty {
+            return commitCompositionAsText()
+        }
         return nil
     }
 

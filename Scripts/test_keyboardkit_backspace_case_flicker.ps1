@@ -13,6 +13,12 @@ $checks = [ordered]@{
         $plainBackspaceHandler.Contains("private func handlePlainBackspaceLowercasing()") -and
         $plainBackspaceHandler.Contains("controller?.textDocumentProxy.deleteBackward()")
     )
+    "plain backspace checks for document text before deleting" = (
+        $source.Contains("private var canDeleteBackwardInDocument: Bool") -and
+        $source.Contains("controller?.textDocumentProxy.documentContextBeforeInput?.isEmpty == false") -and
+        $plainBackspaceHandler.Contains("if canDeleteBackwardInDocument {") -and
+        $plainBackspaceHandler.Contains("controller?.textDocumentProxy.deleteBackward()")
+    )
     "action backspace without pinyin avoids KeyboardKit standard handler" = (
         $source.Contains("case .backspace where pinyinState.hasComposition:") -and
         ($source -match "case \.backspace:\s*handlePlainBackspaceLowercasing\(\)")
@@ -29,8 +35,8 @@ $checks = [ordered]@{
         $source.Contains("private var isManualUppercaseEnabled = false") -and
         $plainBackspaceHandler.Contains("applyLowercaseState()")
     )
-    "plain backspace restores lowercase without KeyboardKit standard action" = (
-        ($plainBackspaceHandler -match "private func handlePlainBackspaceLowercasing\(\) \{\s*controller\?\.textDocumentProxy\.deleteBackward\(\)\s*applyLowercaseState\(\)\s*\}") -and
+    "plain backspace restores lowercase without empty document delete or KeyboardKit standard action" = (
+        ($plainBackspaceHandler -match "private func handlePlainBackspaceLowercasing\(\) \{\s*if canDeleteBackwardInDocument \{\s*controller\?\.textDocumentProxy\.deleteBackward\(\)\s*\}\s*applyLowercaseState\(\)\s*\}") -and
         -not ($source -match "case \.backspace:\s*standardActionHandler\.handle\(action\)") -and
         -not ($source -match "guard pinyinState\.hasComposition else \{\s*handleStandardAction\(gesture, on: action\)")
     )

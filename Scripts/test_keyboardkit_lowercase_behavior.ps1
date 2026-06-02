@@ -60,9 +60,11 @@ $checks = [ordered]@{
         $source.Contains("case .primary:") -and
         ($source -match "case \.primary:[\s\S]*?handleStandardAction\(gesture, on: action\)[\s\S]*?applyLowercaseState\(\)")
     )
-    "plain backspace restores lowercase" = (
+    "plain backspace skips empty document delete and restores lowercase" = (
         $source.Contains("private func handlePlainBackspaceLowercasing()") -and
-        ($source -match "private func handlePlainBackspaceLowercasing\(\) \{\s*controller\?\.textDocumentProxy\.deleteBackward\(\)\s*applyLowercaseState\(\)\s*\}")
+        $source.Contains("private var canDeleteBackwardInDocument: Bool") -and
+        $source.Contains("controller?.textDocumentProxy.documentContextBeforeInput?.isEmpty == false") -and
+        ($source -match "private func handlePlainBackspaceLowercasing\(\) \{\s*if canDeleteBackwardInDocument \{\s*controller\?\.textDocumentProxy\.deleteBackward\(\)\s*\}\s*applyLowercaseState\(\)\s*\}")
     )
     "shared lowercase helper clears manual uppercase state" = (
         ($source -match "private func applyLowercaseState\(\) \{\s*isManualUppercaseEnabled = false\s*controller\?\.setKeyboardCase\(\.lowercased\)\s*\}")

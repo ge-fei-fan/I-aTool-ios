@@ -244,8 +244,14 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
     }
 
     private func handlePlainBackspaceLowercasing() {
-        controller?.textDocumentProxy.deleteBackward()
+        if canDeleteBackwardInDocument {
+            controller?.textDocumentProxy.deleteBackward()
+        }
         applyLowercaseState()
+    }
+
+    private var canDeleteBackwardInDocument: Bool {
+        controller?.textDocumentProxy.documentContextBeforeInput?.isEmpty == false
     }
 
     private func applyDefaultLowercaseIfNeeded() {

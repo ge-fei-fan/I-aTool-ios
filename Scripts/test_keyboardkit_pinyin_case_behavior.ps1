@@ -51,12 +51,16 @@ $checks = [ordered]@{
         $engine.Contains("let consumedPinyin = String(compositionBuffer[..<end])") -and
         $engine.Contains("pinyin: consumedPinyin")
     )
-    "candidate selection keeps selected text in composition for return commit" = (
+    "partial candidate selection keeps selected text in composition" = (
         $engineSelect.Contains("selectedSegments.append(SelectedSegment(") -and
         $engineSelect.Contains("return nil") -and
         -not $engineSelect.Contains("return committedText") -and
         -not $engineSelect.Contains("selectedSegments.removeAll()") -and
         -not $engineSelect.Contains("associationContext = limitedAssociationContext(committedText)")
+    )
+    "complete candidate selection commits immediately" = (
+        $engineSelect.Contains("if compositionBuffer.isEmpty {") -and
+        $engineSelect.Contains("return commitCompositionAsText()")
     )
     "candidate button inserts only when select returns committed text" = (
         $candidateButtonAction.Contains("pinyinState.select(candidate)") -and
