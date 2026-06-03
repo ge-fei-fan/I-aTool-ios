@@ -409,14 +409,14 @@ private final class PinyinKeyboardInputState: ObservableObject {
 
         var accumulated = ""
         let delegate = OllamaTranslationStreamDelegate(
-            onToken: { [weak self] token in
+            onToken: { [weak self] (token: String) in
                 DispatchQueue.main.async {
                     guard let self, self.activeTranslationRequestID == requestID else { return }
                     accumulated += token
                     self.translationText = accumulated
                 }
             },
-            onComplete: { [weak self] errorMessage in
+            onComplete: { [weak self] (errorMessage: String?) in
                 DispatchQueue.main.async {
                     guard let self, self.activeTranslationRequestID == requestID else { return }
                     if let errorMessage {
@@ -1549,6 +1549,97 @@ private struct PinyinCandidateUtilityIconStrip: View {
     }
 }
 
+private struct PinyinTranslationPanel: View {
+    @ObservedObject var pinyinState: PinyinKeyboardInputState
+
+    var body: some View {
+        VStack(spacing: 10) {
+            header
+            resultArea
+        }
+        .padding(.horizontal, 12)
+        .padding(.top, 8)
+        .padding(.bottom, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .background(Color(.secondarySystemBackground))
+        .clipped()
+    }
+
+    private var header: some View {
+        ZStack {
+            Text("翻译")
+                .font(.system(size: 16, weight: .semibold))
+
+            HStack(spacing: 8) {
+                Button {
+                    pinyinState.setTranslationPanelVisible(false)
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(width: 34, height: 34)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("返回键盘")
+
+                Spacer(minLength: 0)
+
+                Text(pinyinState.translationStatusText)
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundStyle(statusForegroundColor)
+                    .padding(.horizontal, 8)
+                    .frame(height: 24)
+                    .background(statusBackgroundColor, in: Capsule())
+                    .opacity(pinyinState.translationStatusText.isEmpty ? 0 : 1)
+            }
+        }
+        .frame(height: 34)
+    }
+
+    private var resultArea: some View {
+        ScrollView(.vertical, showsIndicators: false) {
+            Text(displayText)
+                .font(.system(size: 15, weight: .regular))
+                .foregroundStyle(resultForegroundColor)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(12)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color.primary.opacity(0.05), lineWidth: 1)
+        }
+        .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 3)
+    }
+
+    private var displayText: String {
+        if pinyinState.translationText.isEmpty {
+            return "正在读取粘贴板并请求翻译..."
+        }
+        return pinyinState.translationText
+    }
+
+    private var resultForegroundColor: Color {
+        pinyinState.translationText.isEmpty ? .secondary : .primary
+    }
+
+    private var statusForegroundColor: Color {
+        switch pinyinState.translationStatusText {
+        case "失败", "配置错误", "请求错误":
+            return .red
+        case "完成":
+            return .green
+        default:
+            return .secondary
+        }
+    }
+
+    private var statusBackgroundColor: Color {
+        statusForegroundColor.opacity(0.12)
+    }
+}
+
 private struct PinyinQuickFillPanel: View {
     @ObservedObject var pinyinState: PinyinKeyboardInputState
     let insertText: (String) -> Void
@@ -1945,6 +2036,87 @@ private struct PinyinQuickFillAddBar: View {
         isDraftEmpty ? Color.gray.opacity(0.35) : Color.accentColor
     }
 
+}
+
+private final class OllamaTranslationStreamDelegate: NSObject, URLSessionDataDelegate {
+    private let onToken: (String) -> Void
+    private let onComplete: (String?) -> Void
+    private var lineBuffer = ""
+    private var didComplete = false
+
+    init(
+        onToken: @escaping (String) -> Void,
+        onComplete: @escaping (String?) -> Void
+    ) {
+        self.onToken = onToken
+        self.onComplete = onComplete
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        dataTask: URLSessionDataTask,
+        didReceive data: Data
+    ) {
+        guard let chunk = String(data: data, encoding: .utf8) else { return }
+        lineBuffer += chunk
+        processBufferedLines(flushRemainder: false)
+    }
+
+    func urlSession(
+        _ session: URLSession,
+        task: URLSessionTask,
+        didCompleteWithError error: Error?
+    ) {
+        processBufferedLines(flushRemainder: true)
+        if let error,
+           (error as NSError).code != NSURLErrorCancelled {
+            complete(error.localizedDescription)
+        } else {
+            complete(nil)
+        }
+        session.finishTasksAndInvalidate()
+    }
+
+    private func processBufferedLines(flushRemainder: Bool) {
+        let separator = CharacterSet.newlines
+        var lines = lineBuffer.components(separatedBy: separator)
+        if !flushRemainder {
+            lineBuffer = lines.popLast() ?? ""
+        } else {
+            lineBuffer = ""
+        }
+
+        for line in lines {
+            processLine(line.trimmingCharacters(in: .whitespacesAndNewlines))
+        }
+    }
+
+    private func processLine(_ line: String) {
+        guard !line.isEmpty,
+              let data = line.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            return
+        }
+
+        if let error = object["error"] as? String, !error.isEmpty {
+            complete(error)
+            return
+        }
+
+        if let token = object["response"] as? String, !token.isEmpty {
+            onToken(token)
+        }
+
+        if object["done"] as? Bool == true {
+            complete(nil)
+        }
+    }
+
+    private func complete(_ errorMessage: String?) {
+        guard !didComplete else { return }
+        didComplete = true
+        onComplete(errorMessage)
+    }
 }
 
 private struct PinyinQuickFillStableInputField: UIViewRepresentable {
