@@ -52,7 +52,7 @@ final class KeyboardViewController: KeyboardInputViewController {
 
 private enum PinyinKeyboardMetrics {
     static let candidateToolbarHeight: CGFloat = 77
-    static let quickFillAddBarHeight: CGFloat = 82
+    static let quickFillAddBarHeight: CGFloat = 106
     static let compositionBarHeight: CGFloat = 30
     static let candidateInputTopPadding: CGFloat = 4
     static let compositionCandidateSpacing: CGFloat = 7
@@ -157,6 +157,11 @@ private final class PinyinKeyboardInputState: ObservableObject {
             applyCandidateRefreshResult(engine.candidates, generation: generation)
         }
         return candidates.first
+    }
+
+    func firstFreshCompositionCandidateForCommit() -> PinyinInputEngine.Candidate? {
+        guard hasComposition else { return nil }
+        return firstFreshCandidateForCommit()
     }
 
     func toggleQuickFillPanel() {
@@ -536,7 +541,7 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
                 applyLockedKeyboardCase()
                 return
             }
-            guard let first = pinyinState.firstFreshCandidateForCommit() else {
+            guard let first = pinyinState.firstFreshCompositionCandidateForCommit() else {
                 handleStandardAction(gesture, on: action)
                 return
             }
@@ -922,7 +927,6 @@ private struct PinyinKeyboardView: View {
                 pinyinState: pinyinState,
                 insertText: insertText
             )
-            .padding(.top, PinyinKeyboardMetrics.candidateToolbarHeight)
             .transition(.move(edge: .bottom).combined(with: .opacity))
             .animation(.easeInOut(duration: PinyinKeyboardMetrics.quickFillPanelAnimationDuration), value: pinyinState.isQuickFillPanelVisible)
         }
@@ -1106,7 +1110,7 @@ private struct PinyinCandidateToolbar: View {
         }
         .frame(maxWidth: .infinity)
         .frame(height: toolbarHeight)
-        .background(Color(.systemBackground))
+        .background(Color.clear)
         .animation(.easeInOut(duration: PinyinKeyboardMetrics.quickFillPanelAnimationDuration), value: pinyinState.isQuickFillAddInputVisible)
     }
 
@@ -1447,6 +1451,17 @@ private struct PinyinQuickFillPanel: View {
                 .font(.system(size: 16, weight: .semibold))
 
             HStack {
+                Button {
+                    pinyinState.setQuickFillPanelVisible(false)
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(width: 34, height: 34)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("返回键盘")
+
                 Spacer(minLength: 0)
 
                 Button {
@@ -1635,9 +1650,6 @@ private struct PinyinSwipeableQuickFillItemCard: View {
 
 private struct PinyinQuickFillAddBar: View {
     @ObservedObject var pinyinState: PinyinKeyboardInputState
-    @State private var isCursorVisible = true
-
-    private let cursorScrollID = "quickFillDraftCursor"
 
     var body: some View {
         VStack(spacing: 6) {
@@ -1653,9 +1665,6 @@ private struct PinyinQuickFillAddBar: View {
             Rectangle()
                 .fill(Color.primary.opacity(0.08))
                 .frame(height: 0.5)
-        }
-        .onAppear {
-            isCursorVisible = true
         }
     }
 
@@ -1710,102 +1719,17 @@ private struct PinyinQuickFillAddBar: View {
     }
 
     private var focusedInputField: some View {
-        GeometryReader { proxy in
-            HStack(spacing: 0) {
-                if activeInputText.isEmpty {
-                    focusedCursor
-                        .padding(.trailing, 3)
-
-                    Text("输入常用语内容")
-                        .font(.system(size: 15, weight: .regular))
-                        .foregroundStyle(.secondary)
-                        .lineLimit(1)
-                } else {
-                    ScrollViewReader { scrollProxy in
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 0) {
-                                Text(draftPrefixText)
-                                    .font(.system(size: 15, weight: .regular))
-                                    .foregroundStyle(.primary)
-                                    .lineLimit(1)
-
-                                if !compositionPrefixText.isEmpty {
-                                    Text(compositionPrefixText)
-                                        .font(.system(size: 15, weight: .regular))
-                                        .foregroundStyle(.primary)
-                                        .lineLimit(1)
-                                }
-
-                                focusedCursor
-                                    .padding(.horizontal, 1)
-                                    .id(cursorScrollID)
-
-                                if !compositionSuffixText.isEmpty {
-                                    Text(compositionSuffixText)
-                                        .font(.system(size: 15, weight: .regular))
-                                        .foregroundStyle(.primary)
-                                        .lineLimit(1)
-                                }
-
-                                Text(draftSuffixText)
-                                    .font(.system(size: 15, weight: .regular))
-                                    .foregroundStyle(.primary)
-                                    .lineLimit(1)
-                            }
-                            .frame(minHeight: 22)
-                        }
-                        .onAppear {
-                            scrollToCursor(scrollProxy)
-                        }
-                        .onChange(of: pinyinState.quickFillDraftText) { _ in
-                            scrollToCursor(scrollProxy)
-                        }
-                        .onChange(of: pinyinState.quickFillDraftCursorOffset) { _ in
-                            scrollToCursor(scrollProxy)
-                        }
-                        .onChange(of: pinyinState.displayText) { _ in
-                            scrollToCursor(scrollProxy)
-                        }
-                    }
-                }
-
-                Spacer(minLength: 0)
-
-                Text("\(activeInputText.count)")
-                    .font(.system(size: 11, weight: .regular))
-                    .foregroundStyle(.tertiary)
-                    .padding(.leading, 8)
+        PinyinQuickFillStableInputField(
+            draftPrefixText: draftPrefixText,
+            compositionPrefixText: compositionPrefixText,
+            compositionSuffixText: compositionSuffixText,
+            draftSuffixText: draftSuffixText,
+            fullText: activeInputText,
+            setDraftCursorOffset: { offset in
+                pinyinState.setQuickFillDraftCursorOffset(offset)
             }
-            .padding(.horizontal, 10)
-            .frame(width: proxy.size.width, height: proxy.size.height)
-            .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 10, style: .continuous)
-                    .stroke(Color.accentColor.opacity(0.82), lineWidth: 1.2)
-            }
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onEnded { value in
-                        moveDraftCursor(toTapX: value.location.x, fieldWidth: proxy.size.width)
-                    }
-            )
-        }
-        .frame(height: 34)
-    }
-
-    private var focusedCursor: some View {
-        RoundedRectangle(cornerRadius: 0.75, style: .continuous)
-            .fill(Color.accentColor)
-            .frame(width: 1.5, height: 18)
-            .opacity(isCursorVisible ? 1 : 0.25)
-            .animation(
-                .easeInOut(duration: 0.62).repeatForever(autoreverses: true),
-                value: isCursorVisible
-            )
-            .onAppear {
-                isCursorVisible.toggle()
-            }
+        )
+        .frame(height: 58)
     }
 
     private var activeInputText: String {
@@ -1863,42 +1787,264 @@ private struct PinyinQuickFillAddBar: View {
         isDraftEmpty ? Color.gray.opacity(0.35) : Color.accentColor
     }
 
-    private func scrollToCursor(_ proxy: ScrollViewProxy) {
-        DispatchQueue.main.async {
-            withAnimation(.easeOut(duration: 0.12)) {
-                proxy.scrollTo(cursorScrollID, anchor: .center)
+}
+
+private struct PinyinQuickFillStableInputField: UIViewRepresentable {
+    let draftPrefixText: String
+    let compositionPrefixText: String
+    let compositionSuffixText: String
+    let draftSuffixText: String
+    let fullText: String
+    let setDraftCursorOffset: (Int) -> Void
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(setDraftCursorOffset: setDraftCursorOffset)
+    }
+
+    func makeUIView(context: Context) -> StableInputTextView {
+        let view = StableInputTextView()
+        view.delegate = context.coordinator
+        view.onSelectionChanged = { [weak coordinator = context.coordinator, weak view] in
+            guard let view else { return }
+            coordinator?.syncDraftCursorOffset(from: view)
+        }
+        return view
+    }
+
+    func updateUIView(_ uiView: StableInputTextView, context: Context) {
+        context.coordinator.setDraftCursorOffset = setDraftCursorOffset
+        context.coordinator.draftPrefixLength = draftPrefixText.count
+        context.coordinator.compositionLength = compositionPrefixText.count + compositionSuffixText.count
+        context.coordinator.fullText = fullText
+
+        let cursorActiveOffset = draftPrefixText.count + compositionPrefixText.count
+        uiView.update(
+            text: fullText,
+            cursorCharacterOffset: cursorActiveOffset,
+            compositionRange: compositionRange(
+                draftPrefixLength: draftPrefixText.count,
+                compositionLength: compositionPrefixText.count + compositionSuffixText.count
+            )
+        )
+    }
+
+    private func compositionRange(draftPrefixLength: Int, compositionLength: Int) -> NSRange? {
+        guard compositionLength > 0 else { return nil }
+        let location = fullText.utf16Offset(forCharacterOffset: draftPrefixLength)
+        let end = fullText.utf16Offset(forCharacterOffset: draftPrefixLength + compositionLength)
+        return NSRange(location: location, length: max(0, end - location))
+    }
+
+    final class Coordinator: NSObject, UITextViewDelegate {
+        var setDraftCursorOffset: (Int) -> Void
+        var draftPrefixLength = 0
+        var compositionLength = 0
+        var fullText = ""
+
+        init(setDraftCursorOffset: @escaping (Int) -> Void) {
+            self.setDraftCursorOffset = setDraftCursorOffset
+        }
+
+        func syncDraftCursorOffset(from textView: UITextView) {
+            let activeUTF16Offset: Int
+            if let selectedRange = textView.selectedTextRange {
+                activeUTF16Offset = textView.offset(from: textView.beginningOfDocument, to: selectedRange.start)
+            } else {
+                activeUTF16Offset = fullText.utf16.count
             }
+            let activeOffset = fullText.characterOffset(forUTF16Offset: activeUTF16Offset)
+
+            let draftOffset: Int
+            if activeOffset <= draftPrefixLength {
+                draftOffset = activeOffset
+            } else if activeOffset <= draftPrefixLength + compositionLength {
+                // 组合输入期间不允许把草稿光标插入拼音组合串内部，避免候选上屏后位置错乱。
+                draftOffset = draftPrefixLength
+            } else {
+                draftOffset = activeOffset - compositionLength
+            }
+            setDraftCursorOffset(draftOffset)
+        }
+
+        func textView(
+            _ textView: UITextView,
+            shouldChangeTextIn range: NSRange,
+            replacementText text: String
+        ) -> Bool {
+            // 输入内容统一由自定义键盘状态管理，这里只允许 UITextView 提供多行布局与真实光标定位。
+            false
+        }
+
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            if let stableTextView = textView as? StableInputTextView,
+               stableTextView.isApplyingSelectionUpdate {
+                return
+            }
+            syncDraftCursorOffset(from: textView)
         }
     }
 
-    private func moveDraftCursor(toTapX tapX: CGFloat, fieldWidth: CGFloat) {
-        guard !pinyinState.quickFillDraftText.isEmpty else {
-            pinyinState.setQuickFillDraftCursorOffset(0)
-            return
+    final class StableInputTextView: UITextView {
+        var onSelectionChanged: (() -> Void)?
+
+        private let horizontalPadding: CGFloat = 10
+        private let verticalPadding: CGFloat = 7
+        private let counterWidth: CGFloat = 38
+        private let inputFont = UIFont.systemFont(ofSize: 15, weight: .regular)
+        private let countFont = UIFont.systemFont(ofSize: 11, weight: .regular)
+        private let countLabel = UILabel()
+        private let placeholderLabel = UILabel()
+        private var lastAppliedText = ""
+        private var isApplyingUpdate = false
+        private var pendingCursorCharacterOffset = 0
+
+        var isApplyingSelectionUpdate: Bool { isApplyingUpdate }
+
+        override init(frame: CGRect) {
+            super.init(frame: frame)
+            setupView()
         }
 
-        let horizontalPadding: CGFloat = 10
-        let counterReservedWidth: CGFloat = 34
-        let textAreaWidth = max(1, fieldWidth - horizontalPadding * 2 - counterReservedWidth)
-        let localX = max(0, min(textAreaWidth, tapX - horizontalPadding))
-        let activeOffset = Int((localX / estimatedCharacterWidth).rounded())
-        let compositionLength = pinyinState.hasComposition ? pinyinState.displayText.count : 0
-        let prefixLength = draftPrefixText.count
-        let draftOffset: Int
-
-        if activeOffset <= prefixLength {
-            draftOffset = activeOffset
-        } else if activeOffset <= prefixLength + compositionLength {
-            draftOffset = clampedDraftCursorOffset
-        } else {
-            draftOffset = activeOffset - compositionLength
+        required init?(coder: NSCoder) {
+            super.init(coder: coder)
+            setupView()
         }
 
-        pinyinState.setQuickFillDraftCursorOffset(draftOffset)
+        private func setupView() {
+            backgroundColor = .systemBackground
+            layer.cornerRadius = 10
+            layer.cornerCurve = .continuous
+            layer.borderWidth = 1.2
+            layer.borderColor = UIColor.tintColor.withAlphaComponent(0.82).cgColor
+            clipsToBounds = true
+
+            font = inputFont
+            textColor = .label
+            tintColor = .tintColor
+            backgroundColor = .systemBackground
+            autocorrectionType = .no
+            autocapitalizationType = .none
+            spellCheckingType = .no
+            smartDashesType = .no
+            smartQuotesType = .no
+            smartInsertDeleteType = .no
+            isEditable = true
+            isSelectable = true
+            isScrollEnabled = true
+            showsVerticalScrollIndicator = false
+            showsHorizontalScrollIndicator = false
+            alwaysBounceVertical = false
+            keyboardDismissMode = .none
+            inputView = UIView(frame: .zero)
+            inputAccessoryView = UIView(frame: .zero)
+            textContainer.lineFragmentPadding = 0
+            textContainerInset = UIEdgeInsets(
+                top: verticalPadding,
+                left: horizontalPadding,
+                bottom: verticalPadding,
+                right: horizontalPadding + counterWidth + 8
+            )
+
+            placeholderLabel.text = "输入常用语内容"
+            placeholderLabel.font = inputFont
+            placeholderLabel.textColor = .placeholderText
+            placeholderLabel.translatesAutoresizingMaskIntoConstraints = false
+            placeholderLabel.isUserInteractionEnabled = false
+            addSubview(placeholderLabel)
+
+            countLabel.font = countFont
+            countLabel.textColor = .tertiaryLabel
+            countLabel.textAlignment = .right
+            countLabel.translatesAutoresizingMaskIntoConstraints = false
+            countLabel.isUserInteractionEnabled = false
+            addSubview(countLabel)
+
+            NSLayoutConstraint.activate([
+                countLabel.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -horizontalPadding),
+                countLabel.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -5),
+                countLabel.widthAnchor.constraint(equalToConstant: counterWidth),
+
+                placeholderLabel.leadingAnchor.constraint(equalTo: leadingAnchor, constant: horizontalPadding),
+                placeholderLabel.topAnchor.constraint(equalTo: topAnchor, constant: verticalPadding),
+                placeholderLabel.trailingAnchor.constraint(lessThanOrEqualTo: countLabel.leadingAnchor, constant: -8)
+            ])
+        }
+
+        func update(text: String, cursorCharacterOffset: Int, compositionRange: NSRange?) {
+            isApplyingUpdate = true
+            pendingCursorCharacterOffset = max(0, min(cursorCharacterOffset, text.count))
+
+            if lastAppliedText != text {
+                attributedText = attributedText(for: text, compositionRange: compositionRange)
+                lastAppliedText = text
+            } else if let compositionRange {
+                attributedText = attributedText(for: text, compositionRange: compositionRange)
+            }
+            countLabel.text = "\(text.count)"
+            placeholderLabel.isHidden = !text.isEmpty
+            setCursor(characterOffset: pendingCursorCharacterOffset, in: text)
+            scrollRangeToVisible(selectedRange)
+            isApplyingUpdate = false
+        }
+
+        override func selectionRects(for range: UITextRange) -> [UITextSelectionRect] {
+            // 不显示系统选区手柄，只保留插入光标，避免用户误以为可以系统编辑/粘贴。
+            []
+        }
+
+        override func caretRect(for position: UITextPosition) -> CGRect {
+            var rect = super.caretRect(for: position)
+            rect.size.width = 1.5
+            rect.size.height = 18
+            rect.origin.y += max(0, (inputFont.lineHeight - rect.height) / 2)
+            return rect
+        }
+
+        override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+            false
+        }
+
+        private func attributedText(for text: String, compositionRange: NSRange?) -> NSAttributedString {
+            let attributed = NSMutableAttributedString(
+                string: text,
+                attributes: [
+                    .font: inputFont,
+                    .foregroundColor: UIColor.label
+                ]
+            )
+            if let compositionRange,
+               compositionRange.location >= 0,
+               compositionRange.location + compositionRange.length <= attributed.length {
+                attributed.addAttributes([
+                    .foregroundColor: UIColor.tintColor,
+                    .underlineStyle: NSUnderlineStyle.single.rawValue
+                ], range: compositionRange)
+            }
+            return attributed
+        }
+
+        private func setCursor(characterOffset: Int, in text: String) {
+            let utf16Offset = text.utf16Offset(forCharacterOffset: characterOffset)
+            selectedRange = NSRange(location: max(0, min(utf16Offset, text.utf16.count)), length: 0)
+        }
+    }
+}
+
+private extension String {
+    func utf16Offset(forCharacterOffset characterOffset: Int) -> Int {
+        let clampedOffset = max(0, min(characterOffset, count))
+        let index = self.index(startIndex, offsetBy: clampedOffset)
+        guard let utf16Index = index.samePosition(in: utf16) else { return utf16.count }
+        return utf16.distance(from: utf16.startIndex, to: utf16Index)
     }
 
-    private var estimatedCharacterWidth: CGFloat {
-        8.2
+    func characterOffset(forUTF16Offset utf16Offset: Int) -> Int {
+        let clampedOffset = max(0, min(utf16Offset, utf16.count))
+        let utf16Index = utf16.index(utf16.startIndex, offsetBy: clampedOffset)
+        guard let stringIndex = String.Index(utf16Index, within: self) else {
+            return count
+        }
+        return distance(from: startIndex, to: stringIndex)
     }
 }
 
