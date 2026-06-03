@@ -7,3 +7,6 @@ xcuserdata/
 
 # Local dependency/download scratch space
 .gh-tmp/
+
+# Windows crash dumps
+*.stackdump

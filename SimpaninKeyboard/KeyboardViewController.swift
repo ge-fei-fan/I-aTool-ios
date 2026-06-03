@@ -1802,7 +1802,7 @@ private struct PinyinQuickFillStableInputField: UIViewRepresentable {
     }
 
     func makeUIView(context: Context) -> StableInputTextView {
-        let view = StableInputTextView()
+        let view = StableInputTextView(frame: .zero, textContainer: nil)
         view.delegate = context.coordinator
         view.onSelectionChanged = { [weak coordinator = context.coordinator, weak view] in
             guard let view else { return }
@@ -1900,8 +1900,8 @@ private struct PinyinQuickFillStableInputField: UIViewRepresentable {
 
         var isApplyingSelectionUpdate: Bool { isApplyingUpdate }
 
-        override init(frame: CGRect) {
-            super.init(frame: frame)
+        override init(frame: CGRect, textContainer: NSTextContainer?) {
+            super.init(frame: frame, textContainer: textContainer)
             setupView()
         }
 
