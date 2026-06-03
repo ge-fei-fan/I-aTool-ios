@@ -86,6 +86,8 @@ private final class PinyinKeyboardInputState: ObservableObject {
     @Published var isUppercaseLocked = false
     @Published var isQuickFillPanelVisible = false
     @Published var isQuickFillAddInputVisible = false
+    @Published var isSpaceTrackpadActive = false
+    @Published var spaceTrackpadPreviewOffset = 0
     @Published var quickFillItems: [String] = []
     @Published var quickFillDraftText = ""
 
@@ -114,13 +116,6 @@ private final class PinyinKeyboardInputState: ObservableObject {
         refreshPublishedComposition()
         scheduleCandidateRefresh(resetCandidatesWhenEmpty: !engine.hasComposition)
         return didDelete
-    }
-
-    func setDisplayCursorOffset(_ offset: Int) {
-        engine.setDisplayCursorOffset(offset)
-        hideCandidatePageIfNeeded()
-        refreshPublishedComposition()
-        scheduleCandidateRefresh(resetCandidatesWhenEmpty: !engine.hasComposition)
     }
 
     func select(_ candidate: PinyinInputEngine.Candidate) -> String? {
@@ -223,6 +218,24 @@ private final class PinyinKeyboardInputState: ObservableObject {
     func reloadQuickFillItems() {
         sharedDefaults?.synchronize()
         quickFillItems = sharedDefaults?.stringArray(forKey: Self.quickFillItemsDefaultsKey) ?? []
+    }
+
+    func updateSpaceTrackpadPreview(offset: Int) {
+        if !isSpaceTrackpadActive {
+            isSpaceTrackpadActive = true
+        }
+        if spaceTrackpadPreviewOffset != offset {
+            spaceTrackpadPreviewOffset = offset
+        }
+    }
+
+    func endSpaceTrackpadPreview() {
+        if isSpaceTrackpadActive {
+            isSpaceTrackpadActive = false
+        }
+        if spaceTrackpadPreviewOffset != 0 {
+            spaceTrackpadPreviewOffset = 0
+        }
     }
 
     private func persistQuickFillItems(_ items: [String]) {
@@ -509,6 +522,7 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
 
         appliedSpaceCursorDragOffset = targetOffset
         didMoveCursorWithSpaceDrag = true
+        pinyinState.updateSpaceTrackpadPreview(offset: targetOffset)
         controller?.textDocumentProxy.adjustTextPosition(byCharacterOffset: offset)
     }
 
@@ -528,6 +542,7 @@ private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
     private func resetSpaceCursorDrag() {
         appliedSpaceCursorDragOffset = 0
         didMoveCursorWithSpaceDrag = false
+        pinyinState.endSpaceTrackpadPreview()
     }
 
     func triggerFeedback(for gesture: Keyboard.Gesture, on action: KeyboardAction) {
@@ -672,12 +687,27 @@ private struct PinyinKeyboardView: View {
         .overlay(alignment: .topLeading) {
             edgeBlankTapOverlay
         }
+        .overlay {
+            spaceTrackpadOverlay
+        }
         .clipped()
     }
 
     @ViewBuilder
+    private var spaceTrackpadOverlay: some View {
+        if pinyinState.isSpaceTrackpadActive {
+            PinyinSpaceTrackpadOverlay(previewOffset: pinyinState.spaceTrackpadPreviewOffset)
+                .transition(.opacity)
+                .allowsHitTesting(false)
+        }
+    }
+
+    @ViewBuilder
     private var edgeBlankTapOverlay: some View {
-        if pinyinState.isChineseInputEnabled && !pinyinState.isCandidatePageVisible && !pinyinState.isQuickFillPanelVisible {
+        if pinyinState.isChineseInputEnabled
+            && !pinyinState.isCandidatePageVisible
+            && !pinyinState.isQuickFillPanelVisible
+            && !pinyinState.isSpaceTrackpadActive {
             PinyinKeyboardEdgeBlankTapOverlay(isUppercaseLocked: pinyinState.isUppercaseLocked) { letter in
                 pinyinState.insertLetter(letter)
             }
@@ -759,6 +789,54 @@ private struct PinyinKeyboardView: View {
             .transition(.move(edge: .bottom).combined(with: .opacity))
             .animation(.easeInOut(duration: PinyinKeyboardMetrics.quickFillPanelAnimationDuration), value: pinyinState.isQuickFillPanelVisible)
         }
+    }
+}
+
+private struct PinyinSpaceTrackpadOverlay: View {
+    let previewOffset: Int
+
+    private let pointsPerCharacter: CGFloat = 10
+    private let maxCursorTravel: CGFloat = 120
+
+    var body: some View {
+        GeometryReader { proxy in
+            ZStack {
+                Color(.systemBackground)
+                    .opacity(0.72)
+
+                VStack(spacing: 14) {
+                    Text("移动光标")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundStyle(.secondary)
+
+                    ZStack {
+                        cursor(color: .secondary.opacity(0.45), height: 28)
+
+                        cursor(color: .primary, height: 32)
+                            .offset(x: previewCursorOffset(in: proxy.size.width))
+                            .animation(.easeOut(duration: 0.08), value: previewOffset)
+                    }
+                    .frame(width: min(proxy.size.width * 0.72, 260), height: 42)
+                    .background(Color.primary.opacity(0.06), in: Capsule())
+
+                    Text("松开后定位到目标插入位置")
+                        .font(.system(size: 13, weight: .regular))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+    }
+
+    private func previewCursorOffset(in width: CGFloat) -> CGFloat {
+        let limit = min(maxCursorTravel, max(36, width * 0.32))
+        return max(-limit, min(limit, CGFloat(previewOffset) * pointsPerCharacter))
+    }
+
+    private func cursor(color: Color, height: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: 1.25, style: .continuous)
+            .fill(color)
+            .frame(width: 2.5, height: height)
     }
 }
 
@@ -933,9 +1011,7 @@ private struct PinyinCandidateToolbar: View {
                 text: pinyinState.displayText,
                 cursorOffset: pinyinState.displayCursorOffset,
                 hasComposition: pinyinState.hasComposition
-            ) { offset in
-                pinyinState.setDisplayCursorOffset(offset)
-            }
+            )
             .frame(maxWidth: .infinity)
 
             PinyinMascotButton()
@@ -1192,35 +1268,19 @@ private struct PinyinQuickFillPanel: View {
             header
 
             if pinyinState.isQuickFillAddInputVisible {
-                draftRow
+                addQuickFillCard
             }
 
             if pinyinState.quickFillItems.isEmpty {
-                Text("暂无常用词")
-                    .font(.system(size: 15, weight: .regular))
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                quickFillEmptyState
             } else {
                 ScrollView(.vertical, showsIndicators: false) {
                     LazyVStack(spacing: 8) {
                         ForEach(pinyinState.quickFillItems, id: \.self) { item in
-                            Button {
-                                insertText(item)
-                                pinyinState.setQuickFillPanelVisible(false)
-                            } label: {
-                                Text(item)
-                                    .font(.system(size: 16, weight: .regular))
-                                    .foregroundStyle(.primary)
-                                    .lineLimit(2)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .padding(.horizontal, 12)
-                                    .padding(.vertical, 10)
-                                    .background(Color(.tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
-                            }
-                            .buttonStyle(.plain)
+                            quickFillItemCard(item)
                         }
                     }
-                    .padding(.horizontal, 10)
+                    .padding(.horizontal, 12)
                     .padding(.bottom, 12)
                 }
             }
@@ -1232,7 +1292,7 @@ private struct PinyinQuickFillPanel: View {
 
     private var header: some View {
         HStack {
-            Text("常用词")
+            Text("常用语")
                 .font(.system(size: 16, weight: .semibold))
             Spacer()
             Button {
@@ -1257,30 +1317,145 @@ private struct PinyinQuickFillPanel: View {
         .padding(.top, 8)
     }
 
-    private var draftRow: some View {
-        HStack(spacing: 8) {
-            Text(pinyinState.quickFillDraftText.isEmpty ? "输入常用词后点保存" : pinyinState.quickFillDraftText)
+    private var quickFillEmptyState: some View {
+        VStack(spacing: 12) {
+            Spacer(minLength: 6)
+
+            VStack(spacing: 10) {
+                emptyStateIcon
+                    .frame(width: 58, height: 58)
+
+                Text("暂无常用语")
+                    .font(.system(size: 17, weight: .semibold))
+                    .foregroundStyle(.primary)
+
+                Text("点击右上角 + 添加常用语")
+                    .font(.system(size: 14, weight: .regular))
+                    .foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+            .padding(.horizontal, 18)
+            .padding(.vertical, 22)
+            .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .stroke(Color.primary.opacity(0.05), lineWidth: 1)
+            }
+            .shadow(color: Color.black.opacity(0.05), radius: 10, x: 0, y: 4)
+            .padding(.horizontal, 24)
+
+            Spacer(minLength: 10)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var emptyStateIcon: some View {
+        Group {
+            if let image = PinyinKeyboardImageLoader.image(named: "快速添加 ") {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFit()
+            } else {
+                Image(systemName: "plus.message")
+                    .resizable()
+                    .scaledToFit()
+                    .foregroundStyle(.secondary)
+                    .padding(8)
+            }
+        }
+    }
+
+    private var addQuickFillCard: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            HStack(spacing: 8) {
+                Image(systemName: "plus.circle.fill")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundStyle(Color.accentColor)
+
+                Text("添加常用语")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundStyle(.primary)
+            }
+
+            Text(pinyinState.quickFillDraftText.isEmpty ? "输入常用语内容" : pinyinState.quickFillDraftText)
                 .font(.system(size: 15, weight: .regular))
                 .foregroundStyle(pinyinState.quickFillDraftText.isEmpty ? .secondary : .primary)
-                .lineLimit(1)
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .lineLimit(3)
+                .frame(maxWidth: .infinity, minHeight: 42, alignment: .topLeading)
                 .padding(.horizontal, 12)
-                .padding(.vertical, 9)
-                .background(Color(.tertiarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+                .padding(.vertical, 10)
+                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .overlay(alignment: .bottomTrailing) {
+                    Text("\(pinyinState.quickFillDraftText.count)")
+                        .font(.system(size: 11, weight: .regular))
+                        .foregroundStyle(.tertiary)
+                        .padding(.trailing, 10)
+                        .padding(.bottom, 7)
+                }
 
-            Button("保存") {
-                pinyinState.saveQuickFillDraft()
-            }
-            .font(.system(size: 15, weight: .semibold))
-            .buttonStyle(.plain)
+            Text("使用下方键盘输入，点保存后会置顶显示")
+                .font(.system(size: 12, weight: .regular))
+                .foregroundStyle(.secondary)
 
-            Button("取消") {
-                pinyinState.closeQuickFillAddInput()
+            HStack(spacing: 10) {
+                Button("取消") {
+                    pinyinState.closeQuickFillAddInput()
+                }
+                .font(.system(size: 15, weight: .regular))
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity)
+                .frame(height: 34)
+                .background(Color(.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .buttonStyle(.plain)
+
+                Button("保存") {
+                    pinyinState.saveQuickFillDraft()
+                }
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 34)
+                .background(saveButtonBackground, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .buttonStyle(.plain)
+                .disabled(pinyinState.quickFillDraftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
-            .font(.system(size: 15, weight: .regular))
-            .buttonStyle(.plain)
         }
+        .padding(14)
+        .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(Color.primary.opacity(0.06), lineWidth: 1)
+        }
+        .shadow(color: Color.black.opacity(0.06), radius: 10, x: 0, y: 5)
         .padding(.horizontal, 12)
+    }
+
+    private var saveButtonBackground: Color {
+        pinyinState.quickFillDraftText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? Color.gray.opacity(0.35)
+            : Color.accentColor
+    }
+
+    private func quickFillItemCard(_ item: String) -> some View {
+        Button {
+            insertText(item)
+            pinyinState.setQuickFillPanelVisible(false)
+        } label: {
+            Text(item)
+                .font(.system(size: 16, weight: .regular))
+                .foregroundStyle(.primary)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .background(Color(.systemBackground), in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(Color.primary.opacity(0.05), lineWidth: 1)
+                }
+                .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 3)
+        }
+        .buttonStyle(.plain)
     }
 }
 
@@ -1419,7 +1594,6 @@ private struct PinyinCompositionCursorText: View {
     let text: String
     let cursorOffset: Int
     let hasComposition: Bool
-    let setCursorOffset: (Int) -> Void
 
     private let fontSize: CGFloat = 15
 
@@ -1445,14 +1619,6 @@ private struct PinyinCompositionCursorText: View {
                 Spacer(minLength: 0)
             }
             .frame(width: proxy.size.width, height: proxy.size.height, alignment: .leading)
-            .contentShape(Rectangle())
-            .gesture(
-                DragGesture(minimumDistance: 0)
-                    .onEnded { value in
-                        guard hasComposition else { return }
-                        setCursorOffset(nearestCursorOffset(for: value.location.x))
-                    }
-            )
         }
     }
 
@@ -1468,27 +1634,6 @@ private struct PinyinCompositionCursorText: View {
     private var suffixText: String {
         let start = text.index(text.startIndex, offsetBy: clampedCursorOffset)
         return String(text[start...])
-    }
-
-    private func nearestCursorOffset(for x: CGFloat) -> Int {
-        guard !text.isEmpty else { return 0 }
-        let font = UIFont.systemFont(ofSize: fontSize, weight: .regular)
-        let attributes: [NSAttributedString.Key: Any] = [.font: font]
-        let characters = Array(text)
-        var bestOffset = 0
-        var bestDistance = CGFloat.greatestFiniteMagnitude
-
-        for offset in 0...characters.count {
-            let prefix = String(characters.prefix(offset)) as NSString
-            let width = prefix.size(withAttributes: attributes).width
-            let distance = abs(width - x)
-            if distance < bestDistance {
-                bestDistance = distance
-                bestOffset = offset
-            }
-        }
-
-        return bestOffset
     }
 }
 
