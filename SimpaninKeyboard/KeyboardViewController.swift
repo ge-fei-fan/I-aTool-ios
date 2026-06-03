@@ -23,6 +23,7 @@ final class KeyboardViewController: KeyboardInputViewController {
                 keyboardContext: controller.state.keyboardContext,
                 services: controller.services,
                 pinyinState: pinyinState,
+                hasFullAccess: controller.hasFullAccess,
                 insertText: { [weak controller] text in
                     controller?.textDocumentProxy.insertText(text)
                 },
@@ -92,7 +93,13 @@ private final class PinyinKeyboardInputState: ObservableObject {
     @Published var quickFillItems: [String] = []
     @Published var quickFillDraftText = ""
     @Published var quickFillDraftCursorOffset = 0
+    @Published var isTranslationPanelVisible = false
+    @Published var translationText = ""
+    @Published var translationStatusText = ""
     private var quickFillEditingOriginalText: String?
+    private var translationTask: URLSessionDataTask?
+    private var translationStreamDelegate: OllamaTranslationStreamDelegate?
+    private var activeTranslationRequestID = 0
 
     private var sharedDefaults: UserDefaults? {
         UserDefaults(suiteName: Self.sharedDefaultsSuiteName)
@@ -100,6 +107,7 @@ private final class PinyinKeyboardInputState: ObservableObject {
 
     deinit {
         candidateRefreshWorkItem?.cancel()
+        cancelTranslationRequest()
     }
 
     init() {
@@ -166,6 +174,7 @@ private final class PinyinKeyboardInputState: ObservableObject {
 
     func toggleQuickFillPanel() {
         reloadQuickFillItems()
+        setTranslationPanelVisible(false)
         if isQuickFillAddInputVisible {
             returnToQuickFillPanel()
             return
@@ -182,6 +191,7 @@ private final class PinyinKeyboardInputState: ObservableObject {
     func setQuickFillPanelVisible(_ visible: Bool) {
         if visible {
             reloadQuickFillItems()
+            setTranslationPanelVisible(false)
             hideCandidatePageIfNeeded()
         } else {
             isQuickFillAddInputVisible = false
@@ -194,6 +204,7 @@ private final class PinyinKeyboardInputState: ObservableObject {
     }
 
     func showQuickFillAddInput() {
+        setTranslationPanelVisible(false)
         quickFillDraftText = ""
         quickFillDraftCursorOffset = 0
         quickFillEditingOriginalText = nil
@@ -308,6 +319,131 @@ private final class PinyinKeyboardInputState: ObservableObject {
         if spaceTrackpadPreviewOffset != 0 {
             spaceTrackpadPreviewOffset = 0
         }
+    }
+
+    func openTranslationPanel(hasFullAccess: Bool) {
+        isQuickFillPanelVisible = false
+        isQuickFillAddInputVisible = false
+        quickFillDraftText = ""
+        quickFillDraftCursorOffset = 0
+        quickFillEditingOriginalText = nil
+        hideCandidatePageIfNeeded()
+        setTranslationPanelVisible(true)
+        startClipboardTranslation(hasFullAccess: hasFullAccess)
+    }
+
+    func setTranslationPanelVisible(_ visible: Bool) {
+        guard isTranslationPanelVisible != visible else { return }
+        isTranslationPanelVisible = visible
+        if visible {
+            isQuickFillPanelVisible = false
+            isQuickFillAddInputVisible = false
+            hideCandidatePageIfNeeded()
+        } else {
+            cancelTranslationRequest()
+        }
+    }
+
+    private func startClipboardTranslation(hasFullAccess: Bool) {
+        cancelTranslationRequest()
+        activeTranslationRequestID += 1
+        let requestID = activeTranslationRequestID
+
+        guard hasFullAccess else {
+            translationText = "请在系统设置中为键盘开启“允许完全访问”，用于读取粘贴板并访问翻译服务。"
+            translationStatusText = "需要权限"
+            return
+        }
+
+        let sourceText = UIPasteboard.general.string?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !sourceText.isEmpty else {
+            translationText = "粘贴板暂无可翻译文本。"
+            translationStatusText = "空粘贴板"
+            return
+        }
+
+        translationText = ""
+        translationStatusText = "翻译中…"
+        requestStreamingTranslation(for: sourceText, requestID: requestID)
+    }
+
+    private func requestStreamingTranslation(for text: String, requestID: Int) {
+        let storedBaseURL = sharedDefaults?.string(forKey: "translate.baseURL") ?? "http://192.168.2.88:11434"
+        let storedModel = sharedDefaults?.string(forKey: "translate.model") ?? "transgemma4b"
+        let baseURL = storedBaseURL
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let model = storedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !baseURL.isEmpty, let url = URL(string: "\(baseURL)/api/generate") else {
+            translationText = "翻译服务地址无效，请在 App 的设置中检查服务地址。"
+            translationStatusText = "配置错误"
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 120
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/x-ndjson", forHTTPHeaderField: "Accept")
+
+        let prompt = """
+        请自动识别以下文本的语言，并将内容翻译成简体中文。
+        如果文本已经是中文，请保持中文原文，不要翻译成其他语言，也不要润色改写。
+        只返回译文，不要返回解释、标签、原文或额外说明。
+
+        \(text)
+        """
+        let body: [String: Any] = [
+            "model": model.isEmpty ? "transgemma4b" : model,
+            "prompt": prompt,
+            "stream": true
+        ]
+        guard JSONSerialization.isValidJSONObject(body),
+              let data = try? JSONSerialization.data(withJSONObject: body) else {
+            translationText = "翻译请求构造失败。"
+            translationStatusText = "请求错误"
+            return
+        }
+        request.httpBody = data
+
+        var accumulated = ""
+        let delegate = OllamaTranslationStreamDelegate(
+            onToken: { [weak self] token in
+                DispatchQueue.main.async {
+                    guard let self, self.activeTranslationRequestID == requestID else { return }
+                    accumulated += token
+                    self.translationText = accumulated
+                }
+            },
+            onComplete: { [weak self] errorMessage in
+                DispatchQueue.main.async {
+                    guard let self, self.activeTranslationRequestID == requestID else { return }
+                    if let errorMessage {
+                        self.translationStatusText = "失败"
+                        if accumulated.isEmpty {
+                            self.translationText = errorMessage
+                        }
+                    } else {
+                        self.translationStatusText = "完成"
+                    }
+                    self.translationTask = nil
+                    self.translationStreamDelegate = nil
+                }
+            }
+        )
+        translationStreamDelegate = delegate
+        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+        let task = session.dataTask(with: request)
+        translationTask = task
+        task.resume()
+    }
+
+    private func cancelTranslationRequest() {
+        activeTranslationRequestID += 1
+        translationTask?.cancel()
+        translationTask = nil
+        translationStreamDelegate = nil
     }
 
     private func persistQuickFillItems(_ items: [String]) {
@@ -784,6 +920,7 @@ private struct PinyinKeyboardView: View {
     @ObservedObject var keyboardContext: KeyboardContext
     let services: Keyboard.Services
     @ObservedObject var pinyinState: PinyinKeyboardInputState
+    let hasFullAccess: Bool
     let insertText: (String) -> Void
     let dismissKeyboard: () -> Void
 
@@ -812,6 +949,9 @@ private struct PinyinKeyboardView: View {
                     dismissKeyboard: dismissKeyboard,
                     openQuickFillPanel: {
                         pinyinState.toggleQuickFillPanel()
+                    },
+                    openTranslationPanel: {
+                        pinyinState.openTranslationPanel(hasFullAccess: hasFullAccess)
                     }
                 )
             }
@@ -821,6 +961,9 @@ private struct PinyinKeyboardView: View {
         }
         .overlay(alignment: .top) {
             quickFillOverlay
+        }
+        .overlay(alignment: .top) {
+            translationOverlay
         }
         .overlay(alignment: .topLeading) {
             edgeBlankTapOverlay
@@ -846,6 +989,7 @@ private struct PinyinKeyboardView: View {
             && !pinyinState.isCandidatePageVisible
             && !pinyinState.isQuickFillPanelVisible
             && !pinyinState.isQuickFillAddInputVisible
+            && !pinyinState.isTranslationPanelVisible
             && !pinyinState.isSpaceTrackpadActive {
             PinyinKeyboardEdgeBlankTapOverlay(
                 topInset: currentToolbarHeight,
@@ -929,6 +1073,16 @@ private struct PinyinKeyboardView: View {
             )
             .transition(.move(edge: .bottom).combined(with: .opacity))
             .animation(.easeInOut(duration: PinyinKeyboardMetrics.quickFillPanelAnimationDuration), value: pinyinState.isQuickFillPanelVisible)
+        }
+    }
+
+    @ViewBuilder
+    private var translationOverlay: some View {
+        if pinyinState.isTranslationPanelVisible {
+            PinyinTranslationPanel(pinyinState: pinyinState)
+                .padding(.top, PinyinKeyboardMetrics.candidateToolbarHeight)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .animation(.easeInOut(duration: PinyinKeyboardMetrics.quickFillPanelAnimationDuration), value: pinyinState.isTranslationPanelVisible)
         }
     }
 
@@ -1086,6 +1240,7 @@ private struct PinyinCandidateToolbar: View {
     let insertText: (String) -> Void
     let dismissKeyboard: () -> Void
     let openQuickFillPanel: () -> Void
+    let openTranslationPanel: () -> Void
 
     private let candidateBatchSize = 30
 
@@ -1165,7 +1320,8 @@ private struct PinyinCandidateToolbar: View {
             if shouldShowUtilityIconStrip {
                 PinyinCandidateUtilityIconStrip(
                     dismissKeyboard: dismissKeyboard,
-                    openQuickFillPanel: openQuickFillPanel
+                    openQuickFillPanel: openQuickFillPanel,
+                    openTranslationPanel: openTranslationPanel
                 )
             } else {
                 GeometryReader { proxy in
@@ -1369,12 +1525,13 @@ private struct PinyinHeartShape: Shape {
 private struct PinyinCandidateUtilityIconStrip: View {
     let dismissKeyboard: () -> Void
     let openQuickFillPanel: () -> Void
+    let openTranslationPanel: () -> Void
 
     private var items: [PinyinUtilityIconItem] {
         [
             .init(assetName: "icons8-diversity-50", fallbackSystemName: "person.2", accessibilityLabel: "Function", action: nil),
             .init(assetName: "文本", fallbackSystemName: "textformat", accessibilityLabel: "Quick fill", action: openQuickFillPanel),
-            .init(assetName: "翻译", fallbackSystemName: "text.translate", accessibilityLabel: "Translate", action: nil),
+            .init(assetName: "翻译", fallbackSystemName: "text.translate", accessibilityLabel: "Translate", action: openTranslationPanel),
             .init(assetName: "icons8-happy-50", fallbackSystemName: "face.smiling", accessibilityLabel: "Cursor", action: nil),
             .init(assetName: "icons8-happy-50", fallbackSystemName: "face.smiling", accessibilityLabel: "Emoji", action: nil),
             .init(assetName: "icons8-expand-arrow-50", fallbackSystemName: "chevron.down", accessibilityLabel: "Dismiss keyboard", action: dismissKeyboard)
@@ -1729,6 +1886,7 @@ private struct PinyinQuickFillAddBar: View {
                 pinyinState.setQuickFillDraftCursorOffset(offset)
             }
         )
+        .frame(maxWidth: .infinity)
         .frame(height: 58)
     }
 
@@ -1941,8 +2099,8 @@ private struct PinyinQuickFillStableInputField: UIViewRepresentable {
             textContainerInset = UIEdgeInsets(
                 top: verticalPadding,
                 left: horizontalPadding,
-                bottom: verticalPadding,
-                right: horizontalPadding + counterWidth + 8
+                bottom: verticalPadding + 10,
+                right: horizontalPadding
             )
 
             placeholderLabel.text = "输入常用语内容"
