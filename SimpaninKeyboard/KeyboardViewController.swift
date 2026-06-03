@@ -547,8 +547,8 @@ private final class PinyinKeyboardInputState: ObservableObject {
 
 private final class PinyinKeyboardActionHandler: KeyboardActionHandler {
     private static let languageSwitchActionName = "simpanin.inputMode.toggleChineseEnglish"
-    private static let spaceCursorHorizontalPointsPerCharacter: CGFloat = 2.5
-    private static let spaceCursorVerticalPointsPerCharacter: CGFloat = 14
+    private static let spaceCursorHorizontalPointsPerCharacter: CGFloat = 4.0
+    private static let spaceCursorVerticalPointsPerCharacter: CGFloat = 20
 
     private weak var controller: KeyboardInputViewController?
     private let standardActionHandler: any KeyboardActionHandler
@@ -1005,11 +1005,74 @@ private struct PinyinKeyboardView: View {
         let utilityKeySide = utilityKeySide(in: layout)
         layout.itemRows = layout.itemRows.map { row in
             row.map { item in
-                resizedUtilityItem(item, side: utilityKeySide)
+                resizedUtilityItem(localizedPunctuationItem(item), side: utilityKeySide)
             }
         }
         layout.itemRows.insert(languageSwitchItem(side: utilityKeySide), after: .space)
         return layout
+    }
+
+    private func localizedPunctuationItem(_ item: KeyboardLayout.Item) -> KeyboardLayout.Item {
+        guard pinyinState.isChineseInputEnabled,
+              case .character(let value) = item.action,
+              let localizedValue = localizedChinesePunctuation(for: value) else {
+            return item
+        }
+
+        return KeyboardLayout.Item(
+            action: .character(localizedValue),
+            secondaryAction: item.secondaryAction,
+            size: item.size,
+            alignment: item.alignment,
+            edgeInsets: item.edgeInsets
+        )
+    }
+
+    private func localizedChinesePunctuation(for value: String) -> String? {
+        switch value {
+        case ":":
+            return "："
+        case ";":
+            return "；"
+        case "(":
+            return "（"
+        case ")":
+            return "）"
+        case "\"":
+            return "“"
+        case ".":
+            return "。"
+        case ",":
+            return "，"
+        case "?":
+            return "？"
+        case "!":
+            return "！"
+        case "'":
+            return "’"
+        case "[":
+            return "【"
+        case "]":
+            return "】"
+        case "{":
+            return "《"
+        case "}":
+            return "》"
+        case "%":
+            return "％"
+        case "\\":
+            return "、"
+        case "|":
+            return "｜"
+        case "~":
+            return "～"
+        case "<":
+            return "〈"
+        case ">":
+            return "〉"
+        default:
+            return nil
+        }
     }
 
     private func utilityKeySide(in layout: KeyboardLayout) -> CGFloat {
@@ -1027,8 +1090,8 @@ private struct PinyinKeyboardView: View {
         _ item: KeyboardLayout.Item,
         side: CGFloat
     ) -> KeyboardLayout.Item {
-        guard isNumericKeyboardTypeAction(item.action) else { return item }
-        return item.withWidth(.points(side))
+        guard isKeyboardTypeSwitchAction(item.action) else { return item }
+        return item.withWidth(.points(side + 20))
     }
 
     private func isPrimaryAction(_ action: KeyboardAction) -> Bool {
@@ -1038,11 +1101,13 @@ private struct PinyinKeyboardView: View {
         return false
     }
 
-    private func isNumericKeyboardTypeAction(_ action: KeyboardAction) -> Bool {
-        if case .keyboardType(.numeric) = action {
+    private func isKeyboardTypeSwitchAction(_ action: KeyboardAction) -> Bool {
+        switch action {
+        case .keyboardType(.numeric), .keyboardType(.alphabetic):
             return true
+        default:
+            return false
         }
-        return false
     }
 
     private func languageSwitchItem(side: CGFloat) -> KeyboardLayout.Item {
