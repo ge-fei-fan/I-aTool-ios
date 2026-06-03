@@ -1,4 +1,5 @@
 import KeyboardKit
+import OSLog
 import SwiftUI
 import UIKit
 
@@ -67,8 +68,23 @@ private enum PinyinKeyboardMetrics {
     static let quickFillPanelAnimationDuration: TimeInterval = 0.22
 }
 
+private enum PinyinCloudCandidateStatus: Equatable {
+    case idle
+    case loading
+    case success
+    case failed
+    case unavailable
+}
+
 private final class PinyinKeyboardInputState: ObservableObject {
     private static let candidateRefreshDelay: TimeInterval = 0.012
+    private static let cloudCandidateRefreshDelay: TimeInterval = 0.22
+    private static let cloudCandidateDefaultBaseURL = "http://192.168.2.88:11434"
+    private static let cloudCandidateDefaultModel = "qwen3:0.6b"
+    private static let cloudCandidateLogger = Logger(
+        subsystem: "com.local.simpanin.keyboard",
+        category: "CloudCandidate"
+    )
     private static let sharedDefaultsSuiteName = "group.com.local.fitnex"
     private static let quickFillItemsDefaultsKey = "quickFill.items"
 
@@ -77,12 +93,19 @@ private final class PinyinKeyboardInputState: ObservableObject {
     private var candidateRefreshWorkItem: DispatchWorkItem?
     private var candidateRefreshGeneration = 0
     private var appliedCandidateGeneration = 0
+    private var cloudCandidateRefreshWorkItem: DispatchWorkItem?
+    private var cloudCandidateTask: URLSessionDataTask?
+    private var activeCloudCandidateRequestID = 0
+    private var hasFullAccessForCloudCandidate = false
 
     @Published private(set) var displayText = ""
     @Published private(set) var displayCursorOffset = 0
     @Published private(set) var hasComposition = false
     @Published private(set) var candidates: [PinyinInputEngine.Candidate] = []
+    @Published private(set) var candidateScrollResetToken = 0
     @Published private(set) var isCandidateRefreshPending = false
+    @Published private(set) var cloudCandidateText = ""
+    @Published private(set) var cloudCandidateStatus: PinyinCloudCandidateStatus = .idle
     @Published var isChineseInputEnabled = true
     @Published var isCandidatePageVisible = false
     @Published var isUppercaseLocked = false
@@ -107,6 +130,8 @@ private final class PinyinKeyboardInputState: ObservableObject {
 
     deinit {
         candidateRefreshWorkItem?.cancel()
+        cloudCandidateRefreshWorkItem?.cancel()
+        cancelCloudCandidateRequest(clearText: false)
         cancelTranslationRequest()
     }
 
@@ -117,6 +142,7 @@ private final class PinyinKeyboardInputState: ObservableObject {
     func insertLetter(_ letter: String) {
         hideQuickFillPanelIfNeeded()
         engine.insertLetter(letter)
+        resetCandidateScrollPosition()
         hideCandidatePageIfNeeded()
         refreshPublishedComposition()
         scheduleCandidateRefresh(resetCandidatesWhenEmpty: false)
@@ -124,6 +150,9 @@ private final class PinyinKeyboardInputState: ObservableObject {
 
     func deleteBackward() -> Bool {
         let didDelete = engine.deleteBackward()
+        if didDelete {
+            resetCandidateScrollPosition()
+        }
         refreshPublishedComposition()
         scheduleCandidateRefresh(resetCandidatesWhenEmpty: !engine.hasComposition)
         return didDelete
@@ -140,12 +169,29 @@ private final class PinyinKeyboardInputState: ObservableObject {
         return committedText
     }
 
+    func commitCloudCandidate() -> String? {
+        let text = cloudCandidateText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard hasComposition, !text.isEmpty else { return nil }
+        engine.clearComposition()
+        refreshPublishedComposition()
+        clearCloudCandidate()
+        hideCandidatePageIfNeeded()
+        scheduleCandidateRefresh(resetCandidatesWhenEmpty: true)
+        return text
+    }
+
     func commitCompositionAsText() -> String? {
         let text = engine.commitCompositionAsText()
         hideCandidatePageIfNeeded()
         refreshPublishedComposition()
         scheduleCandidateRefresh(resetCandidatesWhenEmpty: false)
         return text
+    }
+
+    func setCloudCandidateFullAccess(_ hasFullAccess: Bool) {
+        guard hasFullAccessForCloudCandidate != hasFullAccess else { return }
+        hasFullAccessForCloudCandidate = hasFullAccess
+        scheduleCloudCandidateRefresh()
     }
 
     func toggleChineseInput() {
@@ -303,6 +349,20 @@ private final class PinyinKeyboardInputState: ObservableObject {
         quickFillItems = sharedDefaults?.stringArray(forKey: Self.quickFillItemsDefaultsKey) ?? []
     }
 
+    func clearAssociationSuggestions() {
+        engine.clearAssociationContext()
+        candidateRefreshWorkItem?.cancel()
+        candidateRefreshWorkItem = nil
+        candidateRefreshGeneration += 1
+        appliedCandidateGeneration = candidateRefreshGeneration
+        setCandidateRefreshPending(false)
+        if !candidates.isEmpty {
+            candidates = []
+        }
+        hideCandidatePageIfNeeded()
+        clearCloudCandidate()
+    }
+
     func updateSpaceTrackpadPreview(offset: Int) {
         if !isSpaceTrackpadActive {
             isSpaceTrackpadActive = true
@@ -446,6 +506,250 @@ private final class PinyinKeyboardInputState: ObservableObject {
         translationStreamDelegate = nil
     }
 
+    private func scheduleCloudCandidateRefresh() {
+        cloudCandidateRefreshWorkItem?.cancel()
+
+        guard isChineseInputEnabled, hasComposition else {
+            Self.cloudCandidateLogger.info("skip refresh: chineseInput=\(self.isChineseInputEnabled, privacy: .public), hasComposition=\(self.hasComposition, privacy: .public)")
+            clearCloudCandidate()
+            return
+        }
+
+        let rawPinyin = engine.rawPinyin.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard rawPinyin.count >= 2 else {
+            Self.cloudCandidateLogger.info("skip refresh: rawPinyin too short, rawPinyin=\(rawPinyin, privacy: .public)")
+            clearCloudCandidate()
+            return
+        }
+
+        guard hasFullAccessForCloudCandidate else {
+            Self.cloudCandidateLogger.info("skip refresh: no full access, rawPinyin=\(rawPinyin, privacy: .public)")
+            setCloudCandidateStatus(.unavailable)
+            cloudCandidateText = ""
+            cancelCloudCandidateRequest(clearText: false)
+            return
+        }
+
+        activeCloudCandidateRequestID += 1
+        let requestID = activeCloudCandidateRequestID
+        let displayTextSnapshot = displayText
+        let localCandidatesSnapshot = candidates.prefix(8).map(\.text)
+        Self.cloudCandidateLogger.info("schedule request: requestID=\(requestID, privacy: .public), rawPinyin=\(rawPinyin, privacy: .public), displayText=\(displayTextSnapshot, privacy: .public), localCandidates=\(localCandidatesSnapshot.joined(separator: ","), privacy: .public)")
+        setCloudCandidateStatus(.loading)
+        cloudCandidateText = ""
+
+        let workItem = DispatchWorkItem { [weak self] in
+            DispatchQueue.main.async {
+                self?.requestCloudCandidate(
+                    rawPinyin: rawPinyin,
+                    displayText: displayTextSnapshot,
+                    localCandidates: localCandidatesSnapshot,
+                    requestID: requestID
+                )
+            }
+        }
+        cloudCandidateRefreshWorkItem = workItem
+        DispatchQueue.main.asyncAfter(deadline: .now() + Self.cloudCandidateRefreshDelay, execute: workItem)
+    }
+
+    private func requestCloudCandidate(
+        rawPinyin: String,
+        displayText: String,
+        localCandidates: [String],
+        requestID: Int
+    ) {
+        guard activeCloudCandidateRequestID == requestID else {
+            Self.cloudCandidateLogger.info("drop expired request before start: requestID=\(requestID, privacy: .public), activeRequestID=\(self.activeCloudCandidateRequestID, privacy: .public)")
+            return
+        }
+        cloudCandidateTask?.cancel()
+
+        let storedBaseURL = sharedDefaults?.string(forKey: "cloudCandidate.baseURL") ?? Self.cloudCandidateDefaultBaseURL
+        let storedModel = sharedDefaults?.string(forKey: "cloudCandidate.model") ?? Self.cloudCandidateDefaultModel
+        let baseURL = storedBaseURL
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let model = storedModel.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        guard !baseURL.isEmpty, let url = URL(string: "\(baseURL)/api/chat") else {
+            Self.cloudCandidateLogger.error("invalid baseURL: requestID=\(requestID, privacy: .public), baseURL=\(baseURL, privacy: .public)")
+            applyCloudCandidateResult("", status: .failed, requestID: requestID)
+            return
+        }
+
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 2.5
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let body: [String: Any] = [
+            "model": model.isEmpty ? Self.cloudCandidateDefaultModel : model,
+            "stream": false,
+            "options": [
+                "temperature": 0,
+                "top_p": 0.8,
+                "num_predict": 12
+            ],
+            "messages": [
+                [
+                    "role": "system",
+                    "content": Self.cloudCandidateSystemPrompt
+                ],
+                [
+                    "role": "user",
+                    "content": Self.cloudCandidateUserPrompt(
+                        rawPinyin: rawPinyin,
+                        displayText: displayText,
+                        localCandidates: localCandidates
+                    )
+                ]
+            ]
+        ]
+
+        guard JSONSerialization.isValidJSONObject(body),
+              let data = try? JSONSerialization.data(withJSONObject: body) else {
+            Self.cloudCandidateLogger.error("failed to build request body: requestID=\(requestID, privacy: .public), rawPinyin=\(rawPinyin, privacy: .public)")
+            applyCloudCandidateResult("", status: .failed, requestID: requestID)
+            return
+        }
+        request.httpBody = data
+        let bodyLogText = String(data: data, encoding: .utf8) ?? "<non-utf8>"
+        Self.cloudCandidateLogger.info("start http request: requestID=\(requestID, privacy: .public), url=\(url.absoluteString, privacy: .public), model=\((model.isEmpty ? Self.cloudCandidateDefaultModel : model), privacy: .public), body=\(bodyLogText, privacy: .public)")
+
+        let task = URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            guard let self else { return }
+            if let error = error as NSError?, error.code != NSURLErrorCancelled {
+                Self.cloudCandidateLogger.error("http request failed: requestID=\(requestID, privacy: .public), code=\(error.code, privacy: .public), message=\(error.localizedDescription, privacy: .public)")
+                DispatchQueue.main.async {
+                    self.applyCloudCandidateResult("", status: .failed, requestID: requestID)
+                }
+                return
+            }
+            if let error = error as NSError?, error.code == NSURLErrorCancelled {
+                Self.cloudCandidateLogger.info("http request cancelled: requestID=\(requestID, privacy: .public)")
+                return
+            }
+            let statusCode = (response as? HTTPURLResponse)?.statusCode ?? -1
+            let rawResponse = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            Self.cloudCandidateLogger.info("http response: requestID=\(requestID, privacy: .public), statusCode=\(statusCode, privacy: .public), raw=\(rawResponse, privacy: .public)")
+            guard let data,
+                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                Self.cloudCandidateLogger.error("failed to parse response json: requestID=\(requestID, privacy: .public), statusCode=\(statusCode, privacy: .public)")
+                DispatchQueue.main.async {
+                    self.applyCloudCandidateResult("", status: .failed, requestID: requestID)
+                }
+                return
+            }
+            let rawContent = ((object["message"] as? [String: Any])?["content"] as? String) ?? ""
+            let sanitized = Self.sanitizeCloudCandidate(rawContent)
+            Self.cloudCandidateLogger.info("parsed response: requestID=\(requestID, privacy: .public), rawContent=\(rawContent, privacy: .public), sanitized=\(sanitized, privacy: .public)")
+            DispatchQueue.main.async {
+                self.applyCloudCandidateResult(sanitized, status: sanitized.isEmpty ? .idle : .success, requestID: requestID)
+            }
+        }
+        cloudCandidateTask = task
+        task.resume()
+    }
+
+    private func applyCloudCandidateResult(
+        _ text: String,
+        status: PinyinCloudCandidateStatus,
+        requestID: Int
+    ) {
+        guard activeCloudCandidateRequestID == requestID else {
+            Self.cloudCandidateLogger.info("drop expired result: requestID=\(requestID, privacy: .public), activeRequestID=\(self.activeCloudCandidateRequestID, privacy: .public), text=\(text, privacy: .public)")
+            return
+        }
+        Self.cloudCandidateLogger.info("apply result: requestID=\(requestID, privacy: .public), status=\(String(describing: status), privacy: .public), text=\(text, privacy: .public)")
+        cloudCandidateTask = nil
+        cloudCandidateText = text
+        setCloudCandidateStatus(status)
+    }
+
+    private func clearCloudCandidate() {
+        cloudCandidateText = ""
+        setCloudCandidateStatus(.idle)
+        cancelCloudCandidateRequest(clearText: false)
+    }
+
+    private func cancelCloudCandidateRequest(clearText: Bool) {
+        Self.cloudCandidateLogger.info("cancel request: activeRequestID=\(self.activeCloudCandidateRequestID, privacy: .public), clearText=\(clearText, privacy: .public)")
+        activeCloudCandidateRequestID += 1
+        cloudCandidateRefreshWorkItem?.cancel()
+        cloudCandidateRefreshWorkItem = nil
+        cloudCandidateTask?.cancel()
+        cloudCandidateTask = nil
+        if clearText {
+            cloudCandidateText = ""
+            setCloudCandidateStatus(.idle)
+        }
+    }
+
+    private func setCloudCandidateStatus(_ status: PinyinCloudCandidateStatus) {
+        if cloudCandidateStatus != status {
+            cloudCandidateStatus = status
+        }
+    }
+
+    private static var cloudCandidateSystemPrompt: String {
+        """
+        你是一个中文拼音输入法 IME 的候选词排序模型。
+        你会收到当前未上屏拼音、当前显示内容、若干本地候选词。
+        请预测用户最可能想输入的一个简体中文候选。
+
+        输出要求非常严格：
+        - 只输出一个中文候选词。
+        - 不输出解释。
+        - 不输出引号。
+        - 不输出 JSON。
+        - 不输出标点，除非候选词本身必须包含标点。
+        - 不输出多个候选。
+        - 不要包含 <think>、思考过程或任何推理内容。
+
+        选择策略：
+        - 优先考虑完整拼音对应的常用词/短语。
+        - 本地候选中有自然结果时，优先选择本地候选。
+        - 对缩写、漏拼、长句拼音，可以补全为常见表达。
+        - 如果无法判断，返回本地候选第一个。
+        """
+    }
+
+    private static func cloudCandidateUserPrompt(
+        rawPinyin: String,
+        displayText: String,
+        localCandidates: [String]
+    ) -> String {
+        """
+        当前拼音: \(rawPinyin)
+        当前显示: \(displayText)
+        本地候选: \(localCandidates.joined(separator: ", "))
+
+        请只返回一个最佳中文候选词。
+        """
+    }
+
+    private static func sanitizeCloudCandidate(_ value: String) -> String {
+        var text = value.replacingOccurrences(
+            of: #"(?s)<think>.*?</think>"#,
+            with: "",
+            options: .regularExpression
+        )
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        text = text.components(separatedBy: .newlines).first ?? ""
+        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        text = text.trimmingCharacters(in: CharacterSet(charactersIn: "\"'“”‘’`，。,.：:；;、 "))
+        if let separator = text.firstIndex(where: { "：:,，".contains($0) }) {
+            text = String(text[text.index(after: separator)...])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        let filtered = text.filter { character in
+            guard character.unicodeScalars.count == 1,
+                  let scalar = character.unicodeScalars.first else { return false }
+            return scalar.value >= 0x4e00 && scalar.value <= 0x9fff
+        }
+        return String(filtered.prefix(12))
+    }
+
     private func persistQuickFillItems(_ items: [String]) {
         quickFillItems = items
         sharedDefaults?.set(items, forKey: Self.quickFillItemsDefaultsKey)
@@ -507,6 +811,7 @@ private final class PinyinKeyboardInputState: ObservableObject {
         if refreshedCandidates.isEmpty {
             hideCandidatePageIfNeeded()
         }
+        scheduleCloudCandidateRefresh()
     }
 
     private func refreshPublishedComposition() {
@@ -542,6 +847,10 @@ private final class PinyinKeyboardInputState: ObservableObject {
         if isQuickFillPanelVisible {
             setQuickFillPanelVisible(false)
         }
+    }
+
+    private func resetCandidateScrollPosition() {
+        candidateScrollResetToken += 1
     }
 }
 
@@ -971,6 +1280,12 @@ private struct PinyinKeyboardView: View {
         .overlay {
             spaceTrackpadOverlay
         }
+        .onAppear {
+            pinyinState.setCloudCandidateFullAccess(hasFullAccess)
+        }
+        .onChange(of: hasFullAccess) { value in
+            pinyinState.setCloudCandidateFullAccess(value)
+        }
         .clipped()
     }
 
@@ -1308,6 +1623,7 @@ private struct PinyinCandidateToolbar: View {
     let openTranslationPanel: () -> Void
 
     private let candidateBatchSize = 30
+    private let candidateStripLeadingAnchorID = "pinyin-candidate-strip-leading-anchor"
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1359,11 +1675,16 @@ private struct PinyinCandidateToolbar: View {
     }
 
     private var compositionBar: some View {
-        HStack(spacing: 8) {
-            PinyinCompositionCursorText(
+        HStack(spacing: 0) {
+            PinyinPlainCompositionText(
                 text: pinyinState.displayText,
-                cursorOffset: pinyinState.displayCursorOffset,
                 hasComposition: pinyinState.hasComposition
+            )
+            .frame(maxWidth: .infinity)
+
+            PinyinCloudCandidateButton(
+                pinyinState: pinyinState,
+                insertText: insertText
             )
             .frame(maxWidth: .infinity)
 
@@ -1390,28 +1711,41 @@ private struct PinyinCandidateToolbar: View {
                 )
             } else {
                 GeometryReader { proxy in
-                    ScrollView(.horizontal, showsIndicators: false) {
-                        HStack(spacing: 6) {
-                            ForEach(Array(pinyinState.candidates.prefix(candidateBatchSize).enumerated()), id: \.element.id) { index, candidate in
-                                candidateButton(candidate, index: index, expanded: false)
-                            }
+                    ScrollViewReader { scrollProxy in
+                        ScrollView(.horizontal, showsIndicators: false) {
+                            HStack(spacing: 6) {
+                                Color.clear
+                                    .frame(width: 0, height: 30)
+                                    .id(candidateStripLeadingAnchorID)
 
-                            if pinyinState.candidates.isEmpty {
-                                Color.clear.frame(width: 1, height: 30)
+                                ForEach(Array(pinyinState.candidates.prefix(candidateBatchSize).enumerated()), id: \.element.id) { index, candidate in
+                                    candidateButton(candidate, index: index, expanded: false)
+                                }
+
+                                if pinyinState.candidates.isEmpty {
+                                    Color.clear.frame(width: 1, height: 30)
+                                }
                             }
+                            .frame(minWidth: proxy.size.width, alignment: .leading)
+                            .background(Color.primary.opacity(0.001))
+                            .contentShape(Rectangle())
+                            .padding(.bottom, 1)
                         }
-                        .frame(minWidth: proxy.size.width, alignment: .leading)
-                        .background(Color.primary.opacity(0.001))
                         .contentShape(Rectangle())
-                        .padding(.bottom, 1)
+                        .background(Color.primary.opacity(0.001))
+                        .scrollDisabled(pinyinState.candidates.count <= 3)
+                        .onChange(of: pinyinState.candidateScrollResetToken) { _ in
+                            scrollProxy.scrollTo(candidateStripLeadingAnchorID, anchor: .leading)
+                        }
                     }
-                    .contentShape(Rectangle())
-                    .background(Color.primary.opacity(0.001))
-                    .scrollDisabled(pinyinState.candidates.count <= 3)
                 }
                 .frame(height: 32)
 
-                candidateExpandButton
+                if pinyinState.hasComposition {
+                    candidateExpandButton
+                } else {
+                    associationClearButton
+                }
             }
         }
         .frame(height: 32)
@@ -1429,12 +1763,32 @@ private struct PinyinCandidateToolbar: View {
                 .frame(width: 34, height: 32)
                 .background(Color(.systemGray5), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .frame(width: PinyinKeyboardMetrics.candidateExpandHitWidth, height: PinyinKeyboardMetrics.candidateExpandHitHeight)
-                // .background(Color.clear)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .opacity(pinyinState.candidates.isEmpty ? 0 : 1)
         .allowsHitTesting(!pinyinState.candidates.isEmpty && !pinyinState.isCandidateRefreshPending)
+        .accessibilityLabel("展开候选词")
+    }
+
+    private var associationClearButton: some View {
+        Button {
+            guard !pinyinState.candidates.isEmpty,
+                  !pinyinState.isCandidateRefreshPending else { return }
+            pinyinState.clearAssociationSuggestions()
+        } label: {
+            Image(systemName: "xmark")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(.white)
+                .frame(width: 34, height: 32)
+                .background(Color.black.opacity(0.26), in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .frame(width: PinyinKeyboardMetrics.candidateExpandHitWidth, height: PinyinKeyboardMetrics.candidateExpandHitHeight)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .opacity(pinyinState.candidates.isEmpty ? 0 : 1)
+        .allowsHitTesting(!pinyinState.candidates.isEmpty && !pinyinState.isCandidateRefreshPending)
+        .accessibilityLabel("清除关联词")
     }
 
     private func candidateButton(
@@ -1449,6 +1803,58 @@ private struct PinyinCandidateToolbar: View {
             pinyinState: pinyinState,
             insertText: insertText
         )
+    }
+}
+
+private struct PinyinCloudCandidateButton: View {
+    @ObservedObject var pinyinState: PinyinKeyboardInputState
+    let insertText: (String) -> Void
+
+    var body: some View {
+        Button {
+            guard let text = pinyinState.commitCloudCandidate() else { return }
+            if pinyinState.isQuickFillAddInputVisible {
+                pinyinState.appendQuickFillDraftText(text)
+            } else {
+                insertText(text)
+            }
+        } label: {
+            ZStack {
+                switch pinyinState.cloudCandidateStatus {
+                case .loading:
+                    ProgressView()
+                        .scaleEffect(0.72)
+                case .success where !pinyinState.cloudCandidateText.isEmpty:
+                    Text(pinyinState.cloudCandidateText)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                default:
+                    Color.clear
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(pinyinState.cloudCandidateText.isEmpty)
+        .accessibilityLabel("云端候选")
+    }
+}
+
+private struct PinyinPlainCompositionText: View {
+    let text: String
+    let hasComposition: Bool
+
+    var body: some View {
+        Text(text)
+            .font(.system(size: 15, weight: .regular))
+            .foregroundStyle(hasComposition ? .primary : .secondary)
+            .lineLimit(1)
+            .truncationMode(.tail)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
     }
 }
 

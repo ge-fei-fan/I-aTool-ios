@@ -72,6 +72,10 @@ struct PinyinInputEngine {
         compositionCursorOffset = 0
     }
 
+    mutating func clearAssociationContext() {
+        associationContext = nil
+    }
+
     mutating func setDisplayCursorOffset(_ offset: Int) {
         let selectedTextLength = selectedSegments.map(\.text).joined().count
         let editableOffset = max(0, min(offset - selectedTextLength, compositionBuffer.count))
@@ -1888,5 +1892,6 @@ private final class PinyinCandidateProvider {
         "zhong": ["中", "种"]
     ]
 }
+
 
 
